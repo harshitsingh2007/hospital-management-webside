@@ -106,7 +106,7 @@ async function saveTicketToDb(ticket) {
     pid = await engine.resolvePatientId(
       ticket.user_email,
       ticket.name,
-      "",
+      ticket.phone || "",
       ticket.gender || "other",
       ticket.age || 30
     );
@@ -232,59 +232,61 @@ async function joinQueue({
   consumerType = "hospital",
   serviceCategory = "consultation",
   name = "Patient",
+  phone = "",
   priorityLevel = PRIORITY_ROUTINE,
   userEmail = "",
   age = 30,
   gender = "other",
   medicalCondition = "general_checkup",
   preExistingCondition = "none",
-    patientId = null,
-    familyMemberId = null,
-    queueDate = null,
-    appointmentId = null,
-    status = "waiting",
-  }) {
-    const tenant = engine._getTenant(tenantId);
-    const now = Date.now() / 1000.0;
-    const ticketId = engine.generateTicketId();
-    const qDateStr = parseQueueDate(queueDate);
-    const today = getCurrentQueueDate();
-    const isTodayActive = qDateStr === today && status === "waiting";
+  patientId = null,
+  familyMemberId = null,
+  queueDate = null,
+  appointmentId = null,
+  status = "waiting",
+}) {
+  const tenant = engine._getTenant(tenantId);
+  const now = Date.now() / 1000.0;
+  const ticketId = engine.generateTicketId();
+  const qDateStr = parseQueueDate(queueDate);
+  const today = getCurrentQueueDate();
+  const isTodayActive = qDateStr === today && status === "waiting";
 
-    const complexity = computeClinicalComplexity(
-      age,
-      gender,
-      medicalCondition,
-      preExistingCondition,
-      priorityLevel
-    );
+  const complexity = computeClinicalComplexity(
+    age,
+    gender,
+    medicalCondition,
+    preExistingCondition,
+    priorityLevel
+  );
 
-    const dtNow = new Date();
-    const predictedService = await predictServiceDuration({
-      tenantId,
-      consumerType,
-      serviceCategory,
-      queueLength: isTodayActive ? tenant.queue.size() + 1 : 1,
-      activeStaffCounters: tenant.active_counters || 2,
-      complexityScore: complexity,
-      hourOfDay: dtNow.getHours(),
-      dayOfWeek: dtNow.getDay(),
-    });
+  const dtNow = new Date();
+  const predictedService = await predictServiceDuration({
+    tenantId,
+    consumerType,
+    serviceCategory,
+    queueLength: isTodayActive ? tenant.queue.size() + 1 : 1,
+    activeStaffCounters: tenant.active_counters || 2,
+    complexityScore: complexity,
+    hourOfDay: dtNow.getHours(),
+    dayOfWeek: dtNow.getDay(),
+  });
 
-    const initialPos = isTodayActive ? tenant.queue.size() + 1 : 0;
+  const initialPos = isTodayActive ? tenant.queue.size() + 1 : 0;
 
-    const ticket = {
-      ticket_id: ticketId,
-      tenant_id: tenantId,
-      consumer_type: consumerType,
-      service_category: serviceCategory,
-      name: name,
-      priority_level: priorityLevel,
-      join_timestamp: now,
-      queue_date: qDateStr,
-      appointment_id: appointmentId,
-      effective_timestamp: now,
-      user_email: userEmail,
+  const ticket = {
+    ticket_id: ticketId,
+    tenant_id: tenantId,
+    consumer_type: consumerType,
+    service_category: serviceCategory,
+    name: name,
+    phone: phone || "",
+    priority_level: priorityLevel,
+    join_timestamp: now,
+    queue_date: qDateStr,
+    appointment_id: appointmentId,
+    effective_timestamp: now,
+    user_email: userEmail,
       family_member_id: familyMemberId || null,
       age: parseInt(age, 10) || 30,
       gender: gender || "other",
@@ -1414,9 +1416,9 @@ async function recallTicket(tenantId, ticketId, doctorInfo = null, targetMode = 
   let docName = doctorInfo?.name || doctorInfo?.doctor_name || null;
   let docEmail = doctorInfo?.email || doctorInfo?.doctor_email || null;
 
-  // Check if doctor is currently free to immediately resume serving
-  let isDocFree = true;
-  if (docId || docEmail || docName) {
+  // Check if doctor is explicitly provided and currently free to immediately resume serving
+  let isDocFree = false;
+  if (targetMode === "serving" && (docId || docEmail || docName)) {
     const busyTicket = Array.from(tenant.tickets.values()).find(
       (t) =>
         t.status === "serving" &&
@@ -1426,10 +1428,11 @@ async function recallTicket(tenantId, ticketId, doctorInfo = null, targetMode = 
          (docEmail && t.served_by_doctor_email && String(t.served_by_doctor_email).toLowerCase() === String(docEmail).toLowerCase()) ||
          (docName && t.served_by_doctor_name && String(t.served_by_doctor_name).trim().toLowerCase() === String(docName).trim().toLowerCase()))
     );
-    if (busyTicket) isDocFree = false;
+    if (!busyTicket) isDocFree = true;
   }
 
-  const shouldServeImmediately = targetMode === "serving" || (targetMode === "auto" && isDocFree);
+  // Resuming a held ticket defaults to putting it back into the active waiting queue for doctor to call
+  const shouldServeImmediately = targetMode === "serving" && isDocFree;
 
   if (shouldServeImmediately) {
     ticket.status = "serving";
@@ -1441,10 +1444,14 @@ async function recallTicket(tenantId, ticketId, doctorInfo = null, targetMode = 
   } else {
     // Restore to waiting queue with Priority 1 & earliest effective timestamp (Position 1)
     ticket.status = "waiting";
-    ticket.priority_level = 1; // Highest clinical priority on recall
-    ticket.effective_timestamp = now - 3600; // Float to top
+    ticket.serve_start_time = null;
+    ticket.served_by_doctor_id = null;
+    ticket.served_by_doctor_name = null;
+    ticket.served_by_doctor_email = null;
+    ticket.priority_level = Number(ticket.priority_level || ticket.priority || 1);
+    ticket.effective_timestamp = now - 3600; // Float to top of waiting line
     ticket.position = 1;
-    tenant.queue.push([1, ticket.effective_timestamp, ticket.ticket_id]);
+    tenant.queue.push([ticket.priority_level, ticket.effective_timestamp, ticket.ticket_id]);
   }
 
   await saveTicketToDb(ticket);
@@ -1574,6 +1581,89 @@ async function saveTicketPrescription(tenantId, ticketId, prescriptionData) {
   return ticket;
 }
 
+/**
+ * Updates a ticket's clinical triage priority (e.g. 1 = Emergency, 2 = Routine OPD).
+ * Repositions ticket in real-time queue heap and logs audit queue event.
+ */
+async function updateTicketPriority(
+  tenantId = "city-hospital-01",
+  ticketId,
+  priorityLevel = 1,
+  reason = "Triage updated by clinical staff",
+  requesterEmail = null
+) {
+  const cleanTenant = String(tenantId || "city-hospital-01").trim();
+  const priority = parseInt(priorityLevel, 10) === 1 ? 1 : 2;
+  const now = Date.now() / 1000.0;
+
+  const ticketRow = await prisma.tickets.findUnique({
+    where: { ticket_id: ticketId },
+    include: { hospitals: true },
+  });
+
+  if (!ticketRow) {
+    const err = new Error(`Ticket #${ticketId} not found.`);
+    err.status = 404;
+    throw err;
+  }
+
+  const effectiveTenant = ticketRow.hospitals?.hospital_code || cleanTenant;
+  const hid = ticketRow.hospital_id;
+  const tenant = engine._getTenant(effectiveTenant);
+  const qDate = parseQueueDate(ticketRow.queue_date) || getCurrentQueueDate();
+
+  // If priority 1 (Emergency), set effective_timestamp into past so it jumps to top
+  const effTime = priority === 1 ? (now - 3600) : now;
+  const effDt = new Date(effTime * 1000);
+
+  const updatedTicket = await prisma.tickets.update({
+    where: { ticket_id: ticketId },
+    data: {
+      priority_level: priority,
+      effective_timestamp: effDt,
+      updated_at: new Date(),
+    },
+  });
+
+  await engine.logQueueEvent({
+    hospitalId: hid,
+    ticketId: ticketId,
+    eventType: "PRIORITY_CHANGED",
+    oldStatus: ticketRow.status,
+    newStatus: ticketRow.status,
+    oldPosition: ticketRow.position,
+    newPosition: priority === 1 ? 1 : null,
+    metadata: {
+      old_priority: ticketRow.priority_level,
+      new_priority: priority,
+      reason,
+      requester: requesterEmail,
+      queue_date: qDate,
+    },
+  });
+
+  if (tenant && tenant.tickets.has(ticketId)) {
+    const memTicket = tenant.tickets.get(ticketId);
+    memTicket.priority_level = priority;
+    memTicket.priority = priority;
+    memTicket.is_emergency = priority === 1;
+    memTicket.effective_timestamp = effTime;
+    engine._rebuildHeap(effectiveTenant);
+    await engine.recalculateWaitTimes(effectiveTenant);
+  }
+
+  return {
+    ...updatedTicket,
+    priority_level: priority,
+    priority: priority,
+    is_emergency: priority === 1,
+    tenant_id: effectiveTenant,
+    join_timestamp: dtToEpoch(updatedTicket.join_timestamp),
+    effective_timestamp: dtToEpoch(updatedTicket.effective_timestamp),
+    queue_date: parseQueueDate(updatedTicket.queue_date),
+  };
+}
+
 module.exports = {
   saveTicketToDb,
   logCompletedService,
@@ -1591,4 +1681,5 @@ module.exports = {
   saveTicketPrescription,
   getDoctorDutyStatus,
   setDoctorDutyStatus,
+  updateTicketPriority,
 };

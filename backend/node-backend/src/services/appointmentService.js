@@ -31,6 +31,7 @@ async function bookAppointment({
   appointmentDate,
   timeSlot,
   patientId = null,
+  familyMemberId = null,
   allowPastDate = false,
 }) {
   const aptId = `APT-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
@@ -95,6 +96,10 @@ async function bookAppointment({
   return {
     appointment_id: aptId,
     tenant_id: tenantId,
+    hospital_code: appointment.hospitals?.hospital_code || tenantId,
+    hospital_name: appointment.hospitals?.name || "City General Hospital",
+    patient_id: pid,
+    family_member_id: familyMemberId || null,
     patient_name: patientName,
     user_email: userEmail,
     service_category: deptCode,
@@ -350,22 +355,64 @@ async function getUserAppointments(identifier) {
   const cleanId = String(identifier || "").trim().toLowerCase();
   if (!cleanId) return [];
 
-  // 1. Resolve user ID if exists
-  const user = await prisma.users.findFirst({
+  // 1. Resolve user ID and phone sibling IDs if exists
+  const initialUser = await prisma.users.findFirst({
     where: {
       OR: [{ email: { equals: cleanId, mode: "insensitive" } }, { username: { equals: cleanId, mode: "insensitive" } }],
     },
   });
-  const uid = user ? user.id : null;
+
+  const uids = [];
+  if (initialUser) {
+    uids.push(initialUser.id);
+    if (initialUser.phone) {
+      const cleanDigits = initialUser.phone.replace(/\D/g, "");
+      if (cleanDigits.length >= 7) {
+        const phoneSiblings = await prisma.users.findMany({
+          where: { phone: { contains: cleanDigits.slice(-10) } },
+          select: { id: true },
+        });
+        phoneSiblings.forEach((s) => {
+          if (!uids.includes(s.id)) uids.push(s.id);
+        });
+      }
+    }
+  }
+
+  // Build family member maps
+  const famByPatId = new Map();
+  const famByName = new Map();
+  const familyPatientIds = [];
+  const familyNames = [];
+
+  if (uids.length > 0) {
+    const fams = await prisma.family_members.findMany({
+      where: { user_id: { in: uids } },
+    });
+    fams.forEach((fm) => {
+      if (fm.patient_id) {
+        famByPatId.set(fm.patient_id, fm.id);
+        familyPatientIds.push(fm.patient_id);
+      }
+      if (fm.name) {
+        famByName.set(fm.name.toLowerCase().trim(), fm.id);
+        familyNames.push(fm.name.toLowerCase().trim());
+      }
+    });
+  }
 
   const appointments = await prisma.appointments.findMany({
     where: {
       OR: [
-        ...(uid
+        ...(uids.length > 0
           ? [
-              { patients: { user_id: uid } },
-              { patients: { family_members: { some: { user_id: uid } } } },
+              { patients: { user_id: { in: uids } } },
+              { patients: { family_members: { some: { user_id: { in: uids } } } } },
             ]
+          : []),
+        ...(familyPatientIds.length > 0 ? [{ patient_id: { in: familyPatientIds } }] : []),
+        ...(familyNames.length > 0
+          ? familyNames.map((fn) => ({ patients: { name: { equals: fn, mode: "insensitive" } } }))
           : []),
         { patients: { users: { email: { contains: cleanId, mode: "insensitive" } } } },
         { patients: { users: { username: { contains: cleanId, mode: "insensitive" } } } },
@@ -378,7 +425,10 @@ async function getUserAppointments(identifier) {
     include: {
       hospitals: true,
       patients: {
-        include: { users: true },
+        include: {
+          users: true,
+          family_members: true,
+        },
       },
       departments: {
         include: { employees: true },
@@ -550,6 +600,13 @@ async function getUserAppointments(identifier) {
       }
     }
 
+    const patName = a.patients?.name || "Patient";
+    const memFmId =
+      (a.patient_id ? famByPatId.get(a.patient_id) : null) ||
+      (a.patients?.family_members && a.patients.family_members[0]?.id) ||
+      (patName ? famByName.get(patName.toLowerCase().trim()) : null) ||
+      null;
+
     return {
       appointment_id: a.appointment_id,
       tenant_id: a.hospitals?.hospital_code || "city-hospital-01",
@@ -559,8 +616,12 @@ async function getUserAppointments(identifier) {
       service_category: a.service_category,
       department_name: a.departments?.name || a.service_category,
       department: a.departments?.name || a.service_category,
-      patient_name: a.patients?.name || "Patient",
+      patient_id: a.patient_id,
+      family_member_id: memFmId,
+      patient_name: patName,
       user_email: a.patients?.users?.email || "",
+      email: a.patients?.users?.email || "",
+      phone: a.patients?.phone || a.patients?.users?.phone || "",
       appointment_date: cleanDate,
       time_slot: a.time_slot,
       status: effectiveStatus,
@@ -701,6 +762,8 @@ async function getTenantAppointments(tenantId, department = null, activeOnly = f
       department: a.departments?.name || a.service_category,
       patient_name: a.patients?.name || "Patient",
       user_email: a.patients?.users?.email || "",
+      phone: a.patients?.phone || a.patients?.users?.phone || "",
+      email: a.patients?.users?.email || "",
       appointment_date: cleanDate,
       time_slot: a.time_slot,
       status: effectiveStatus,

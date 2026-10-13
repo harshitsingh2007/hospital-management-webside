@@ -63,37 +63,48 @@ export default function PatientPage({
   theme = "light",
 }) {
   // Family Members & Dependents Management
-  // Use App-level state when provided, fall back to local state
+  // Use App-level state when provided, fall back to local storage and self
   const getInitialFamilyMembers = () => {
-    // If App provides family members, use them (not local storage)
-    if (familyMembersProp !== null) {
-      const selfObj = {
-        id: "self",
-        name: currentUser ? (currentUser.username || "Self") : "Self",
-        relation: "self",
-        age: currentUser && currentUser.age ? currentUser.age : 35,
-        gender: currentUser && currentUser.gender ? currentUser.gender.toLowerCase() : "male",
-      };
-      return [selfObj, ...(familyMembersProp || [])];
+    let savedUser = null;
+    try {
+      const s = localStorage.getItem("ai_queue_user");
+      if (s) savedUser = JSON.parse(s);
+    } catch (e) {}
+    const eff = currentUser || savedUser;
+
+    const self = {
+      id: "self",
+      name: eff ? (eff.username || "Self") : "Self",
+      relation: "self",
+      age: eff && eff.age ? eff.age : 30,
+      gender: eff && eff.gender ? eff.gender.toLowerCase() : "male",
+    };
+    if (Array.isArray(familyMembersProp) && familyMembersProp.length > 0) {
+      return [self, ...familyMembersProp.filter((m) => m && m.id !== "self")];
     }
     try {
-      const storageKey = `family_members_${currentUser ? (currentUser.username || currentUser.email) : "guest"}`;
-      const saved = localStorage.getItem(storageKey);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      const keys = [
+        eff?.email,
+        eff?.username,
+        eff?.phone,
+        localStorage.getItem("last_patient_name"),
+        "guest"
+      ].filter(Boolean);
+      for (const k of keys) {
+        const saved = localStorage.getItem(`family_members_${k}`);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const deps = parsed.filter((m) => m && m.id !== "self");
+            if (deps.length > 0) {
+              return [self, ...deps];
+            }
+          }
+        }
       }
     } catch (e) {}
 
-    return [
-      {
-        id: "self",
-        name: currentUser ? (currentUser.username || "Self") : "Self",
-        relation: "self",
-        age: currentUser && currentUser.age ? currentUser.age : 35,
-        gender: currentUser && currentUser.gender ? currentUser.gender.toLowerCase() : "male",
-      },
-    ];
+    return [self];
   };
 
   const [localFamilyMembers, setLocalFamilyMembers] = useState(getInitialFamilyMembers);
@@ -103,7 +114,7 @@ export default function PatientPage({
     id: "self",
     name: currentUser ? (currentUser.username || "Self") : "Self",
     relation: "self",
-    age: currentUser && currentUser.age ? currentUser.age : 35,
+    age: currentUser && currentUser.age ? currentUser.age : 30,
     gender: currentUser && currentUser.gender ? currentUser.gender.toLowerCase() : "male",
   };
 
@@ -131,6 +142,63 @@ export default function PatientPage({
     } catch (e) {}
   };
 
+  const fetchFamilyMembersList = useCallback(() => {
+    let savedUser = null;
+    try {
+      const s = localStorage.getItem("ai_queue_user");
+      if (s) savedUser = JSON.parse(s);
+    } catch (e) {}
+    const effUser = currentUser || savedUser;
+
+    const ident = (effUser && (effUser.email || effUser.username)) || localStorage.getItem("last_patient_name") || "";
+    const phone = (effUser && effUser.phone) || "";
+    const token = (effUser && effUser.token) || localStorage.getItem("ai_queue_token");
+    const validToken = token && token !== "undefined" && token !== "null" ? token : null;
+
+    const q = new URLSearchParams();
+    if (ident) q.set("email", ident);
+    if (phone) q.set("phone", phone);
+    if (effUser?.id) q.set("user_id", String(effUser.id));
+
+    fetch(`${API_BASE}/api/v1/family-members?${q.toString()}`, {
+      headers: {
+        ...(ident ? { "X-User-Email": ident } : {}),
+        ...(phone ? { "X-User-Phone": phone } : {}),
+        ...(validToken ? { Authorization: `Bearer ${validToken}` } : {}),
+      },
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.status === "success" && Array.isArray(data.members)) {
+          const self = {
+            id: "self",
+            name: effUser?.username || "Self",
+            relation: "self",
+            age: effUser?.age || 30,
+            gender: effUser?.gender ? effUser.gender.toLowerCase() : "male",
+          };
+          const dependents = data.members.filter((m) => m && m.id !== "self");
+          const fullList = [self, ...dependents];
+          setLocalFamilyMembers(fullList);
+          if (setFamilyMembersProp) {
+            setFamilyMembersProp(dependents);
+          }
+          const keysToSave = [
+            effUser?.username,
+            effUser?.email,
+            effUser?.phone,
+            "guest",
+          ].filter(Boolean);
+          keysToSave.forEach((k) => {
+            try {
+              localStorage.setItem(`family_members_${k}`, JSON.stringify(fullList));
+            } catch (e) {}
+          });
+        }
+      })
+      .catch((err) => console.log("PatientPage family fetch error:", err));
+  }, [currentUser, setFamilyMembersProp]);
+
   // Live Patient Medical History & Follow-up records
   const {
     historyData: myMedicalHistoryData,
@@ -152,6 +220,7 @@ export default function PatientPage({
   });
 
   const [selectedMemberId, setSelectedMemberId] = useState("self");
+  const selectedMember = (familyMembers || []).find((m) => String(m.id) === String(selectedMemberId)) || familyMembers[0] || selfObj;
   const [editingMember, setEditingMember] = useState(null);
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
 
@@ -187,13 +256,130 @@ export default function PatientPage({
     } catch (e) {}
   }, [currentUser]);
 
+  // Real-time synchronization for family profiles and tickets across tabs and portals
+  useEffect(() => {
+    let bc = null;
+    try {
+      if (typeof BroadcastChannel !== "undefined") {
+        bc = new BroadcastChannel("hospital_family_sync");
+        bc.onmessage = (event) => {
+          if (event.data?.type === "FAMILY_MEMBERS_UPDATED" && Array.isArray(event.data.members)) {
+            const deps = event.data.members.filter((m) => m && m.id !== "self");
+            setLocalFamilyMembers([selfObj, ...deps]);
+            if (setFamilyMembersProp) setFamilyMembersProp(deps);
+          } else if (event.data?.type === "FAMILY_TICKET_ADDED") {
+            if (event.data.famMap) {
+              setFamilyTickets((prev) => ({ ...prev, ...event.data.famMap }));
+            }
+            if (event.data.ticket) {
+              setFamilyTickets((prev) => {
+                const up = { ...prev };
+                if (event.data.ticket.family_member_id) up[event.data.ticket.family_member_id] = event.data.ticket;
+                if (event.data.ticket.name) {
+                  up[`name_${event.data.ticket.name.toLowerCase().trim()}`] = event.data.ticket;
+                  up[event.data.ticket.name.toLowerCase().trim()] = event.data.ticket;
+                }
+                return up;
+              });
+            }
+            if (typeof fetchFamilyMembersList === "function") fetchFamilyMembersList();
+          } else {
+            if (typeof fetchFamilyMembersList === "function") fetchFamilyMembersList();
+          }
+        };
+      }
+    } catch (e) {}
+
+    const handleFamMembersSync = (e) => {
+      if (e?.detail && Array.isArray(e.detail) && e.detail.length > 0) {
+        const deps = e.detail.filter((m) => m && m.id !== "self");
+        setLocalFamilyMembers([selfObj, ...deps]);
+        if (setFamilyMembersProp) setFamilyMembersProp(deps);
+      } else {
+        if (typeof fetchFamilyMembersList === "function") fetchFamilyMembersList();
+      }
+    };
+
+    const handleFamTicketsSync = (e) => {
+      if (e?.detail && typeof e.detail === "object") {
+        setFamilyTickets((prev) => ({ ...prev, ...e.detail }));
+      }
+    };
+
+    const handleActiveTicketSync = (e) => {
+      if (e?.detail && typeof e.detail === "object") {
+        const t = e.detail;
+        setFamilyTickets((prev) => {
+          const up = { ...prev };
+          if (t.family_member_id) up[t.family_member_id] = t;
+          if (t.name) {
+            up[`name_${t.name.toLowerCase().trim()}`] = t;
+            up[t.name.toLowerCase().trim()] = t;
+          }
+          return up;
+        });
+      }
+    };
+
+    const handleStorageChange = (e) => {
+      if (e.key && e.key.startsWith("family_members_") && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const deps = parsed.filter((m) => m && m.id !== "self");
+            setLocalFamilyMembers([selfObj, ...deps]);
+          }
+        } catch (err) {}
+      } else if (e.key && e.key.startsWith("family_tickets_") && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (parsed && typeof parsed === "object") {
+            setFamilyTickets((prev) => ({ ...prev, ...parsed }));
+          }
+        } catch (err) {}
+      }
+    };
+
+    window.addEventListener("family_members_updated", handleFamMembersSync);
+    window.addEventListener("family_tickets_updated", handleFamTicketsSync);
+    window.addEventListener("active_ticket_updated", handleActiveTicketSync);
+    window.addEventListener("storage", handleStorageChange);
+
+    return () => {
+      if (bc) bc.close();
+      window.removeEventListener("family_members_updated", handleFamMembersSync);
+      window.removeEventListener("family_tickets_updated", handleFamTicketsSync);
+      window.removeEventListener("active_ticket_updated", handleActiveTicketSync);
+      window.removeEventListener("storage", handleStorageChange);
+    };
+  }, [selfObj, setFamilyMembersProp, fetchFamilyMembersList]);
+
   const isLiveTicketStatus = (ticket) => {
     if (!ticket || !ticket.status) return false;
     const s = String(ticket.status).toLowerCase();
     return ["waiting", "serving", "on_hold", "hold"].includes(s);
   };
 
-  const isLiveTicket = activeTicket && isLiveTicketStatus(activeTicket);
+  const isLiveTicket = useMemo(() => {
+    if (!activeTicket || !isLiveTicketStatus(activeTicket)) return false;
+    const depNames = (familyMembers || [])
+      .filter((m) => m && m.id !== "self")
+      .map((m) => String(m.name || "").toLowerCase().trim())
+      .filter(Boolean);
+    const actName = String(activeTicket.name || "").toLowerCase().trim();
+    if (selectedMemberId === "self") {
+      if (depNames.includes(actName) || (activeTicket.family_member_id && activeTicket.family_member_id !== "self")) {
+        return false;
+      }
+      return true;
+    } else {
+      const selMember = (familyMembers || []).find((m) => String(m.id) === String(selectedMemberId));
+      const selName = String(selMember?.name || "").toLowerCase().trim();
+      if (String(activeTicket.family_member_id) === String(selectedMemberId)) return true;
+      if (selName && actName === selName) return true;
+      return false;
+    }
+  }, [activeTicket, selectedMemberId, familyMembers]);
 
   const removeTicketFromFamilyTickets = useCallback((ticketId) => {
     if (!ticketId) return;
@@ -238,14 +424,28 @@ export default function PatientPage({
   // Strictly respects selectedMemberId: dependent profiles will NEVER incorrectly inherit "self"'s ticket!
   useEffect(() => {
     if (!activeTicket) {
+      const depNames = (familyMembers || [])
+        .filter((m) => m && m.id !== "self")
+        .map((m) => String(m.name || "").toLowerCase().trim())
+        .filter(Boolean);
+
       const candidate = selectedMemberId === "self"
-        ? (familyTickets["self"] || (() => {
-            try {
-              const s = localStorage.getItem("ai_queue_active_ticket");
-              return s ? JSON.parse(s) : null;
-            } catch (e) { return null; }
-          })())
-        : (familyTickets[selectedMemberId] || null);
+        ? (() => {
+            const raw = familyTickets["self"] || (() => {
+              try {
+                const s = localStorage.getItem("ai_queue_active_ticket");
+                return s ? JSON.parse(s) : null;
+              } catch (e) { return null; }
+            })();
+            if (!raw) return null;
+            const rawName = String(raw.name || "").toLowerCase().trim();
+            if (depNames.includes(rawName) || (raw.family_member_id && raw.family_member_id !== "self")) {
+              try { localStorage.removeItem("ai_queue_active_ticket"); } catch (e) {}
+              return null;
+            }
+            return raw;
+          })()
+        : (familyTickets[selectedMemberId] || (selectedMember?.name ? familyTickets[`name_${selectedMember.name.toLowerCase().trim()}`] : null) || null);
 
       if (candidate && candidate.ticket_id && isLiveTicketStatus(candidate)) {
         // Authoritatively check backend to ensure candidate hasn't been completed or cancelled
@@ -278,7 +478,7 @@ export default function PatientPage({
           });
       }
     }
-  }, [activeTicket, familyTickets, selectedMemberId, setActiveTicket, setTicketQrData, removeTicketFromFamilyTickets]);
+  }, [activeTicket, familyTickets, selectedMemberId, selectedMember, familyMembers, setActiveTicket, setTicketQrData, removeTicketFromFamilyTickets]);
 
   // Sync tab with URL, including "family" and "history" tabs and aliases
   const [activeTab, setActiveTab] = useState(() => {
@@ -334,6 +534,9 @@ export default function PatientPage({
       fetchUserTicketHistory();
     } else if (cleanKey === "my_apts") {
       fetchUserAppointments();
+    } else if (cleanKey === "family") {
+      fetchFamilyMembersList();
+      fetchUserTicketHistory();
     }
     if (navigateTo) {
       navigateTo("patient", cleanKey);
@@ -989,6 +1192,53 @@ export default function PatientPage({
         } else {
           setUserTicketHistory(tickets);
         }
+
+        // Auto-sync active live tickets into familyTickets state so every family profile badge updates live
+        const liveTickets = tickets.filter(isLiveTicketStatus);
+        if (liveTickets.length > 0) {
+          setFamilyTickets((prev) => {
+            const updated = { ...prev };
+            const depList = (familyMembers || []).filter((m) => m && m.id !== "self");
+            const depNames = depList.map((m) => String(m.name || "").toLowerCase().trim()).filter(Boolean);
+
+            if (updated["self"]) {
+              const selfTName = String(updated["self"].name || "").toLowerCase().trim();
+              if (depNames.includes(selfTName) || (updated["self"].family_member_id && updated["self"].family_member_id !== "self")) {
+                delete updated["self"];
+              }
+            }
+
+            liveTickets.forEach((lt) => {
+              const ltName = String(lt.name || "").toLowerCase().trim();
+              const matchingDep = depList.find((m) =>
+                (lt.family_member_id && String(lt.family_member_id) === String(m.id)) ||
+                (ltName && String(m.name || "").toLowerCase().trim() === ltName)
+              );
+
+              if (matchingDep) {
+                updated[matchingDep.id] = lt;
+                updated[String(matchingDep.id)] = lt;
+                if (matchingDep.name) {
+                  updated[`name_${matchingDep.name.toLowerCase().trim()}`] = lt;
+                  updated[matchingDep.name.toLowerCase().trim()] = lt;
+                }
+              } else if (!lt.family_member_id || lt.family_member_id === "self") {
+                if (!depNames.includes(ltName)) {
+                  updated["self"] = lt;
+                }
+              }
+              if (lt.name) {
+                updated[`name_${ltName}`] = lt;
+              }
+            });
+            try {
+              const ticketStorageKey = `family_tickets_${currentUser ? (currentUser.username || currentUser.email) : "guest"}`;
+              localStorage.setItem(ticketStorageKey, JSON.stringify(updated));
+            } catch (e) {}
+            return updated;
+          });
+        }
+
         // If current activeTicket is present in history and completed/cancelled, clear it
         if (activeTicket?.ticket_id) {
           const matching = tickets.find((t) => t.ticket_id === activeTicket.ticket_id);
@@ -1047,8 +1297,6 @@ export default function PatientPage({
       clearInterval(interval);
     };
   }, [activeTicket?.ticket_id, removeTicketFromFamilyTickets, fetchUserTicketHistory, fetchUserAppointments, setActiveTicket, setTicketQrData]);
-
-  const selectedMember = (familyMembers || []).find((m) => String(m.id) === String(selectedMemberId)) || familyMembers[0] || selfObj;
 
   // Helper: Matches a record (ticket or appointment) strictly to a specific family profile / member
   const doesRecordMatchMember = useCallback((record, member) => {
@@ -1485,20 +1733,23 @@ export default function PatientPage({
   useEffect(() => {
     fetchUserAppointments();
     fetchUserTicketHistory();
-  }, [fetchUserAppointments, fetchUserTicketHistory]);
+    fetchFamilyMembersList();
+  }, [fetchUserAppointments, fetchUserTicketHistory, fetchFamilyMembersList]);
 
-  // Live polling for "My Appointments", "History", and "Book" tabs so cancellations/progress update live
+  // Live polling for "My Appointments", "History", "Family", and "Book" tabs so cancellations/progress update live
   useEffect(() => {
-    if (activeTab === "my_apts" || activeTab === "history" || activeTab === "book") {
+    if (activeTab === "my_apts" || activeTab === "history" || activeTab === "book" || activeTab === "family") {
       fetchUserAppointments();
-      if (activeTab === "history") fetchUserTicketHistory();
+      if (activeTab === "history" || activeTab === "family") fetchUserTicketHistory();
+      if (activeTab === "family") fetchFamilyMembersList();
       const interval = setInterval(() => {
         fetchUserAppointments();
-        if (activeTab === "history") fetchUserTicketHistory();
+        if (activeTab === "history" || activeTab === "family") fetchUserTicketHistory();
+        if (activeTab === "family") fetchFamilyMembersList();
       }, 3500);
       return () => clearInterval(interval);
     }
-  }, [activeTab, fetchUserAppointments, fetchUserTicketHistory]);
+  }, [activeTab, fetchUserAppointments, fetchUserTicketHistory, fetchFamilyMembersList]);
 
   // Keep bookedAppointment in sync with the live userAppointments list.
   // If the booked appointment gets cancelled or checked-in via another route,
@@ -1519,28 +1770,76 @@ export default function PatientPage({
     const socket = socketRef?.current;
     if (!socket) return;
 
-    const handleRealtimeSync = () => {
+    const handleRealtimeSync = (data) => {
       fetchUserAppointments();
       fetchUserTicketHistory();
+      if (typeof fetchFamilyMembersList === "function") fetchFamilyMembersList();
       if (refreshData) refreshData();
+
+      // If payload has direct ticket metadata, update or clear immediately
+      const t = data?.ticket || data?.new_ticket;
+      const tid = t?.ticket_id || data?.ticket_id;
+      if (tid) {
+        if (data?.type === "ticket_cancelled" || data?.status === "cancelled" || !t || !isLiveTicketStatus(t)) {
+          if (activeTicket?.ticket_id === tid) {
+            setActiveTicket(null);
+            if (setTicketQrData) setTicketQrData(null);
+            try { localStorage.removeItem("ai_queue_active_ticket"); } catch (e) {}
+          }
+          removeTicketFromFamilyTickets(tid);
+        } else if (t && isLiveTicketStatus(t)) {
+          if (activeTicket?.ticket_id === tid || activeTicket?.ticket_id === data?.original_ticket?.ticket_id) {
+            setActiveTicket((prev) => ({ ...prev, ...t }));
+            try { localStorage.setItem("ai_queue_active_ticket", JSON.stringify(t)); } catch (e) {}
+          }
+          // Update in familyTickets map as well
+          setFamilyTickets((prev) => {
+            const updated = { ...prev };
+            let changed = false;
+            Object.keys(updated).forEach((k) => {
+              if (updated[k]?.ticket_id === tid || updated[k]?.ticket_id === data?.original_ticket?.ticket_id) {
+                updated[k] = { ...updated[k], ...t };
+                changed = true;
+              }
+            });
+            return changed ? updated : prev;
+          });
+        }
+      }
     };
 
+    socket.on("family_members_updated", handleRealtimeSync);
+    socket.on("ticket_created", handleRealtimeSync);
     socket.on("appointment_updated", handleRealtimeSync);
     socket.on("ticket_cancelled", handleRealtimeSync);
     socket.on("ticket_completed", handleRealtimeSync);
     socket.on("ticket_updated", handleRealtimeSync);
+    socket.on("priority_changed", handleRealtimeSync);
+    socket.on("ticket_transferred", handleRealtimeSync);
+    socket.on("ticket_held", handleRealtimeSync);
+    socket.on("ticket_recalled", handleRealtimeSync);
+    socket.on("ticket_noshow", handleRealtimeSync);
     socket.on("queue_updated", handleRealtimeSync);
+    socket.on("queue_update", handleRealtimeSync);
     socket.on("now_serving", handleRealtimeSync);
 
     return () => {
+      socket.off("family_members_updated", handleRealtimeSync);
+      socket.off("ticket_created", handleRealtimeSync);
       socket.off("appointment_updated", handleRealtimeSync);
       socket.off("ticket_cancelled", handleRealtimeSync);
       socket.off("ticket_completed", handleRealtimeSync);
       socket.off("ticket_updated", handleRealtimeSync);
+      socket.off("priority_changed", handleRealtimeSync);
+      socket.off("ticket_transferred", handleRealtimeSync);
+      socket.off("ticket_held", handleRealtimeSync);
+      socket.off("ticket_recalled", handleRealtimeSync);
+      socket.off("ticket_noshow", handleRealtimeSync);
       socket.off("queue_updated", handleRealtimeSync);
+      socket.off("queue_update", handleRealtimeSync);
       socket.off("now_serving", handleRealtimeSync);
     };
-  }, [socketRef, fetchUserAppointments, fetchUserTicketHistory, refreshData]);
+  }, [socketRef, activeTicket?.ticket_id, fetchUserAppointments, fetchUserTicketHistory, refreshData, removeTicketFromFamilyTickets]);
 
   const handleSelectMember = (member) => {
     if (!member) return;
@@ -1560,7 +1859,23 @@ export default function PatientPage({
     }
 
     // If this family member already has a live active ticket in familyTickets, switch activeTicket to it
-    const memTicket = familyTickets[memId] || familyTickets[String(memId)];
+    const depNames = (familyMembers || [])
+      .filter((m) => m && m.id !== "self")
+      .map((m) => String(m.name || "").toLowerCase().trim())
+      .filter(Boolean);
+
+    const memTicket = memId === "self"
+      ? (() => {
+          const cand = familyTickets["self"];
+          if (!cand) return null;
+          const candName = String(cand.name || "").toLowerCase().trim();
+          if (depNames.includes(candName) || (cand.family_member_id && cand.family_member_id !== "self")) {
+            return null;
+          }
+          return cand;
+        })()
+      : (familyTickets[memId] || familyTickets[String(memId)] || (member.name ? (familyTickets[`name_${member.name.toLowerCase().trim()}`] || familyTickets[member.name.toLowerCase().trim()]) : null));
+
     if (memTicket && isLiveTicketStatus(memTicket)) {
       setActiveTicket(memTicket);
       fetch(`${API_BASE}/api/v1/plugin/ticket-qr/${memTicket.ticket_id}`)
@@ -1568,8 +1883,73 @@ export default function PatientPage({
         .then((qr) => setTicketQrData(qr))
         .catch((e) => console.log("QR error:", e));
     } else {
-      setActiveTicket(null);
-      if (setTicketQrData) setTicketQrData(null);
+      // Query backend for active tickets for this member if not found in local memory
+      const memberSearchName = member.name && member.name !== "Self" ? member.name : (currentUser?.email || currentUser?.phone || "");
+      if (memberSearchName) {
+        fetch(`${API_BASE}/api/v1/plugin/tickets/history/${encodeURIComponent(memberSearchName)}`)
+          .then((r) => r.json())
+          .then((d) => {
+            if (d && Array.isArray(d.tickets)) {
+              const live = d.tickets.find((t) => {
+                const isStatusLive = isLiveTicketStatus(t);
+                if (!isStatusLive) return false;
+                const tName = String(t.name || "").toLowerCase().trim();
+                if (memId === "self") {
+                  return (!t.family_member_id || t.family_member_id === "self") && !depNames.includes(tName);
+                }
+                return String(t.family_member_id) === String(memId) || (member.name && tName === member.name.toLowerCase().trim());
+              });
+              if (live) {
+                setActiveTicket(live);
+                setFamilyTickets((prev) => {
+                  const updated = { ...prev, [memId]: live };
+                  if (member.name) {
+                    updated[`name_${member.name.toLowerCase().trim()}`] = live;
+                    updated[member.name.toLowerCase().trim()] = live;
+                  }
+                  if (memId !== "self" && updated["self"]?.ticket_id === live.ticket_id) {
+                    delete updated["self"];
+                  }
+                  try {
+                    const ticketStorageKey = `family_tickets_${currentUser ? (currentUser.username || currentUser.email) : "guest"}`;
+                    localStorage.setItem(ticketStorageKey, JSON.stringify(updated));
+                    window.dispatchEvent(new CustomEvent("family_tickets_updated", { detail: updated }));
+                  } catch (e) {}
+                  return updated;
+                });
+                fetch(`${API_BASE}/api/v1/plugin/ticket-qr/${live.ticket_id}`)
+                  .then((r) => r.json())
+                  .then((qr) => setTicketQrData(qr))
+                  .catch((e) => console.log("QR error:", e));
+                return;
+              }
+            }
+            setActiveTicket(null);
+            if (setTicketQrData) setTicketQrData(null);
+            if (memId === "self") {
+              try {
+                localStorage.removeItem("ai_queue_active_ticket");
+              } catch (e) {}
+            }
+          })
+          .catch(() => {
+            setActiveTicket(null);
+            if (setTicketQrData) setTicketQrData(null);
+            if (memId === "self") {
+              try {
+                localStorage.removeItem("ai_queue_active_ticket");
+              } catch (e) {}
+            }
+          });
+      } else {
+        setActiveTicket(null);
+        if (setTicketQrData) setTicketQrData(null);
+        if (memId === "self") {
+          try {
+            localStorage.removeItem("ai_queue_active_ticket");
+          } catch (e) {}
+        }
+      }
     }
     setStatusMsg(`${t("profileSwitchedMsg", language)} ${member.name}`);
   };
@@ -1587,34 +1967,114 @@ export default function PatientPage({
     }
   }, [activeFamilyMemberProp]);
 
-  // Fetch family members from backend when user is logged in
+  // Initial and reactive family members fetch
   useEffect(() => {
-    if (!currentUser || !currentUser.email) return;
-    // If App-level prop is controlling family members, don't fetch independently
-    if (familyMembersProp !== null) return;
-    fetch(`${API_BASE}/api/v1/family-members`, {
-      headers: { "X-User-Email": currentUser.email }
-    })
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.status === "success" && Array.isArray(data.members)) {
-          const selfObj = {
-            id: "self",
-            name: currentUser.username || "Self",
-            relation: "self",
-            age: currentUser.age || 35,
-            gender: currentUser.gender ? currentUser.gender.toLowerCase() : "male",
-          };
-          const fullList = [selfObj, ...data.members];
-          setLocalFamilyMembers(fullList);
-          const storageKey = `family_members_${currentUser.username || currentUser.email}`;
-          try {
-            localStorage.setItem(storageKey, JSON.stringify(fullList));
-          } catch (e) {}
+    fetchFamilyMembersList();
+  }, [fetchFamilyMembersList]);
+
+  // Multi-tab & real-time cross-window synchronization for family members and tickets
+  useEffect(() => {
+    let bc = null;
+    try {
+      if (typeof BroadcastChannel !== "undefined") {
+        bc = new BroadcastChannel("hospital_family_sync");
+        bc.onmessage = (event) => {
+          if (event.data?.type === "FAMILY_MEMBERS_UPDATED" && Array.isArray(event.data.members)) {
+            const self = {
+              id: "self",
+              name: currentUser?.username || "Self",
+              relation: "self",
+              age: currentUser?.age || 30,
+              gender: currentUser?.gender ? currentUser.gender.toLowerCase() : "male",
+            };
+            const fullList = [self, ...event.data.members.filter((m) => m && m.id !== "self")];
+            setLocalFamilyMembers(fullList);
+            if (setFamilyMembersProp) {
+              setFamilyMembersProp(event.data.members.filter((m) => m && m.id !== "self"));
+            }
+          } else if (event.data?.type === "FAMILY_TICKET_ADDED") {
+            const { profileKey, ticket, famMap } = event.data;
+            if (famMap) {
+              setFamilyTickets((prev) => ({ ...prev, ...famMap }));
+            } else if (ticket) {
+              setFamilyTickets((prev) => {
+                const updated = { ...prev };
+                if (profileKey) updated[profileKey] = ticket;
+                if (ticket.family_member_id) updated[ticket.family_member_id] = ticket;
+                if (ticket.name) {
+                  updated[`name_${ticket.name.toLowerCase().trim()}`] = ticket;
+                  updated[ticket.name.toLowerCase().trim()] = ticket;
+                }
+                return updated;
+              });
+            }
+            fetchUserTicketHistory();
+          } else {
+            fetchFamilyMembersList();
+          }
+        };
+      }
+    } catch (e) {}
+
+    const handleStorageChange = (e) => {
+      if (e.key && e.key.startsWith("family_members_") && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setLocalFamilyMembers(parsed);
+            if (setFamilyMembersProp) {
+              setFamilyMembersProp(parsed.filter((m) => m && m.id !== "self"));
+            }
+          }
+        } catch (err) {}
+      } else if (e.key && e.key.startsWith("family_tickets_") && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (parsed && typeof parsed === "object") {
+            setFamilyTickets((prev) => ({ ...prev, ...parsed }));
+          }
+        } catch (err) {}
+      }
+    };
+
+    const handleWindowFocus = () => {
+      fetchFamilyMembersList();
+      fetchUserTicketHistory();
+      fetchUserAppointments();
+    };
+
+    const handleFamilyUpdatedCustom = (e) => {
+      if (e?.detail && Array.isArray(e.detail)) {
+        setLocalFamilyMembers(e.detail);
+        if (setFamilyMembersProp) {
+          setFamilyMembersProp(e.detail.filter((m) => m && m.id !== "self"));
         }
-      })
-      .catch((err) => console.log("PatientPage family fetch error:", err));
-  }, [currentUser]);
+      } else {
+        fetchFamilyMembersList();
+      }
+    };
+
+    const handleFamilyTicketsCustom = (e) => {
+      if (e?.detail && typeof e.detail === "object") {
+        setFamilyTickets((prev) => ({ ...prev, ...e.detail }));
+      }
+    };
+
+    window.addEventListener("storage", handleStorageChange);
+    window.addEventListener("focus", handleWindowFocus);
+    document.addEventListener("visibilitychange", handleWindowFocus);
+    window.addEventListener("family_members_updated", handleFamilyUpdatedCustom);
+    window.addEventListener("family_tickets_updated", handleFamilyTicketsCustom);
+
+    return () => {
+      if (bc) bc.close();
+      window.removeEventListener("storage", handleStorageChange);
+      window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("visibilitychange", handleWindowFocus);
+      window.removeEventListener("family_members_updated", handleFamilyUpdatedCustom);
+      window.removeEventListener("family_tickets_updated", handleFamilyTicketsCustom);
+    };
+  }, [currentUser, fetchFamilyMembersList, fetchUserTicketHistory, fetchUserAppointments, setFamilyMembersProp]);
 
   // Sync when App-level family members prop changes
   useEffect(() => {
@@ -1812,7 +2272,6 @@ export default function PatientPage({
       if (res.ok) {
         const data = await res.json();
         const t = data.ticket;
-        const tkt = t;
         setActiveTicket(t);
 
         try {
@@ -1825,6 +2284,13 @@ export default function PatientPage({
         // Record ticket in family tickets map under active member
         setFamilyTickets((prev) => {
           const updated = { ...prev, [selectedMemberId]: t };
+          if (name) {
+            updated[`name_${name.toLowerCase().trim()}`] = t;
+            updated[name.toLowerCase().trim()] = t;
+          }
+          if (selectedMemberId !== "self" && updated["self"]?.ticket_id === t.ticket_id) {
+            delete updated["self"];
+          }
           try {
             const ticketStorageKey = `family_tickets_${currentUser ? (currentUser.username || currentUser.email) : "guest"}`;
             localStorage.setItem(ticketStorageKey, JSON.stringify(updated));
@@ -1835,10 +2301,20 @@ export default function PatientPage({
 
         setStatusMsg(`Ticket #${t.ticket_id} Issued for ${name}. AI Service Estimate: ${t.predicted_service_minutes} min.`);
 
-        fetch(`${API_BASE}/api/v1/plugin/ticket-qr/${tkt.ticket_id}`)
+        fetch(`${API_BASE}/api/v1/plugin/ticket-qr/${t.ticket_id}`)
           .then((r) => r.json())
           .then((qr) => setTicketQrData(qr))
           .catch((e) => console.log("QR error:", e));
+
+        try {
+          window.dispatchEvent(new CustomEvent("ticket_created", { detail: { ticket: t, tenant_id: tenantId } }));
+          window.dispatchEvent(new CustomEvent("active_ticket_updated", { detail: t }));
+          if (typeof BroadcastChannel !== "undefined") {
+            const bc = new BroadcastChannel("hospital_live_queue_sync");
+            bc.postMessage({ type: "TICKET_CREATED", ticket: t, tenant_id: tenantId });
+            bc.close();
+          }
+        } catch (e) {}
 
         refreshData();
       } else {
@@ -1928,6 +2404,8 @@ export default function PatientPage({
       if (res.ok && data.status === "success") {
         const aptWithDept = {
           ...data.appointment,
+          family_member_id: data.appointment?.family_member_id || (selectedMemberId && selectedMemberId !== "self" ? selectedMemberId : null),
+          patient_name: data.appointment?.patient_name || name,
           department_name: data.appointment?.department_name || getDeptDisplayName(category),
           department: data.appointment?.department || getDeptDisplayName(category),
         };
@@ -1947,6 +2425,8 @@ export default function PatientPage({
         if (data.appointment) {
           const aptWithDept = {
             ...data.appointment,
+            family_member_id: data.appointment?.family_member_id || (selectedMemberId && selectedMemberId !== "self" ? selectedMemberId : null),
+            patient_name: data.appointment?.patient_name || name,
             department_name: data.appointment?.department_name || getDeptDisplayName(data.appointment.service_category || category),
             department: data.appointment?.department || getDeptDisplayName(data.appointment.service_category || category),
           };
@@ -2065,10 +2545,20 @@ export default function PatientPage({
 
         setStatusMsg(`Appointment Checked In. Merged into Priority Line as Token #${t.ticket_id}`);
 
-        fetch(`${API_BASE}/api/v1/plugin/ticket-qr/${tkt.ticket_id}`)
+        fetch(`${API_BASE}/api/v1/plugin/ticket-qr/${t.ticket_id}`)
           .then((r) => r.json())
           .then((qr) => setTicketQrData(qr))
           .catch((e) => console.log("QR error:", e));
+
+        try {
+          window.dispatchEvent(new CustomEvent("ticket_created", { detail: { ticket: t, tenant_id: tenantId } }));
+          window.dispatchEvent(new CustomEvent("active_ticket_updated", { detail: t }));
+          if (typeof BroadcastChannel !== "undefined") {
+            const bc = new BroadcastChannel("hospital_live_queue_sync");
+            bc.postMessage({ type: "TICKET_CREATED", ticket: t, tenant_id: tenantId });
+            bc.close();
+          }
+        } catch (e) {}
 
         setUserAppointments((prev) =>
           prev.map((a) =>
@@ -3403,7 +3893,7 @@ export default function PatientPage({
             queueSnapshot={queueSnapshot}
             kioskQrData={kioskQrData}
             handleTabChange={handleTabChange}
-            activeTicket={activeTicket}
+            activeTicket={isLiveTicket ? activeTicket : null}
             language={language}
             branding={hospitalBranding}
           />

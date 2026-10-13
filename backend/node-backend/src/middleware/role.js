@@ -43,16 +43,7 @@ function requirePatientRole(req, res, next) {
     });
   }
 
-  const userRole = (req.user.role || "").toLowerCase();
-  if (userRole !== "user" && userRole !== "patient") {
-    return res.status(403).json({
-      status: "error",
-      success: false,
-      message:
-        "Family profiles are only available for patient/user accounts. Admins, doctors, and staff cannot use this feature.",
-    });
-  }
-
+  // Any authenticated user may manage and view family profiles associated with their account
   next();
 }
 

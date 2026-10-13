@@ -36,6 +36,7 @@ async function joinQueueEndpoint(req, res, next) {
       consumer_type = "hospital",
       service_category = "consultation",
       name,
+      phone,
       urgency,
       priority: explicitPriority,
       user_email,
@@ -94,12 +95,14 @@ async function joinQueueEndpoint(req, res, next) {
     }
 
     let patientId = null;
-    const emailToCheck = String(user_email || req.user?.email || "").trim().toLowerCase();
+    const isStaffOrDoctor = ["staff", "doctor", "admin", "superadmin"].includes(req.user?.role);
+    const emailToCheck = String(user_email || (!isStaffOrDoctor ? req.user?.email : "") || "").trim().toLowerCase();
+    const cleanPhone = String(phone || "").trim();
     const cleanName = String(name || "Patient").trim();
 
-    if (family_member_id && family_member_id !== "self" && emailToCheck) {
+    if (family_member_id && family_member_id !== "self" && (emailToCheck || cleanPhone)) {
       const fm = await resolveOrCreateFamilyMember({
-        userEmailOrId: emailToCheck,
+        userEmailOrId: emailToCheck || cleanPhone,
         memberId: family_member_id,
         name: cleanName,
         age,
@@ -115,7 +118,7 @@ async function joinQueueEndpoint(req, res, next) {
       patientId = await engine.resolvePatientId(
         emailToCheck,
         cleanName,
-        "",
+        cleanPhone,
         gender,
         age
       );
@@ -193,6 +196,7 @@ async function joinQueueEndpoint(req, res, next) {
       consumerType: consumer_type,
       serviceCategory: service_category,
       name: cleanName,
+      phone: cleanPhone,
       priorityLevel: priority,
       userEmail: emailToCheck,
       familyMemberId: family_member_id,
@@ -206,11 +210,71 @@ async function joinQueueEndpoint(req, res, next) {
     const io = getIo();
     if (io) {
       await broadcastQueueUpdate(io, tenant_id);
+      io.emit("ticket_created", { ticket, tenant_id });
+      io.emit("queue_updated", { tenant_id });
+    }
+
+    // Automatic Phone OTP Dispatch & Account Claiming for Walk-in Patients
+    let otpInfo = null;
+    const cleanPhoneDigits = String(cleanPhone || "").replace(/\D/g, "");
+    if (cleanPhoneDigits && cleanPhoneDigits.length >= 7) {
+      const last10 = cleanPhoneDigits.slice(-10);
+      const existingUser = await prisma.users.findFirst({
+        where: {
+          phone: { contains: last10 },
+          NOT: { email: { contains: "@hospital.local" } },
+        },
+        select: { id: true, email: true, username: true, phone: true },
+      });
+
+      if (!existingUser) {
+        try {
+          const { createVerificationOtp } = require("../services/tokenService");
+          const { otp, expiresAt } = await createVerificationOtp(cleanPhoneDigits, "mobile_verification", 60);
+
+          let smsRes = { simulated: true };
+          const shouldSkipSms = Boolean(req.body.skip_otp_sms || req.body.otp_already_sent);
+          if (!shouldSkipSms) {
+            try {
+              const { sendOtpSms } = require("../services/smsService");
+              smsRes = await sendOtpSms(cleanPhone, otp);
+            } catch (e) {
+              console.error("SMS dispatch error:", e);
+            }
+          }
+
+          otpInfo = {
+            sent: !shouldSkipSms,
+            is_new_patient: true,
+            phone: cleanPhone,
+            otp: otp,
+            expires_at: expiresAt,
+            simulated: Boolean(smsRes.simulated),
+            message: shouldSkipSms
+              ? `Verification OTP active for +91 ${cleanPhone}.`
+              : smsRes.simulated
+              ? `OTP code generated for +91 ${cleanPhone}.`
+              : `OTP sent via SMS to +91 ${cleanPhone}.`,
+          };
+        } catch (otpErr) {
+          console.error("Error creating walk-in OTP:", otpErr);
+        }
+      } else {
+        otpInfo = {
+          sent: false,
+          is_registered: true,
+          user_id: existingUser.id,
+          user_name: existingUser.username,
+          phone: cleanPhone,
+          message: `Linked to registered patient profile (${existingUser.username}).`,
+        };
+      }
     }
 
     return res.status(200).json({
       status: "success",
       ticket,
+      otp_info: otpInfo,
     });
   } catch (error) {
     next(error);
@@ -238,7 +302,10 @@ async function serveNextEndpoint(req, res, next) {
 
     const io = getIo();
     if (io) {
-      io.to(tenant_id).emit("now_serving", { ticket });
+      io.to(tenant_id).emit("now_serving", { ticket, tenant_id });
+      io.emit("now_serving", { ticket, tenant_id });
+      io.to(tenant_id).emit("ticket_called", { ticket, tenant_id });
+      io.emit("ticket_called", { ticket, tenant_id });
       await broadcastQueueUpdate(io, tenant_id);
     }
 
@@ -266,7 +333,10 @@ async function completeEndpoint(req, res, next) {
     const ticket = await completeTicket(tenant_id, ticket_id, department, prescription_notes);
     const io = getIo();
     if (io) {
-      if (ticket) io.to(tenant_id).emit("ticket_completed", { ticket });
+      if (ticket) {
+        io.to(tenant_id).emit("ticket_completed", { ticket, ticket_id, tenant_id });
+        io.emit("ticket_completed", { ticket, ticket_id, tenant_id });
+      }
       await broadcastQueueUpdate(io, tenant_id);
     }
 
@@ -287,7 +357,10 @@ async function holdTicketEndpoint(req, res, next) {
     const ticket = await holdTicket(tenant_id, ticket_id, grace_minutes);
     const io = getIo();
     if (io) {
-      io.to(tenant_id).emit("ticket_held", { ticket });
+      io.to(tenant_id).emit("ticket_held", { ticket, ticket_id, tenant_id });
+      io.emit("ticket_held", { ticket, ticket_id, tenant_id });
+      io.to(tenant_id).emit("ticket_updated", { ticket, ticket_id, tenant_id });
+      io.emit("ticket_updated", { ticket, ticket_id, tenant_id });
       await broadcastQueueUpdate(io, tenant_id);
     }
 
@@ -314,7 +387,10 @@ async function recallTicketEndpoint(req, res, next) {
     const ticket = await recallTicket(tenant_id, ticket_id, doctorInfo, target_mode);
     const io = getIo();
     if (io) {
-      io.to(tenant_id).emit("ticket_recalled", { ticket });
+      io.to(tenant_id).emit("ticket_recalled", { ticket, ticket_id, tenant_id });
+      io.emit("ticket_recalled", { ticket, ticket_id, tenant_id });
+      io.to(tenant_id).emit("ticket_updated", { ticket, ticket_id, tenant_id });
+      io.emit("ticket_updated", { ticket, ticket_id, tenant_id });
       await broadcastQueueUpdate(io, tenant_id);
     }
 
@@ -341,7 +417,12 @@ async function reAnnounceEndpoint(req, res, next) {
     const finalTicket = updatedTicket || ticket || { ticket_id: tid };
     const io = getIo();
     if (io) {
-      io.to(tenant_id).emit("now_serving", { ticket: finalTicket, re_announced: true });
+      io.to(tenant_id).emit("ticket_announced", { ticket: finalTicket, re_announced: true, tenant_id });
+      io.emit("ticket_announced", { ticket: finalTicket, re_announced: true, tenant_id });
+      if (finalTicket.status === "serving" || finalTicket.status === "called") {
+        io.to(tenant_id).emit("now_serving", { ticket: finalTicket, re_announced: true, tenant_id });
+        io.emit("now_serving", { ticket: finalTicket, re_announced: true, tenant_id });
+      }
       await broadcastQueueUpdate(io, tenant_id);
     }
 
@@ -362,7 +443,10 @@ async function noShowEndpoint(req, res, next) {
     await markNoShow(tenant_id, ticket_id, reason);
     const io = getIo();
     if (io) {
-      io.to(tenant_id).emit("ticket_noshow", { ticket_id });
+      io.to(tenant_id).emit("ticket_noshow", { ticket_id, tenant_id });
+      io.emit("ticket_noshow", { ticket_id, tenant_id });
+      io.to(tenant_id).emit("ticket_cancelled", { ticket_id, tenant_id });
+      io.emit("ticket_cancelled", { ticket_id, tenant_id });
       await broadcastQueueUpdate(io, tenant_id);
     }
 

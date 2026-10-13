@@ -41,7 +41,17 @@ app.use(
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-User-Email", "x-user-email"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-User-Email",
+      "x-user-email",
+      "X-User-Phone",
+      "x-user-phone",
+      "X-Hospital-Code",
+      "x-hospital-code",
+      "x-requested-with",
+    ],
   })
 );
 

@@ -18,6 +18,8 @@ const {
   getUserHistory,
   checkEmail,
   sendVerificationOtp,
+  sendMobileOtp,
+  verifyMobileOtp,
   forgotPassword,
   verifyResetOtp,
   resetPassword,
@@ -26,10 +28,13 @@ const { authenticate, optionalAuth } = require("../middleware/auth");
 
 const router = express.Router();
 
-// Real-Time Validation & Email Verification
+// Real-Time Validation & Verification (Email & Mobile OTP)
 router.get("/check-email", checkEmail);
 router.post("/check-email", checkEmail);
 router.post("/send-verification-otp", sendVerificationOtp);
+router.post("/send-mobile-otp", sendMobileOtp);
+router.post("/verify-mobile-otp", verifyMobileOtp);
+router.post("/login-mobile", verifyMobileOtp);
 
 // Password Reset Flow
 router.post("/forgot-password", forgotPassword);

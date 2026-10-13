@@ -64,13 +64,25 @@ export default function FamilyManagementTab({
 
       {/* Cards Grid */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: "16px" }}>
-        {familyMembers.map((member) => {
-          const isSelected = selectedMemberId === member.id;
-          const isSelf = member.id === "self";
-          const relationLabel = isSelf
-            ? (language === "hi" ? "प्राथमिक (स्वयं)" : "Primary (Self)")
-            : getRelationLabel(member.relation, language);
-          const memberTicket = familyTickets[member.id];
+        {(() => {
+          const depNames = familyMembers.filter((m) => m && m.id !== "self").map((m) => String(m.name || "").toLowerCase().trim()).filter(Boolean);
+          return familyMembers.map((member) => {
+            const isSelected = selectedMemberId === member.id;
+            const isSelf = member.id === "self";
+            const relationLabel = isSelf
+              ? (language === "hi" ? "प्राथमिक (स्वयं)" : "Primary (Self)")
+              : getRelationLabel(member.relation, language);
+            const selfTicket = familyTickets["self"];
+            const isSelfTicketValid = selfTicket && !depNames.includes(String(selfTicket.name || "").toLowerCase().trim()) && (!selfTicket.family_member_id || selfTicket.family_member_id === "self");
+            const memberTicket = isSelf
+              ? (isSelfTicketValid ? selfTicket : null)
+              : (familyTickets[member.id] ||
+                 familyTickets[String(member.id)] ||
+                 (member.name
+                   ? familyTickets[`name_${member.name.toLowerCase().trim()}`] ||
+                     familyTickets[member.name.toLowerCase().trim()]
+                   : null));
+            const isLiveTicket = memberTicket && ["waiting", "serving", "on_hold", "hold"].includes(String(memberTicket.status || "").toLowerCase());
 
           return (
             <div
@@ -165,7 +177,7 @@ export default function FamilyManagementTab({
                       <strong>{language === "hi" ? "फ़ोन" : "Phone"}:</strong> {member.phone}
                     </div>
                   )}
-                  {memberTicket && (
+                  {isLiveTicket && (
                     <div style={{ marginTop: "6px", padding: "6px 10px", borderRadius: "8px", background: "#FEF3C7", border: "1px solid #FDE68A", color: "#92400E", fontSize: "11.5px", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: "6px" }}>
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v2z"/><path d="M13 5v2"/><path d="M13 11v2"/><path d="M13 17v2"/></svg>
                       <span>Active Token #{memberTicket.ticket_id} (Pos #{memberTicket.position})</span>
@@ -203,14 +215,16 @@ export default function FamilyManagementTab({
                       padding: "8px 12px",
                       borderRadius: "8px",
                       border: "none",
-                      background: "#0284C7",
+                      background: isLiveTicket ? "#059669" : "#0284C7",
                       color: "#FFFFFF",
                       fontSize: "12px",
                       fontWeight: 700,
                       cursor: "pointer",
                     }}
                   >
-                    {language === "hi" ? "टोकन लें" : "Get Token"}
+                    {isLiveTicket
+                      ? (language === "hi" ? "सक्रिय टोकन देखें" : "View Active Token")
+                      : (language === "hi" ? "टोकन लें" : "Get Token")}
                   </button>
                 )}
 
@@ -265,7 +279,8 @@ export default function FamilyManagementTab({
               </div>
             </div>
           );
-        })}
+        });
+      })()}
       </div>
     </div>
   );

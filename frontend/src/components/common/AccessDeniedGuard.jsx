@@ -11,8 +11,9 @@ import { t } from "../../utils/i18n";
 
 export default function AccessDeniedGuard({ requiredRole, pageName, currentUser, onLoginSuccess, navigateTo, language = "en" }) {
   const isSuperAdminTarget = requiredRole === "super_admin" || requiredRole === "superadmin";
+  const isDoctorTarget = requiredRole === "doctor" || requiredRole === "physician";
   const isStaffTarget = requiredRole === "admin" || requiredRole === "staff";
-  const isTargetingAdmin = isSuperAdminTarget || isStaffTarget;
+  const isTargetingAdmin = isSuperAdminTarget || isStaffTarget || isDoctorTarget;
 
   return (
     <div style={{ maxWidth: "550px", margin: "40px auto", textAlign: "center" }}>
@@ -27,9 +28,11 @@ export default function AccessDeniedGuard({ requiredRole, pageName, currentUser,
         <h2 style={{ margin: "0 0 10px 0", color: "#0F172A", fontSize: "22px", fontWeight: 800 }}>
           {isSuperAdminTarget
             ? (language === "hi" ? "सुपर एडमिन प्रमाणीकरण आवश्यक" : "Super Admin Access Required")
-            : (isStaffTarget
-              ? (language === "hi" ? "स्टाफ / डॉक्टर प्रमाणीकरण आवश्यक" : "Staff / Doctor Desk Required")
-              : (language === "hi" ? "प्रतिबंधित पहुंच" : "Restricted Access"))}
+            : (isDoctorTarget
+              ? (language === "hi" ? "डॉक्टर प्रमाणीकरण आवश्यक" : "Doctor Authentication Required")
+              : (isStaffTarget
+                ? (language === "hi" ? "स्टाफ रिसेप्शन डेस्क प्रमाणीकरण आवश्यक" : "Staff Reception Desk Required")
+                : (language === "hi" ? "प्रतिबंधित पहुंच" : "Restricted Access")))}
         </h2>
         <p style={{ color: "#475569", fontSize: "14px", lineHeight: "1.6", marginBottom: "20px" }}>
           {isTargetingAdmin ? (
@@ -63,17 +66,32 @@ export default function AccessDeniedGuard({ requiredRole, pageName, currentUser,
         ) : (
           <button
             onClick={() => {
-              if (currentUser?.role === "super_admin" || currentUser?.role === "superadmin") {
+              const r = (currentUser?.role || "").toLowerCase();
+              if (r === "super_admin" || r === "superadmin") {
                 navigateTo("superadmin");
-              } else {
+              } else if (r === "doctor" || r === "physician") {
+                navigateTo("doctor");
+              } else if (["staff", "receptionist", "nurse"].includes(r)) {
                 navigateTo("staff");
+              } else {
+                navigateTo("patient", "walkin");
               }
             }}
             style={primaryBtnStyle}
           >
-            {currentUser?.role === "super_admin" || currentUser?.role === "superadmin"
-              ? (language === "hi" ? "सुपर एडमिन पोर्टल पर जाएं" : "Go to Super Admin Portal")
-              : (language === "hi" ? "स्टाफ डेस्क पर जाएं" : "Switch to Staff Desk")}
+            {(() => {
+              const r = (currentUser?.role || "").toLowerCase();
+              if (r === "super_admin" || r === "superadmin") {
+                return language === "hi" ? "सुपर एडमिन पोर्टल पर जाएं" : "Go to Super Admin Portal";
+              }
+              if (r === "doctor" || r === "physician") {
+                return language === "hi" ? "डॉक्टर परामर्श डेस्क पर जाएं" : "Go to Doctor Consult Desk";
+              }
+              if (["staff", "receptionist", "nurse"].includes(r)) {
+                return language === "hi" ? "स्टाफ रिसेप्शन डेस्क पर जाएं" : "Go to Staff Reception Desk";
+              }
+              return language === "hi" ? "रोगी पोर्टल पर वापस जाएं" : "Return to Patient Portal";
+            })()}
           </button>
         )}
       </div>

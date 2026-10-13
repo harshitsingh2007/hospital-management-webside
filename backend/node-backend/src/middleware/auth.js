@@ -15,17 +15,27 @@ async function authenticate(req, res, next) {
     const authHeader = req.headers.authorization || req.headers.Authorization;
 
     if (authHeader && authHeader.startsWith("Bearer ")) {
-      token = authHeader.split(" ")[1].trim();
+      const candidate = authHeader.split(" ")[1]?.trim();
+      if (candidate && candidate !== "undefined" && candidate !== "null") {
+        token = candidate;
+      }
     }
+
+    const legacyEmail = req.headers["x-user-email"] || req.headers["X-User-Email"];
+    const legacyPhone = req.headers["x-user-phone"] || req.headers["X-User-Phone"];
 
     if (token) {
       const decoded = verifyToken(token);
       if (!decoded) {
-        return res.status(401).json({
-          status: "error",
-          success: false,
-          message: "Unauthorized: Invalid or expired authentication token.",
-        });
+        if (env.ALLOW_LEGACY_EMAIL_AUTH && (legacyEmail || legacyPhone)) {
+          token = null; // fallback to legacy
+        } else {
+          return res.status(401).json({
+            status: "error",
+            success: false,
+            message: "Unauthorized: Invalid or expired authentication token.",
+          });
+        }
       }
 
       const user = await prisma.users.findUnique({
@@ -74,7 +84,6 @@ async function authenticate(req, res, next) {
     }
 
     // Optional legacy header fallback (controlled strictly via environment flag)
-    const legacyEmail = req.headers["x-user-email"] || req.headers["X-User-Email"];
     if (env.ALLOW_LEGACY_EMAIL_AUTH && legacyEmail) {
       const cleanEmail = String(legacyEmail).trim().toLowerCase();
       const user = await prisma.users.findFirst({
@@ -135,10 +144,14 @@ async function optionalAuth(req, res, next) {
   try {
     const authHeader = req.headers.authorization || req.headers.Authorization;
     const legacyEmail = req.headers["x-user-email"] || req.headers["X-User-Email"];
+    const legacyPhone = req.headers["x-user-phone"] || req.headers["X-User-Phone"];
 
     let token = null;
     if (authHeader && authHeader.startsWith("Bearer ")) {
-      token = authHeader.split(" ")[1].trim();
+      const candidate = authHeader.split(" ")[1]?.trim();
+      if (candidate && candidate !== "undefined" && candidate !== "null") {
+        token = candidate;
+      }
     }
 
     const DEACTIVATED_STATUSES = ["deactivated", "suspended", "blocked"];

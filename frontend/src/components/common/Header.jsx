@@ -829,10 +829,15 @@ export default function Header({
         <div
           className="header-brand-left"
           onClick={() => {
-            if (currentUser?.role === "super_admin" || currentUser?.role === "superadmin") {
+            const role = (currentUser?.role || "").toLowerCase();
+            if (role === "super_admin" || role === "superadmin") {
               navigateTo("superadmin");
-            } else if (["admin", "doctor", "staff", "receptionist"].includes(currentUser?.role)) {
+            } else if (role === "doctor" || role === "physician") {
+              navigateTo("doctor");
+            } else if (["staff", "receptionist", "nurse"].includes(role)) {
               navigateTo("staff");
+            } else if (role === "admin") {
+              navigateTo("doctor");
             } else {
               navigateTo("patient", "walkin");
             }
@@ -1132,7 +1137,10 @@ export default function Header({
 
                       {/* Self */}
                       {(() => {
-                        const selfTicket = familyTickets["self"];
+                        const depNames = (familyMembers || []).filter((m) => m && m.id !== "self").map((m) => String(m.name || "").toLowerCase().trim()).filter(Boolean);
+                        const rawSelf = familyTickets["self"];
+                        const isSelfTicketValid = rawSelf && !depNames.includes(String(rawSelf.name || "").toLowerCase().trim()) && (!rawSelf.family_member_id || rawSelf.family_member_id === "self");
+                        const selfTicket = isSelfTicketValid ? rawSelf : null;
                         return (
                           <button
                             type="button"

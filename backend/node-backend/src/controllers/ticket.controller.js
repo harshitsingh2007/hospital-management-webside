@@ -10,6 +10,7 @@ const {
   getTicketDetails,
   transferTicket,
   saveTicketPrescription,
+  updateTicketPriority,
 } = require("../services/ticketService");
 const { getIo, broadcastQueueUpdate } = require("../socket");
 
@@ -29,7 +30,10 @@ async function cancelTicketEndpoint(req, res, next) {
 
     const io = getIo();
     if (io) {
-      if (cancelled) io.to(tenantId).emit("ticket_cancelled", { ticket: cancelled, ticket_id: tid });
+      if (cancelled) {
+        io.to(tenantId).emit("ticket_cancelled", { ticket: cancelled, ticket_id: tid, tenant_id: tenantId });
+        io.emit("ticket_cancelled", { ticket: cancelled, ticket_id: tid, tenant_id: tenantId });
+      }
       await broadcastQueueUpdate(io, tenantId);
     }
 
@@ -62,7 +66,8 @@ async function adjustQueueEndpoint(req, res, next) {
 
     const io = getIo();
     if (io) {
-      io.to(tenantId).emit("ticket_updated", { ticket: result.ticket, ticket_id: tid });
+      io.to(tenantId).emit("ticket_updated", { ticket: result.ticket, ticket_id: tid, tenant_id: tenantId });
+      io.emit("ticket_updated", { ticket: result.ticket, ticket_id: tid, tenant_id: tenantId });
       await broadcastQueueUpdate(io, tenantId);
     }
 
@@ -118,6 +123,12 @@ async function transferTicketEndpoint(req, res, next) {
       io.to(tenant_id).emit("ticket_transferred", {
         original_ticket: originalTicket,
         new_ticket: newTicket,
+        tenant_id,
+      });
+      io.emit("ticket_transferred", {
+        original_ticket: originalTicket,
+        new_ticket: newTicket,
+        tenant_id,
       });
       await broadcastQueueUpdate(io, tenant_id);
     }
@@ -139,7 +150,8 @@ async function reAnnounceEndpoint(req, res, next) {
 
     const io = getIo();
     if (io) {
-      io.to(tenant_id).emit("now_serving", { ticket });
+      io.to(tenant_id).emit("now_serving", { ticket, re_announced: true, tenant_id });
+      io.emit("now_serving", { ticket, re_announced: true, tenant_id });
     }
 
     return res.status(200).json({
@@ -165,8 +177,10 @@ async function savePrescriptionEndpoint(req, res, next) {
 
     const io = getIo();
     if (io) {
-      io.to(tenantId).emit("ticket_updated", { ticket: updatedTicket, ticket_id: tid });
-      io.to(tenantId).emit("prescription_saved", { ticket: updatedTicket, ticket_id: tid });
+      io.to(tenantId).emit("ticket_updated", { ticket: updatedTicket, ticket_id: tid, tenant_id: tenantId });
+      io.emit("ticket_updated", { ticket: updatedTicket, ticket_id: tid, tenant_id: tenantId });
+      io.to(tenantId).emit("prescription_saved", { ticket: updatedTicket, ticket_id: tid, tenant_id: tenantId });
+      io.emit("prescription_saved", { ticket: updatedTicket, ticket_id: tid, tenant_id: tenantId });
       await broadcastQueueUpdate(io, tenantId);
     }
 
@@ -181,6 +195,40 @@ async function savePrescriptionEndpoint(req, res, next) {
   }
 }
 
+async function updateTicketPriorityEndpoint(req, res, next) {
+  try {
+    const tid = req.params.ticket_id || req.body?.ticket_id;
+    const tenantId = req.body?.tenant_id || "city-hospital-01";
+    const priorityLevel = req.body?.priority_level ?? req.body?.priority ?? 1;
+    const reason = req.body?.reason || (Number(priorityLevel) === 1 ? "Elevated to Emergency Triage" : "Moved to Routine OPD");
+    const requesterEmail = req.user?.email || req.headers["x-user-email"] || null;
+
+    if (!tid) {
+      return res.status(400).json({ status: "error", message: "Ticket ID is required." });
+    }
+
+    const updatedTicket = await updateTicketPriority(tenantId, tid, priorityLevel, reason, requesterEmail);
+
+    const io = getIo();
+    if (io) {
+      io.to(tenantId).emit("ticket_updated", { ticket: updatedTicket, ticket_id: tid, tenant_id: tenantId });
+      io.emit("ticket_updated", { ticket: updatedTicket, ticket_id: tid, tenant_id: tenantId });
+      io.to(tenantId).emit("priority_changed", { ticket: updatedTicket, ticket_id: tid, priority: priorityLevel, tenant_id: tenantId });
+      io.emit("priority_changed", { ticket: updatedTicket, ticket_id: tid, priority: priorityLevel, tenant_id: tenantId });
+      await broadcastQueueUpdate(io, tenantId);
+    }
+
+    return res.status(200).json({
+      status: "success",
+      success: true,
+      ticket: updatedTicket,
+      message: `Priority updated to ${Number(priorityLevel) === 1 ? "Emergency (P1)" : "Routine (P2)"} successfully.`,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   cancelTicketEndpoint,
   adjustQueueEndpoint,
@@ -188,4 +236,5 @@ module.exports = {
   transferTicketEndpoint,
   reAnnounceEndpoint,
   savePrescriptionEndpoint,
+  updateTicketPriorityEndpoint,
 };

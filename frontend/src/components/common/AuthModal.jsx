@@ -36,6 +36,23 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
   const [regConfirmPassword, setRegConfirmPassword] = useState("");
   const [hospitalName, setHospitalName] = useState("");
 
+  // Mobile OTP States
+  const [mobilePhone, setMobilePhone] = useState("");
+  const [mobileOtp, setMobileOtp] = useState("");
+  const [mobileName, setMobileName] = useState("");
+  const [mobileOtpSent, setMobileOtpSent] = useState(false);
+  const [mobileOtpLoading, setMobileOtpLoading] = useState(false);
+  const [otpDevCode, setOtpDevCode] = useState("");
+  const [otpCountdown, setOtpCountdown] = useState(0);
+
+  useEffect(() => {
+    let timer = null;
+    if (otpCountdown > 0) {
+      timer = setTimeout(() => setOtpCountdown(otpCountdown - 1), 1000);
+    }
+    return () => { if (timer) clearTimeout(timer); };
+  }, [otpCountdown]);
+
   // Multi-Hospital Tenant Selection
   const [hospitalsList, setHospitalsList] = useState([]);
   const [selectedHospitalCode, setSelectedHospitalCode] = useState(() => {
@@ -106,6 +123,80 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
     setCurrentMode(mode);
     setErrorMsg(null);
     if (setAuthMode) setAuthMode(mode);
+  };
+
+  // 0. Submit Mobile OTP Handlers (Instant Phone-Number Registration & Past Walk-In Sync)
+  const handleSendMobileOtp = async (e) => {
+    if (e) e.preventDefault();
+    const cleanDigits = mobilePhone.replace(/\D/g, "");
+    if (!cleanDigits || cleanDigits.length < 7) {
+      setErrorMsg("Please enter a valid mobile phone number with at least 7 digits.");
+      return;
+    }
+    setErrorMsg(null);
+    setMobileOtpLoading(true);
+
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/auth/send-mobile-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: mobilePhone, hospital_code: selectedHospitalCode }),
+      });
+      const data = await res.json();
+      setMobileOtpLoading(false);
+      if (res.ok && data.status === "success") {
+        setMobileOtpSent(true);
+        setOtpCountdown(45);
+        if (data.dev_otp) setOtpDevCode(data.dev_otp);
+      } else {
+        setErrorMsg(data.message || "Failed to send OTP to mobile. Please try again.");
+      }
+    } catch (err) {
+      setMobileOtpLoading(false);
+      setErrorMsg(`Connection error: ${err.message}`);
+    }
+  };
+
+  const handleVerifyMobileOtp = async (e) => {
+    if (e) e.preventDefault();
+    if (!mobileOtp.trim()) {
+      setErrorMsg("Please enter the 6-digit verification code.");
+      return;
+    }
+    setErrorMsg(null);
+    setLoading(true);
+
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/auth/verify-mobile-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone: mobilePhone.trim(),
+          otp: mobileOtp.trim(),
+          name: mobileName.trim() || undefined,
+          hospital_code: selectedHospitalCode || "city-hospital-01",
+        }),
+      });
+      const data = await res.json();
+      setLoading(false);
+
+      if (res.ok && data.status === "success") {
+        if (data.token) {
+          try {
+            localStorage.setItem("ai_queue_token", data.token);
+          } catch (e) {}
+        }
+        try {
+          localStorage.setItem("ai_queue_current_hospital", selectedHospitalCode || "city-hospital-01");
+        } catch (e) {}
+        onLoginSuccess(data.user);
+      } else {
+        setErrorMsg(data.message || data.detail || "Invalid or expired OTP. Please try again.");
+      }
+    } catch (err) {
+      setLoading(false);
+      setErrorMsg(`Server connection error: ${err.message}`);
+    }
   };
 
   // 1. Submit Unified Login (Supports Email OR Assigned ID: DOC-1024, STF-201, ADM-001, etc.)
@@ -250,6 +341,8 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
             <h2 style={{ margin: 0, fontSize: "20px", color: "#064E3B", fontWeight: 800, letterSpacing: "-0.3px" }}>
               {currentMode === "login"
                 ? "Sign In"
+                : currentMode === "login-mobile"
+                ? "Patient Mobile OTP Access"
                 : currentMode === "signup-superadmin"
                 ? "Register as Super Admin"
                 : "Register as Patient"}
@@ -257,6 +350,8 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
             <span style={{ fontSize: "12px", color: "#64748B", fontWeight: 500 }}>
               {currentMode === "login"
                 ? "Sign in with your Email or Assigned ID"
+                : currentMode === "login-mobile"
+                ? "Instant login & retrospective walk-in record sync"
                 : currentMode === "signup-superadmin"
                 ? "Hospital Owner & Network Administrator Account"
                 : "Patient Self-Service Account"}
@@ -270,6 +365,133 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
           </button>
         )}
       </div>
+
+      {/* VIEW 0: PATIENT MOBILE OTP LOGIN & RETROSPECTIVE SYNC */}
+      {currentMode === "login-mobile" && (
+        <form onSubmit={mobileOtpSent ? handleVerifyMobileOtp : handleSendMobileOtp}>
+          <div style={{
+            marginBottom: "14px",
+            padding: "10px 14px",
+            borderRadius: "10px",
+            background: "#ECFDF5",
+            border: "1px solid #A7F3D0",
+            fontSize: "11.5px",
+            color: "#065F46",
+            lineHeight: "1.5",
+          }}>
+            📱 <strong>Past Record Sync:</strong> If you received a walk-in token or prescription previously, entering your mobile number will automatically connect all your previous visit history to your account!
+          </div>
+
+          <div style={{ marginBottom: "12px" }}>
+            <label style={fieldLabelStyle}>Select Hospital / Clinic *</label>
+            <select
+              value={selectedHospitalCode}
+              onChange={(e) => {
+                setSelectedHospitalCode(e.target.value);
+                try { localStorage.setItem("ai_queue_current_hospital", e.target.value); } catch (err) {}
+              }}
+              required
+              style={{
+                ...fieldInputStyle,
+                cursor: "pointer",
+                background: "#FFFFFF",
+                fontWeight: 600,
+                color: "#0F172A",
+              }}
+            >
+              {hospitalsList.map((h) => (
+                <option key={h.hospital_code} value={h.hospital_code}>
+                  {h.name} {h.address ? `• ${h.address}` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div style={{ marginBottom: "12px" }}>
+            <label style={fieldLabelStyle}>Mobile Phone Number *</label>
+            <div style={{ display: "flex", gap: "8px" }}>
+              <input
+                type="tel"
+                placeholder="e.g. 9876543210"
+                value={mobilePhone}
+                onChange={(e) => setMobilePhone(e.target.value)}
+                required
+                disabled={mobileOtpSent}
+                style={{ ...fieldInputStyle, flex: 1 }}
+                autoFocus
+              />
+              <button
+                type="button"
+                onClick={handleSendMobileOtp}
+                disabled={mobileOtpLoading || (mobileOtpSent && otpCountdown > 0)}
+                style={{
+                  padding: "0 14px",
+                  borderRadius: "10px",
+                  border: "none",
+                  background: (mobileOtpSent && otpCountdown > 0) ? "#94A3B8" : "#0284C7",
+                  color: "#FFFFFF",
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  cursor: (mobileOtpSent && otpCountdown > 0) ? "not-allowed" : "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {mobileOtpLoading
+                  ? "Sending..."
+                  : mobileOtpSent
+                  ? (otpCountdown > 0 ? `Resend (${otpCountdown}s)` : "Resend OTP")
+                  : "Send OTP"}
+              </button>
+            </div>
+            {mobileOtpSent && (
+              <div style={{ fontSize: "11px", color: "#10B981", fontWeight: 700, marginTop: "4px" }}>
+                ✓ OTP sent to {mobilePhone} {otpDevCode ? `(Code: ${otpDevCode})` : ""}
+              </div>
+            )}
+          </div>
+
+          {mobileOtpSent && (
+            <>
+              <div style={{ marginBottom: "12px" }}>
+                <label style={fieldLabelStyle}>Your Full Name (Optional if previously registered)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Ramesh Kumar"
+                  value={mobileName}
+                  onChange={(e) => setMobileName(e.target.value)}
+                  style={fieldInputStyle}
+                />
+              </div>
+
+              <div style={{ marginBottom: "18px" }}>
+                <label style={fieldLabelStyle}>Enter 6-Digit OTP Code *</label>
+                <input
+                  type="text"
+                  placeholder="••••••"
+                  maxLength={6}
+                  value={mobileOtp}
+                  onChange={(e) => setMobileOtp(e.target.value)}
+                  required
+                  style={{ ...fieldInputStyle, fontSize: "18px", letterSpacing: "4px", textAlign: "center", fontWeight: 800 }}
+                  autoFocus
+                />
+              </div>
+
+              <button type="submit" disabled={loading} style={modalSubmitBtnStyle}>
+                {loading ? "Verifying & Syncing Records..." : "Verify OTP & Enter Patient Portal"}
+              </button>
+            </>
+          )}
+
+          <button
+            type="button"
+            onClick={() => switchMode("login")}
+            style={backLinkBtnStyle}
+          >
+            ← Back to Email / Staff Sign In
+          </button>
+        </form>
+      )}
 
       {/* VIEW 1: UNIFIED LOGIN (Admin, Staff, Doctor, Super Admin, Patient) */}
       {currentMode === "login" && (
@@ -316,6 +538,32 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
             </button>
           </form>
 
+          {/* Quick Mobile OTP Access for Patients */}
+          <button
+            type="button"
+            onClick={() => switchMode("login-mobile")}
+            style={{
+              width: "100%",
+              padding: "11px 14px",
+              borderRadius: "12px",
+              border: "1.5px solid #A7F3D0",
+              background: "#ECFDF5",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "12px",
+              marginTop: "12px",
+              transition: "all 0.15s ease",
+            }}
+          >
+            <span style={{ fontSize: "18px" }}>📱</span>
+            <div style={{ textAlign: "left", flex: 1 }}>
+              <div style={{ fontWeight: 800, fontSize: "12.5px", color: "#065F46" }}>Patient Mobile OTP Login / Register</div>
+              <span style={{ fontSize: "11px", color: "#059669" }}>Instant login & sync all past walk-in tokens</span>
+            </div>
+            <span style={{ fontSize: "14px", color: "#059669", fontWeight: 700 }}>→</span>
+          </button>
+
           {/* Admin, Doctor & Staff Policy Notice */}
           <div style={noticeBoxStyle}>
             <span style={{ fontSize: "15px", flexShrink: 0, marginTop: "1px" }}>ℹ️</span>
@@ -356,7 +604,7 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
             >
               <span style={{ fontSize: "18px" }}>👤</span>
               <div style={{ textAlign: "left", flex: 1 }}>
-                <div style={{ fontWeight: 800, fontSize: "12.5px", color: "#0369A1" }}>Register as Patient</div>
+                <div style={{ fontWeight: 800, fontSize: "12.5px", color: "#0369A1" }}>Register as Patient (Email)</div>
                 <span style={{ fontSize: "11px", color: "#0284C7" }}>Book appointments and track live queue passes</span>
               </div>
               <span style={{ fontSize: "14px", color: "#0284C7", fontWeight: 700 }}>→</span>

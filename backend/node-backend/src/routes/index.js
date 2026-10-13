@@ -17,7 +17,7 @@ const healthRoutes = require("./health.routes");
 const doctorRoutes = require("./doctor.routes");
 const kioskRoutes = require("./kiosk.routes");
 const patientHistoryRoutes = require("./patientHistory.routes");
-const { getUserHistory } = require("../controllers/auth.controller");
+const { getUserHistory, lookupPatientAccount, addFamilyMemberFromStaff } = require("../controllers/auth.controller");
 const { optionalAuth } = require("../middleware/auth");
 
 const router = express.Router();
@@ -39,6 +39,10 @@ router.use("/api/v1", ticketRoutes);
 
 // Additional ticket history alias: /api/v1/plugin/tickets/history/:identifier
 router.get("/api/v1/plugin/tickets/history/:identifier", optionalAuth, getUserHistory);
+
+// Walk-in patient & family lookup for staff desk
+router.get("/api/v1/plugin/patient-lookup", optionalAuth, lookupPatientAccount);
+router.post("/api/v1/plugin/staff-add-family", optionalAuth, addFamilyMemberFromStaff);
 
 // Appointment routes (/api/v1/plugin/appointments/*)
 router.use("/api/v1", appointmentRoutes);

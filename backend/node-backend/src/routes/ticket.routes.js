@@ -12,6 +12,7 @@ const {
   transferTicketEndpoint,
   reAnnounceEndpoint,
   savePrescriptionEndpoint,
+  updateTicketPriorityEndpoint,
 } = require("../controllers/ticket.controller");
 const { optionalAuth } = require("../middleware/auth");
 
@@ -21,6 +22,11 @@ const router = express.Router();
 router.post("/tickets/:ticket_id/cancel", optionalAuth, cancelTicketEndpoint);
 router.post("/plugin/tickets/:ticket_id/cancel", optionalAuth, cancelTicketEndpoint);
 router.post("/plugin/cancel", optionalAuth, cancelTicketEndpoint);
+
+// Priority / Emergency Triage endpoints
+router.post("/tickets/:ticket_id/priority", optionalAuth, updateTicketPriorityEndpoint);
+router.post("/plugin/tickets/:ticket_id/priority", optionalAuth, updateTicketPriorityEndpoint);
+router.post("/plugin/priority", optionalAuth, updateTicketPriorityEndpoint);
 
 // Adjust endpoints
 router.post("/tickets/:ticket_id/adjust", optionalAuth, adjustQueueEndpoint);

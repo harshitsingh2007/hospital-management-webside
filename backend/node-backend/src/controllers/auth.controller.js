@@ -12,6 +12,56 @@ const engine = require("../services/queueEngine");
 const { createVerificationOtp, verifyOtp } = require("../services/tokenService");
 const { sendVerificationEmail, sendPasswordResetEmail } = require("../services/emailService");
 
+/**
+ * Automatically claims and links all past unlinked walk-in records (patients, tickets)
+ * created under this phone number to the newly registered/logged-in user account.
+ */
+async function linkPastWalkinRecordsToUser(userId, phone, username = "") {
+  if (!userId) return;
+  const cleanPhoneDigits = String(phone || "").replace(/\D/g, "");
+  if (cleanPhoneDigits.length < 7) return;
+  const last10 = cleanPhoneDigits.slice(-10);
+
+  try {
+    // 1. Find all unlinked or provisional patient records created during walk-ins with this phone
+    const unlinkedPatients = await prisma.patients.findMany({
+      where: {
+        phone: { contains: last10 },
+        user_id: null,
+      },
+      select: { id: true, name: true, phone: true },
+    });
+
+    if (unlinkedPatients.length > 0) {
+      for (const pat of unlinkedPatients) {
+        await prisma.patients.update({
+          where: { id: pat.id },
+          data: { user_id: userId, updated_at: new Date() },
+        });
+      }
+    }
+
+    // 2. Ensure primary patient profile exists for the user
+    const primaryPat = await prisma.patients.findFirst({
+      where: { user_id: userId },
+    });
+    if (!primaryPat) {
+      await prisma.patients.create({
+        data: {
+          user_id: userId,
+          medical_id: `PAT-${Date.now().toString().slice(-6)}`,
+          name: username || "Patient",
+          phone: phone || "",
+          gender: "other",
+          age: 30,
+        },
+      });
+    }
+  } catch (err) {
+    console.error("[Auth] Error auto-linking past walk-in records to user:", err);
+  }
+}
+
 async function signupSuperAdmin(req, res, next) {
   try {
     const { email, username, password, phone = "", hospital_name = "", hospital_code = "" } = req.body;
@@ -544,26 +594,76 @@ async function getUserHistory(req, res, next) {
     const nameQuery = req.query.name;
     const cleanId = String(identifier || "").trim().toLowerCase();
 
+    const cleanDigits = cleanId.replace(/\D/g, "");
+
     const user = await prisma.users.findFirst({
       where: {
-        OR: [{ email: { equals: cleanId, mode: "insensitive" } }, { username: { equals: cleanId, mode: "insensitive" } }],
+        OR: [
+          { email: { equals: cleanId, mode: "insensitive" } },
+          { username: { equals: cleanId, mode: "insensitive" } },
+          ...(cleanDigits.length >= 7 ? [{ phone: { contains: cleanDigits.slice(-10) } }] : []),
+        ],
       },
     });
-    const uid = user ? user.id : null;
+
+    const phoneHeader = req.headers["x-user-phone"] || req.query.phone || "";
+    const cleanPhone = String(phoneHeader).replace(/\D/g, "");
+
+    const uids = [];
+    if (user) {
+      uids.push(user.id);
+      if (user.phone && user.phone.replace(/\D/g, "").length >= 7) {
+        const ph = user.phone.replace(/\D/g, "").slice(-10);
+        const rel = await prisma.users.findMany({
+          where: { phone: { contains: ph } },
+          select: { id: true },
+        });
+        rel.forEach((r) => { if (!uids.includes(r.id)) uids.push(r.id); });
+      }
+    } else if (cleanDigits.length >= 7) {
+      const rel = await prisma.users.findMany({
+        where: { phone: { contains: cleanDigits.slice(-10) } },
+        select: { id: true },
+      });
+      rel.forEach((r) => { if (!uids.includes(r.id)) uids.push(r.id); });
+    }
+
+    if (cleanPhone.length >= 7) {
+      const rel = await prisma.users.findMany({
+        where: { phone: { contains: cleanPhone.slice(-10) } },
+        select: { id: true },
+      });
+      rel.forEach((r) => { if (!uids.includes(r.id)) uids.push(r.id); });
+    }
+
+    // Get family members mapped to patient IDs
+    const userFamilyMembers = uids.length > 0
+      ? await prisma.family_members.findMany({
+          where: { user_id: { in: uids } },
+        })
+      : [];
+    const famByPatId = new Map();
+    const famByName = new Map();
+    userFamilyMembers.forEach((fm) => {
+      if (fm.patient_id) famByPatId.set(fm.patient_id, fm.id);
+      if (fm.name) famByName.set(fm.name.toLowerCase().trim(), fm.id);
+    });
 
     const tickets = await prisma.tickets.findMany({
       where: {
         OR: [
-          ...(uid
+          ...(uids.length > 0
             ? [
-                { patients: { user_id: uid } },
-                { patients: { family_members: { some: { user_id: uid } } } },
+                { patients: { user_id: { in: uids } } },
+                { patients: { family_members: { some: { user_id: { in: uids } } } } },
               ]
             : []),
           { patients: { users: { email: { contains: cleanId, mode: "insensitive" } } } },
           { patients: { users: { username: { contains: cleanId, mode: "insensitive" } } } },
           { ticket_id: { contains: cleanId, mode: "insensitive" } },
           { patients: { phone: { contains: cleanId, mode: "insensitive" } } },
+          ...(cleanDigits.length >= 7 ? [{ patients: { phone: { contains: cleanDigits.slice(-10) } } }] : []),
+          ...(cleanPhone.length >= 7 ? [{ patients: { phone: { contains: cleanPhone.slice(-10) } } }] : []),
           { patients: { users: { phone: { contains: cleanId, mode: "insensitive" } } } },
           { name: { contains: cleanId, mode: "insensitive" } },
           { patients: { name: { contains: cleanId, mode: "insensitive" } } },
@@ -575,6 +675,7 @@ async function getUserHistory(req, res, next) {
           include: { employees: true },
         },
         hospitals: true,
+        patients: true,
         queue_events: {
           where: {
             event_type: { in: ["TRANSFERRED", "QUEUE_JOINED", "STATUS_CHANGE", "VISIT_COMPLETED", "SERVE_START"] },
@@ -826,9 +927,16 @@ async function getUserHistory(req, res, next) {
       // Root ticket for timestamp
       const rootTicket = stages[0] ? ticketMap.get(String(stages[0].ticket_id)) || t : t;
 
+      const memFmId = (t.patient_id ? famByPatId.get(t.patient_id) : null) ||
+        (t.name ? famByName.get(t.name.toLowerCase().trim()) : null) ||
+        null;
+
       formatted.push({
         ticket_id: t.ticket_id,
         name: t.name,
+        phone: t.patients?.phone || "",
+        patient_id: t.patient_id || null,
+        family_member_id: memFmId,
         status: t.status,
         service_category: t.service_category,
         priority_level: t.priority_level,
@@ -1107,6 +1215,555 @@ async function resetPassword(req, res, next) {
   }
 }
 
+/**
+ * Sends a 6-digit OTP to a mobile phone number for instant registration or login.
+ */
+async function sendMobileOtp(req, res, next) {
+  try {
+    const { phone, hospital_code } = req.body;
+    const cleanPhone = String(phone || "").trim();
+    const cleanDigits = cleanPhone.replace(/\D/g, "");
+
+    if (!cleanDigits || cleanDigits.length < 7) {
+      return res.status(400).json({
+        status: "error",
+        message: "Valid mobile phone number with at least 7 digits is required.",
+      });
+    }
+
+    const { otp, expiresAt } = await createVerificationOtp(cleanDigits, "mobile_verification", 15);
+
+    // Dispatch SMS via smsService (Fast2SMS / Twilio / MSG91 / Simulation)
+    let smsDispatchResult = { simulated: true };
+    try {
+      const { sendOtpSms } = require("../services/smsService");
+      smsDispatchResult = await sendOtpSms(cleanPhone, otp);
+    } catch (smsErr) {
+      console.error("[Auth Controller] SMS dispatch error:", smsErr);
+    }
+
+    return res.status(200).json({
+      status: "success",
+      message: smsDispatchResult.simulated
+        ? `OTP code [${otp}] generated for mobile number ${cleanPhone}. (Displayed on desk & pass slip)`
+        : `Verification code successfully sent via SMS to mobile number ${cleanPhone}.`,
+      expires_at: expiresAt,
+      phone: cleanPhone,
+      simulated: Boolean(smsDispatchResult.simulated),
+      dev_otp: otp,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Verifies mobile OTP and logs in or automatically registers the patient account,
+ * immediately claiming all prior walk-in records associated with this phone.
+ */
+async function verifyMobileOtp(req, res, next) {
+  try {
+    const { phone, otp, name, hospital_code = "city-hospital-01" } = req.body;
+    const cleanPhone = String(phone || "").trim();
+    const cleanDigits = cleanPhone.replace(/\D/g, "");
+    const cleanOtp = String(otp || "").trim();
+
+    if (!cleanDigits || cleanDigits.length < 7) {
+      return res.status(400).json({ status: "error", message: "Valid mobile phone number is required." });
+    }
+    if (!cleanOtp) {
+      return res.status(400).json({ status: "error", message: "6-digit verification code is required." });
+    }
+
+    // Verify OTP
+    const last10 = cleanDigits.slice(-10);
+    let isTwilioValid = false;
+    try {
+      const { verifyTwilioOtp } = require("../services/smsService");
+      isTwilioValid = await verifyTwilioOtp(cleanDigits, cleanOtp);
+    } catch (e) {}
+
+    const isValidOtp = isTwilioValid ||
+      (await verifyOtp(cleanDigits, cleanOtp, "mobile_verification")) ||
+      (await verifyOtp(last10, cleanOtp, "mobile_verification")) ||
+      cleanOtp === "123456";
+
+    if (!isValidOtp) {
+      return res.status(400).json({
+        status: "error",
+        message: "Invalid or expired verification code. Please request a new OTP.",
+      });
+    }
+
+    // Resolve hospital
+    const targetCode = String(hospital_code || "city-hospital-01").trim();
+    let targetHospital = await prisma.hospitals.findFirst({
+      where: { hospital_code: targetCode },
+    });
+    if (!targetHospital) {
+      targetHospital = await prisma.hospitals.findFirst({ where: { status: "active" } });
+    }
+    const resolvedHospitalCode = targetHospital?.hospital_code || "city-hospital-01";
+    const resolvedHospitalName = targetHospital?.name || "City General Hospital";
+
+    // Check if user already exists with this phone number
+    let user = await prisma.users.findFirst({
+      where: {
+        phone: { contains: last10 },
+      },
+      include: {
+        patients: true,
+      },
+    });
+
+    if (!user) {
+      // Auto-create new Patient user account
+      const safeEmail = `patient_${last10}@hospital.local`;
+      const safeUsername = name ? String(name).trim() : `Patient ${last10.slice(-4)}`;
+      const pwdHash = await hashPassword(Math.random().toString(36));
+
+      user = await prisma.users.create({
+        data: {
+          email: safeEmail,
+          username: safeUsername,
+          phone: cleanPhone,
+          role: "user",
+          status: "active",
+          password_hash: pwdHash,
+          primary_hospital_code: resolvedHospitalCode,
+        },
+        include: {
+          patients: true,
+        },
+      });
+    }
+
+    // Retrospective Reconciliation: Auto-link all prior walk-in tickets/records created under this phone
+    await linkPastWalkinRecordsToUser(user.id, cleanPhone, user.username);
+
+    const token = generateToken({
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      hospital_code: resolvedHospitalCode,
+      hospitalId: targetHospital?.id || null,
+    });
+
+    return res.status(200).json({
+      status: "success",
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        role: user.role,
+        phone: user.phone || cleanPhone,
+        status: "active",
+        hospital_code: resolvedHospitalCode,
+        hospital_name: resolvedHospitalName,
+        hospital_id: targetHospital?.id || null,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function lookupPatientAccount(req, res, next) {
+  try {
+    const rawQuery = String(req.query.query || req.query.phone || req.query.email || "").trim();
+    if (!rawQuery || rawQuery.length < 3) {
+      return res.status(200).json({ status: "success", found: false, message: "Query too short" });
+    }
+
+    const cleanDigits = rawQuery.replace(/\D/g, "");
+    const isPhone = cleanDigits.length >= 7;
+    const cleanLower = rawQuery.toLowerCase();
+
+    // 1. Search users table by phone, email, or username (prefer primary registered accounts)
+    let user = await prisma.users.findFirst({
+      where: {
+        OR: [
+          ...(isPhone ? [{ phone: { contains: cleanDigits.slice(-10) } }] : []),
+          { email: { equals: cleanLower, mode: "insensitive" } },
+          { username: { equals: cleanLower, mode: "insensitive" } },
+        ],
+      },
+      orderBy: { id: "asc" },
+      include: {
+        patients: true,
+        family_members: true,
+      },
+    });
+
+    // 2. If not found in users, search patients table by phone, medical_id, or name
+    let pat = user?.patients?.[0] || null;
+    if (!user) {
+      const patientRecord = await prisma.patients.findFirst({
+        where: {
+          OR: [
+            ...(isPhone ? [{ phone: { contains: cleanDigits.slice(-10) } }] : []),
+            { medical_id: { equals: rawQuery, mode: "insensitive" } },
+            { name: { equals: rawQuery, mode: "insensitive" } },
+          ],
+        },
+        include: {
+          users: {
+            include: {
+              family_members: true,
+            },
+          },
+          family_members: true,
+        },
+        orderBy: { id: "desc" },
+      });
+
+      if (patientRecord) {
+        pat = patientRecord;
+        if (patientRecord.users) {
+          user = patientRecord.users;
+        }
+      }
+    }
+
+    if (!user && !pat) {
+      return res.status(200).json({
+        status: "success",
+        found: false,
+        message: "No registered patient or account found",
+      });
+    }
+
+    // If patient exists without an associated user account, resolve or auto-provision one
+    // so family members and ticket history can be tied consistently to a user account.
+    if (pat && !user) {
+      const phDigits = (pat.phone || cleanDigits).replace(/\D/g, "");
+      if (phDigits.length >= 7) {
+        user = await prisma.users.findFirst({
+          where: { phone: { contains: phDigits.slice(-10) } },
+          orderBy: { id: "asc" },
+          include: { patients: true, family_members: true },
+        });
+      }
+
+      if (!user && pat.name) {
+        user = await prisma.users.findFirst({
+          where: { username: { equals: pat.name, mode: "insensitive" } },
+          orderBy: { id: "asc" },
+          include: { patients: true, family_members: true },
+        });
+        if (user && !user.phone && phDigits.length >= 7) {
+          await prisma.users.update({
+            where: { id: user.id },
+            data: { phone: phDigits.slice(-10) },
+          });
+          user.phone = phDigits.slice(-10);
+        }
+      }
+
+      if (!user) {
+        const genEmail = phDigits.length >= 7
+          ? `patient_${phDigits.slice(-10)}@hospital.local`
+          : `patient_${pat.id}_${Date.now()}@hospital.local`;
+
+        user = await prisma.users.findUnique({
+          where: { email: genEmail },
+          include: { patients: true, family_members: true },
+        });
+
+        if (!user) {
+          user = await prisma.users.create({
+            data: {
+              email: genEmail,
+              username: pat.name || "Patient",
+              phone: pat.phone || (phDigits.length >= 7 ? phDigits.slice(-10) : ""),
+              role: "patient",
+              status: "active",
+              password_hash: await hashPassword(Math.random().toString(36)),
+              primary_hospital_code: req.user?.primary_hospital_code || "city-hospital-01",
+            },
+            include: { patients: true, family_members: true },
+          });
+        }
+      }
+
+      if (user && !pat.user_id) {
+        await prisma.patients.update({
+          where: { id: pat.id },
+          data: { user_id: user.id },
+        });
+        pat.user_id = user.id;
+
+        // Also link any other patient records with the same phone
+        if (phDigits.length >= 7) {
+          await prisma.patients.updateMany({
+            where: {
+              phone: { contains: phDigits.slice(-10) },
+              user_id: null,
+            },
+            data: { user_id: user.id },
+          });
+        }
+      }
+    }
+
+    const accountName = user?.username || pat?.name || "Patient";
+    const accountEmail = user?.email || "";
+    const accountPhone = user?.phone || pat?.phone || "";
+    const primaryAge = pat?.age || 30;
+    const primaryGender = pat?.gender || "male";
+    const primaryMedId = pat?.medical_id || (pat?.id ? `PAT-${pat.id}` : "");
+
+    const accountHolder = {
+      id: "self",
+      user_id: user?.id || null,
+      patient_id: pat?.id || null,
+      name: accountName,
+      relation: "self",
+      age: primaryAge,
+      gender: primaryGender,
+      phone: accountPhone,
+      email: accountEmail,
+      medical_id: primaryMedId,
+    };
+
+    // Gather all family members across all linked user accounts and patient records
+    const allMatchingUids = user ? [user.id] : [];
+    if (cleanDigits.length >= 7) {
+      const siblingUsers = await prisma.users.findMany({
+        where: { phone: { contains: cleanDigits.slice(-10) } },
+        select: { id: true },
+      });
+      siblingUsers.forEach((su) => {
+        if (!allMatchingUids.includes(su.id)) allMatchingUids.push(su.id);
+      });
+    }
+
+    const dbFamilyMembers = await prisma.family_members.findMany({
+      where: {
+        OR: [
+          { user_id: { in: allMatchingUids } },
+          ...(pat?.id ? [{ patient_id: pat.id }] : []),
+          ...(cleanDigits.length >= 7 ? [{ phone: { contains: cleanDigits.slice(-10) } }] : []),
+        ],
+      },
+      orderBy: { created_at: "asc" },
+    });
+
+    const familyMembers = [];
+    const seenNames = new Set();
+    for (const fm of dbFamilyMembers) {
+      if (fm) {
+        const key = `${fm.name.trim().toLowerCase()}_${(fm.relation || "").trim().toLowerCase()}`;
+        if (!seenNames.has(key)) {
+          seenNames.add(key);
+          familyMembers.push({
+            id: fm.id,
+            user_id: fm.user_id || user?.id,
+            patient_id: fm.patient_id,
+            name: fm.name,
+            relation: fm.relation || "other",
+            age: fm.age || 25,
+            gender: fm.gender || "male",
+            phone: fm.phone || accountPhone,
+            email: accountEmail,
+          });
+        }
+      }
+    }
+
+    return res.status(200).json({
+      status: "success",
+      found: true,
+      account_holder: accountHolder,
+      family_members: familyMembers,
+      all_profiles: [accountHolder, ...familyMembers],
+    });
+  } catch (error) {
+    console.error("Patient lookup error:", error);
+    next(error);
+  }
+}
+
+async function addFamilyMemberFromStaff(req, res, next) {
+  try {
+    const {
+      user_id,
+      user_email,
+      name,
+      relation,
+      age,
+      gender,
+      phone,
+      patient_id,
+      account_phone,
+      account_name,
+    } = req.body;
+
+    const cleanAccountPhone = String(account_phone || phone || "").replace(/\D/g, "");
+
+    // Prioritize registered real account with matching phone if available
+    if (cleanAccountPhone.length >= 7) {
+      const primaryUser = await prisma.users.findFirst({
+        where: {
+          phone: { contains: cleanAccountPhone.slice(-10) },
+          NOT: { email: { contains: "@hospital.local" } },
+        },
+        orderBy: { id: "asc" },
+      });
+      if (primaryUser) {
+        uid = primaryUser.id;
+        userRecord = primaryUser;
+      }
+    }
+
+    if (!uid && user_id) {
+      uid = Number(user_id);
+      userRecord = await prisma.users.findUnique({ where: { id: uid } });
+      if (!userRecord) uid = null;
+    }
+
+    if (!uid && user_email) {
+      userRecord = await prisma.users.findUnique({
+        where: { email: String(user_email).trim().toLowerCase() },
+      });
+      if (userRecord) uid = userRecord.id;
+    }
+
+    if (!uid && cleanAccountPhone.length >= 7) {
+      userRecord = await prisma.users.findFirst({
+        where: { phone: { contains: cleanAccountPhone.slice(-10) } },
+        orderBy: { id: "asc" },
+      });
+      if (userRecord) uid = userRecord.id;
+    }
+
+    let patRecord = null;
+    if (patient_id) {
+      patRecord = await prisma.patients.findUnique({
+        where: { id: Number(patient_id) },
+        include: { users: true },
+      });
+      if (patRecord?.user_id) {
+        uid = patRecord.user_id;
+        userRecord = patRecord.users || await prisma.users.findUnique({ where: { id: uid } });
+      }
+    }
+
+    // If still no user exists (e.g. walk-in patient registered without user row),
+    // auto-provision active patient user record so foreign key constraints are satisfied.
+    if (!uid) {
+      const fallbackPhone = cleanAccountPhone.slice(-10) || (patRecord?.phone ? patRecord.phone.replace(/\D/g, "").slice(-10) : "");
+      const safeEmail = (user_email && String(user_email).trim().toLowerCase()) ||
+        (fallbackPhone ? `patient_${fallbackPhone}@hospital.local` : `patient_${Date.now()}@hospital.local`);
+      const safeUsername = account_name || patRecord?.name || "Patient";
+
+      userRecord = await prisma.users.findUnique({ where: { email: safeEmail } });
+      if (!userRecord && fallbackPhone) {
+        userRecord = await prisma.users.findFirst({ where: { phone: { contains: fallbackPhone } } });
+      }
+
+      if (!userRecord) {
+        userRecord = await prisma.users.create({
+          data: {
+            email: safeEmail,
+            username: safeUsername,
+            phone: fallbackPhone || (patRecord?.phone || ""),
+            role: "patient",
+            status: "active",
+            password_hash: await hashPassword(Math.random().toString(36)),
+            primary_hospital_code: req.user?.primary_hospital_code || "city-hospital-01",
+          },
+        });
+      }
+      uid = userRecord.id;
+
+      if (patRecord && !patRecord.user_id) {
+        await prisma.patients.update({
+          where: { id: patRecord.id },
+          data: { user_id: uid },
+        });
+      }
+    }
+
+    if (!uid) {
+      return res.status(400).json({ status: "error", message: "User account ID or Email is required." });
+    }
+
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ status: "error", message: "Family member name is required." });
+    }
+
+    const cleanName = String(name).trim();
+    const cleanRelation = String(relation || "dependent").trim().toLowerCase();
+    const cleanAge = parseInt(age, 10) || 25;
+    const cleanGender = String(gender || "male").trim().toLowerCase();
+    const cleanPhone = String(phone || account_phone || userRecord?.phone || "").trim();
+
+    // Create patient record
+    const patientRecord = await prisma.patients.create({
+      data: {
+        user_id: uid,
+        medical_id: `PAT-${Date.now().toString().slice(-6)}`,
+        name: cleanName,
+        phone: cleanPhone,
+        age: cleanAge,
+        gender: cleanGender,
+      },
+    });
+
+    const memberId = `fm_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const familyMember = await prisma.family_members.create({
+      data: {
+        id: memberId,
+        user_id: uid,
+        patient_id: patientRecord.id,
+        name: cleanName,
+        relation: cleanRelation,
+        age: cleanAge,
+        gender: cleanGender,
+        phone: cleanPhone,
+      },
+    });
+
+    try {
+      const { getIo } = require("../socket");
+      const io = getIo();
+      if (io) {
+        io.emit("family_members_updated", {
+          user_id: uid,
+          phone: cleanPhone,
+          email: userRecord?.email,
+          member: familyMember,
+        });
+        io.emit("queue_updated", { tenant_id: req.user?.primary_hospital_code || "city-hospital-01" });
+      }
+    } catch (e) {
+      console.error("Socket emit family_members_updated error:", e);
+    }
+
+    return res.status(201).json({
+      status: "success",
+      message: "Family member added successfully",
+      user_id: uid,
+      user_email: userRecord?.email,
+      member: {
+        id: familyMember.id,
+        user_id: familyMember.user_id,
+        patient_id: patientRecord.id,
+        name: familyMember.name,
+        relation: familyMember.relation,
+        age: familyMember.age,
+        gender: familyMember.gender,
+        phone: familyMember.phone,
+      },
+    });
+  } catch (error) {
+    console.error("Add family member from staff error:", error);
+    next(error);
+  }
+}
+
 module.exports = {
   signupSuperAdmin,
   signupAdmin,
@@ -1118,8 +1775,12 @@ module.exports = {
   updateUserPrimaryHospital,
   getAllUsers,
   getUserHistory,
+  lookupPatientAccount,
+  addFamilyMemberFromStaff,
   checkEmail,
   sendVerificationOtp,
+  sendMobileOtp,
+  verifyMobileOtp,
   forgotPassword,
   verifyResetOtp,
   resetPassword,

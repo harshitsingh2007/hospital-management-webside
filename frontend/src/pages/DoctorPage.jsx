@@ -44,7 +44,7 @@ import {
   IconShield,
 } from "../components/common/MedicalIcons";
 
-export default function StaffPage({
+export default function DoctorPage({
   tenantId,
   currentUser,
   analytics,

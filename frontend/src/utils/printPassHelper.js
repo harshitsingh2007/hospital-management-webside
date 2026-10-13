@@ -430,6 +430,13 @@ export function printTokenPass(ticket, qrBase64, lang = "en", branding = null) {
   </div>` : `
   <p style="font-size: 10px; color: #475569; text-align: center; margin: 8px 0;">${noticeStr}</p>`}
 
+  ${ticket.otp_info && ticket.otp_info.otp ? `
+  <div style="background: #F0FDF4; border: 1.5px dashed #16A34A; border-radius: 8px; padding: 6px 8px; margin: 8px 0; text-align: center;">
+    <div style="font-size: 9px; font-weight: 800; color: #166534; text-transform: uppercase;">📲 ${lang === "hi" ? "मरीज पोर्टल सक्रियण कोड (OTP)" : "Patient Portal Activation Code (OTP)"}</div>
+    <div style="font-size: 20px; font-weight: 900; color: #15803D; letter-spacing: 3px; margin: 2px 0;">${ticket.otp_info.otp}</div>
+    <div style="font-size: 8.5px; color: #166534;">${lang === "hi" ? "इस कोड से मरीज पोर्टल पर लॉग इन करके अपने सभी पुराने पर्चे और रिकॉर्ड देखें" : "Use this code on Patient Portal to claim all digital prescriptions & history"}</div>
+  </div>` : ""}
+
   <div class="tear-line">
     <span class="tear-badge">✂ Official Ticket Pass</span>
   </div>

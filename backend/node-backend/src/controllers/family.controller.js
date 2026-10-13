@@ -14,12 +14,28 @@ const {
 
 async function listFamilyMembersEndpoint(req, res, next) {
   try {
-    const userIdentifier = req.user?.id || req.params.email || req.headers["x-user-email"];
-    if (!userIdentifier) {
-      return res.status(401).json({ status: "error", message: "Authentication required." });
+    const userIdentifier =
+      req.user?.id ||
+      req.user?.email ||
+      req.user?.username ||
+      req.params.email ||
+      req.query.email ||
+      req.query.user_id ||
+      req.headers["x-user-email"] ||
+      req.headers["x-user-phone"] ||
+      req.query.phone;
+
+    const userPhone =
+      req.query.phone ||
+      req.headers["x-user-phone"] ||
+      req.user?.phone ||
+      (typeof userIdentifier === "string" && userIdentifier.replace(/\D/g, "").length >= 7 ? userIdentifier.replace(/\D/g, "") : "");
+
+    if (!userIdentifier && !userPhone) {
+      return res.status(200).json({ status: "success", members: [] });
     }
 
-    const members = await listFamilyMembers(userIdentifier);
+    const members = await listFamilyMembers(userIdentifier || userPhone, userPhone);
     return res.status(200).json({
       status: "success",
       members,

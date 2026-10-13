@@ -23,7 +23,10 @@ export default function DigitalTicketPassCard({
   onOpenPrescriptionSlip,
   parsePrescription,
 }) {
-  if (!activeTicket) return null;
+  const isEmergency =
+    Number(activeTicket.priority_level || activeTicket.priority) === 1 ||
+    Boolean(activeTicket.is_emergency) ||
+    String(activeTicket.service_category || "").toLowerCase() === "emergency";
 
   // Status badge styling helper
   const getStatusConfig = (status) => {
@@ -34,7 +37,7 @@ export default function DigitalTicketPassCard({
         color: "#059669",
         border: "1px solid rgba(16, 185, 129, 0.35)",
         dot: "#10B981",
-        label: getStatusLabel(status, language),
+        label: language === "hi" ? "परामर्श कक्ष में (In Cabin)" : "Now in Consultation",
         pulse: true,
       };
     }
@@ -44,7 +47,17 @@ export default function DigitalTicketPassCard({
         color: "#0284C7",
         border: "1px solid rgba(2, 132, 199, 0.35)",
         dot: "#0284C7",
-        label: getStatusLabel(status, language),
+        label: language === "hi" ? "बुलाया गया (Proceed to Cabin)" : "Called to Doctor Cabin",
+        pulse: true,
+      };
+    }
+    if (s === "on_hold" || s === "hold") {
+      return {
+        bg: "rgba(234, 88, 12, 0.12)",
+        color: "#EA580C",
+        border: "1px solid rgba(234, 88, 12, 0.35)",
+        dot: "#EA580C",
+        label: language === "hi" ? "होल्ड पर (On Hold)" : "On Hold (Grace Period)",
         pulse: true,
       };
     }
@@ -59,12 +72,22 @@ export default function DigitalTicketPassCard({
       };
     }
     // Default: waiting
+    if (isEmergency) {
+      return {
+        bg: "rgba(220, 38, 38, 0.12)",
+        color: "#DC2626",
+        border: "1.5px solid rgba(220, 38, 38, 0.4)",
+        dot: "#DC2626",
+        label: language === "hi" ? "🚨 आपातकालीन कतार (Emergency P1)" : "🚨 Emergency Triage (Front of Line)",
+        pulse: true,
+      };
+    }
     return {
       bg: "rgba(245, 158, 11, 0.12)",
       color: "#D97706",
       border: "1px solid rgba(245, 158, 11, 0.35)",
       dot: "#F59E0B",
-      label: getStatusLabel(status, language),
+      label: language === "hi" ? "कतार में प्रतीक्षारत (Waiting)" : "Waiting in Line",
       pulse: true,
     };
   };
@@ -114,58 +137,7 @@ export default function DigitalTicketPassCard({
       />
 
       <div style={{ padding: "clamp(16px, 3vw, 24px)" }}>
-        {/* Family Pass Switcher (if multiple members booked) */}
-        {Object.keys(familyTickets).length > 1 && (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              marginBottom: "16px",
-              background: "var(--patient-sub-card, #F8FAFC)",
-              padding: "8px 12px",
-              borderRadius: "12px",
-              border: "1px solid var(--patient-card-border, #E2E8F0)",
-              flexWrap: "wrap",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", fontWeight: 700, color: "var(--patient-text-sub, #475569)" }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-              <span>{t("switchTicket", language)}:</span>
-            </div>
-            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-              {Object.entries(familyTickets).map(([memId, tick]) => {
-                const isCurrent = activeTicket.ticket_id === tick.ticket_id;
-                return (
-                  <button
-                    key={memId}
-                    type="button"
-                    onClick={() => (onSwitchTicketPass ? onSwitchTicketPass(memId, tick) : setActiveTicket(tick))}
-                    style={{
-                      padding: "5px 12px",
-                      borderRadius: "8px",
-                      border: isCurrent ? "1.5px solid #0284C7" : "1px solid var(--patient-card-border, #CBD5E1)",
-                      background: isCurrent ? "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)" : "var(--patient-card-bg, #FFFFFF)",
-                      color: isCurrent ? "#FFFFFF" : "var(--patient-text-main, #0F172A)",
-                      fontSize: "11.5px",
-                      fontWeight: isCurrent ? 800 : 600,
-                      cursor: "pointer",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "5px",
-                      boxShadow: isCurrent ? "0 2px 8px rgba(2, 132, 199, 0.25)" : "none",
-                      transition: "all 0.15s ease",
-                    }}
-                  >
-                    <span>{tick.name}</span>
-                    <span style={{ opacity: 0.85, fontSize: "10.5px" }}>(#{tick.ticket_id})</span>
-                    {isCurrent && <span style={{ fontSize: "12px", fontWeight: 900 }}>✓</span>}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
+
 
         {/* Boarding Pass Meta Header */}
         <div
@@ -384,11 +356,23 @@ export default function DigitalTicketPassCard({
             <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--patient-text-sub, #64748B)", textTransform: "uppercase" }}>
               {language === "hi" ? "प्राथमिकता स्तर" : "Priority Tier"}
             </div>
-            <div style={{ fontSize: "13px", fontWeight: 900, color: "#059669", marginTop: "2px" }}>
-              {activeTicket.is_emergency ? "🚨 EMERGENCY" : "STANDARD OPD"}
+            <div
+              style={{
+                fontSize: "13px",
+                fontWeight: 900,
+                color: isEmergency ? "#DC2626" : "#059669",
+                marginTop: "2px",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "4px",
+              }}
+            >
+              {isEmergency ? "🚨 EMERGENCY (P1)" : "STANDARD OPD (P2)"}
             </div>
-            <div style={{ fontSize: "10px", color: "var(--patient-text-sub, #94A3B8)", marginTop: "2px" }}>
-              {language === "hi" ? "कतार क्रमांक" : "Queue Sequence"} #{activeTicket.position || 1}
+            <div style={{ fontSize: "10px", color: isEmergency ? "#DC2626" : "var(--patient-text-sub, #94A3B8)", marginTop: "2px", fontWeight: isEmergency ? 800 : 600 }}>
+              {isEmergency
+                ? (language === "hi" ? "तत्काल प्राथमिकता" : "Immediate Front of Line")
+                : (language === "hi" ? `कतार क्रमांक #${activeTicket.position || 1}` : `Queue Sequence #${activeTicket.position || 1}`)}
             </div>
           </div>
         </div>

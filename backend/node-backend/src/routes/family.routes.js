@@ -16,11 +16,11 @@ const { requirePatientRole } = require("../middleware/role");
 
 const router = express.Router();
 
-// Clean /api/v1/family-members routes (strictly enforced for patient/user role)
-router.get("/family-members", authenticate, requirePatientRole, listFamilyMembersEndpoint);
-router.post("/family-members", authenticate, requirePatientRole, createFamilyMemberEndpoint);
-router.put("/family-members/:member_id", authenticate, requirePatientRole, updateFamilyMemberEndpoint);
-router.delete("/family-members/:member_id", authenticate, requirePatientRole, deleteFamilyMemberEndpoint);
+// Clean /api/v1/family-members routes (accessible for patient/user role or token)
+router.get("/family-members", optionalAuth, listFamilyMembersEndpoint);
+router.post("/family-members", optionalAuth, createFamilyMemberEndpoint);
+router.put("/family-members/:member_id", optionalAuth, updateFamilyMemberEndpoint);
+router.delete("/family-members/:member_id", optionalAuth, deleteFamilyMemberEndpoint);
 
 // Backward compatibility routes
 router.get("/users/:email/family-members", optionalAuth, listFamilyMembersEndpoint);

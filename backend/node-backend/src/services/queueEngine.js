@@ -210,6 +210,7 @@ class NodeQueueEngine {
   async resolvePatientId(userEmail, name, phone = "", gender = "other", age = 30) {
     const email = String(userEmail || "").trim().toLowerCase();
     const cleanName = String(name || "").trim();
+    const cleanPhoneDigits = String(phone || "").replace(/\D/g, "");
     let uid = null;
 
     if (email) {
@@ -220,6 +221,17 @@ class NodeQueueEngine {
         select: { id: true },
       });
       if (user) uid = user.id;
+    }
+
+    if (!uid && cleanPhoneDigits.length >= 7) {
+      const last10 = cleanPhoneDigits.slice(-10);
+      const userByPhone = await prisma.users.findFirst({
+        where: {
+          phone: { contains: last10 },
+        },
+        select: { id: true },
+      });
+      if (userByPhone) uid = userByPhone.id;
     }
 
     if (!uid && cleanName) {
@@ -233,11 +245,47 @@ class NodeQueueEngine {
     }
 
     if (uid) {
+      // 1. If cleanName matches a family member of this user, return or create that family member's patient ID
+      if (cleanName) {
+        const fm = await prisma.family_members.findFirst({
+          where: {
+            user_id: uid,
+            name: { equals: cleanName, mode: "insensitive" },
+          },
+          select: { id: true, patient_id: true },
+        });
+        if (fm && fm.patient_id) {
+          return fm.patient_id;
+        }
+      }
+
+      // 2. Primary patient record for user
       const pat = await prisma.patients.findFirst({
         where: { user_id: uid },
         select: { id: true },
       });
       if (pat) return pat.id;
+    }
+
+    // Check existing patient by phone
+    if (cleanPhoneDigits.length >= 7) {
+      const last10 = cleanPhoneDigits.slice(-10);
+      const patByPhone = await prisma.patients.findFirst({
+        where: {
+          phone: { contains: last10 },
+          ...(cleanName ? { name: { equals: cleanName, mode: "insensitive" } } : {}),
+        },
+        select: { id: true, user_id: true },
+      });
+      if (patByPhone) {
+        if (!patByPhone.user_id && uid) {
+          await prisma.patients.update({
+            where: { id: patByPhone.id },
+            data: { user_id: uid, updated_at: new Date() },
+          });
+        }
+        return patByPhone.id;
+      }
     }
 
     // Check existing unlinked patient by name

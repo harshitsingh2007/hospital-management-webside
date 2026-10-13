@@ -356,7 +356,18 @@ export default function FamilyMemberSwitcher({
   language = "en",
   familyTickets = {},
 }) {
-  const activeTicketCount = Object.keys(familyTickets || {}).length;
+  const activeTicketCount = Object.values(familyTickets || {}).filter(
+    (t, idx, arr) =>
+      t &&
+      t.ticket_id &&
+      ["waiting", "serving", "on_hold", "hold"].includes(String(t.status || "").toLowerCase()) &&
+      arr.findIndex((x) => x?.ticket_id === t.ticket_id) === idx
+  ).length;
+
+  const depNames = (members || [])
+    .filter((m) => m && m.relation !== "self" && m.id !== "self")
+    .map((m) => String(m.name || "").toLowerCase().trim())
+    .filter(Boolean);
 
   return (
     <div style={containerStyle}>
@@ -413,7 +424,19 @@ export default function FamilyMemberSwitcher({
         {(members || []).map((member) => {
           const isSelected = member.id === selectedMemberId;
           const isSelf = member.relation === "self";
-          const memTicket = familyTickets && familyTickets[member.id];
+          const selfTicket = familyTickets && familyTickets["self"];
+          const isSelfTicketValid = selfTicket && !depNames.includes(String(selfTicket.name || "").toLowerCase().trim()) && (!selfTicket.family_member_id || selfTicket.family_member_id === "self");
+
+          const memTicket = isSelf
+            ? (isSelfTicketValid ? selfTicket : null)
+            : (familyTickets &&
+                (familyTickets[member.id] ||
+                  familyTickets[String(member.id)] ||
+                  (member.name
+                    ? familyTickets[`name_${member.name.toLowerCase().trim()}`] ||
+                      familyTickets[member.name.toLowerCase().trim()]
+                    : null)));
+          const isLiveTicket = memTicket && ["waiting", "serving", "on_hold", "hold"].includes(String(memTicket.status || "").toLowerCase());
 
           return (
             <div
@@ -442,7 +465,7 @@ export default function FamilyMemberSwitcher({
                 <span style={getTagStyle(isSelected, isSelf)}>
                   {getRelationLabel(member.relation, language)}
                 </span>
-                {memTicket ? (
+                {isLiveTicket ? (
                   <span
                     style={{
                       fontSize: "10px",

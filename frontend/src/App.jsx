@@ -17,7 +17,8 @@ import MandatoryAuthScreen from "./components/common/MandatoryAuthScreen";
 import ErrorBoundary from "./components/common/ErrorBoundary";
 
 import PatientPage from "./pages/PatientPage";
-import StaffPage from "./pages/StaffPage";
+import DoctorPage from "./pages/DoctorPage";
+import StaffPortalPage from "./pages/StaffPortalPage";
 import MLAdminPage from "./pages/MLAdminPage";
 import DatabaseInspectorPage from "./pages/DatabaseInspectorPage";
 import KioskPage from "./pages/KioskPage";
@@ -36,7 +37,8 @@ export function getInitialPage(user) {
   }
   const userRole = effectiveUser ? (effectiveUser.role || "").toLowerCase() : "";
   const isSuperAdminUser = userRole === "super_admin" || userRole === "superadmin" || effectiveUser?.email === "superadmin@hospital.com" || effectiveUser?.is_superadmin;
-  const isStaffUser = ["admin", "doctor", "staff", "receptionist"].includes(userRole);
+  const isDoctorUser = userRole === "doctor" || userRole === "physician";
+  const isStaffUser = ["staff", "receptionist", "nurse"].includes(userRole);
   const path = window.location.pathname.toLowerCase();
   if (path.startsWith("/kiosk") || path.includes("kiosk") || path.includes("tv")) return "kiosk";
 
@@ -46,12 +48,20 @@ export function getInitialPage(user) {
     const p = pageParam.toLowerCase();
     if (p === "kiosk" || p === "tv") return "kiosk";
     if (["superadmin", "super_admin", "super-admin", "owner"].includes(p)) return "superadmin";
-    if (["staff", "doctor", "desk"].includes(p)) return "staff";
+    if (["doctor"].includes(p)) {
+      if (isStaffUser && !isDoctorUser) return "staff";
+      return "doctor";
+    }
+    if (["staff", "reception", "desk"].includes(p)) {
+      if (isDoctorUser) return "doctor";
+      return "staff";
+    }
     if (["admin", "ml"].includes(p)) return "admin";
     if (["db", "database"].includes(p)) return "db";
     // Tab aliases for the patient portal should route to patient page
     if (["patient", "history", "appointment_history", "past_appointments", "my_apts", "appointments", "my_appointments", "book", "family"].includes(p)) {
       if (isSuperAdminUser) return "superadmin";
+      if (isDoctorUser) return "doctor";
       if (isStaffUser) return "staff";
       return "patient";
     }
@@ -59,16 +69,25 @@ export function getInitialPage(user) {
   }
 
   if (path.includes("superadmin") || path.includes("super_admin") || path.includes("super-admin")) return "superadmin";
-  if (path.includes("staff") || path.includes("doctor")) return "staff";
+  if (path.includes("doctor")) {
+    if (isStaffUser && !isDoctorUser) return "staff";
+    return "doctor";
+  }
+  if (path.includes("staff") || path.includes("reception")) {
+    if (isDoctorUser) return "doctor";
+    return "staff";
+  }
   if (path.includes("admin") || path.includes("ml")) return "admin";
   if (path.includes("db") || path.includes("database")) return "db";
   if (path.includes("patient") || path.includes("history") || path.includes("appointment")) {
     if (isSuperAdminUser) return "superadmin";
+    if (isDoctorUser) return "doctor";
     if (isStaffUser) return "staff";
     return "patient";
   }
 
   if (isSuperAdminUser) return "superadmin";
+  if (isDoctorUser) return "doctor";
   if (isStaffUser) return "staff";
 
   return "patient";
@@ -163,7 +182,7 @@ export default function App() {
     try {
       localStorage.setItem("ai_queue_theme", theme);
       document.documentElement.setAttribute("data-theme", theme);
-      if (theme === "dark" && (activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "admin")) {
+      if (theme === "dark" && (activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "doctor" || activePage === "admin")) {
         document.body.classList.add("theme-dark");
         document.body.style.backgroundColor = "#090D16";
         document.body.style.color = "#F1F5F9";
@@ -290,7 +309,9 @@ export default function App() {
     const lower = (page || "").toLowerCase();
     if (["superadmin", "super_admin", "super-admin", "owner"].includes(lower)) {
       targetPage = "superadmin";
-    } else if (["staff", "doctor", "desk"].includes(lower)) {
+    } else if (["doctor", "doc"].includes(lower)) {
+      targetPage = "doctor";
+    } else if (["staff", "reception", "desk"].includes(lower)) {
       targetPage = "staff";
     } else if (["admin", "ml"].includes(lower)) {
       targetPage = "admin";
@@ -361,14 +382,20 @@ export default function App() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, [currentUser]);
 
-  // Auto-redirect privileged roles away from patient self-service page
+  // Auto-redirect privileged roles away from incorrect pages
   useEffect(() => {
     if (currentUser) {
       const r = (currentUser.role || "").toLowerCase();
       if ((r === "super_admin" || r === "superadmin") && activePage === "patient") {
         navigateTo("superadmin");
-      } else if (["admin", "doctor", "staff", "receptionist"].includes(r) && activePage === "patient") {
+      } else if ((r === "doctor" || r === "physician") && (activePage === "patient" || activePage === "staff")) {
+        // Logged-in doctor should immediately be on doctor consultation desk
+        navigateTo("doctor");
+      } else if (["staff", "receptionist", "nurse"].includes(r) && (activePage === "patient" || activePage === "doctor")) {
+        // Logged-in staff/receptionist should immediately be on staff reception desk
         navigateTo("staff");
+      } else if (["admin"].includes(r) && activePage === "patient") {
+        navigateTo("doctor");
       }
     }
   }, [currentUser, activePage, navigateTo]);
@@ -415,16 +442,19 @@ export default function App() {
     setActiveFamilyMember(null);
     setFamilyMembers([]);
 
-    // Fetch family members if patient role
-    if (userData.role === "user" || userData.role === "patient") {
-      fetchFamilyMembers(userData);
-    }
+    // Fetch family members on login for unified patient experience
+    fetchFamilyMembers(userData);
 
     // Role-based auto dashboard direct redirect (zero patient interference)
-    if (userData.role === "super_admin" || userData.role === "superadmin") {
+    const normalizedRole = (userData.role || "").toLowerCase();
+    if (normalizedRole === "super_admin" || normalizedRole === "superadmin") {
       navigateTo("superadmin");
-    } else if (["admin", "doctor", "staff", "receptionist"].includes(userData.role)) {
+    } else if (normalizedRole === "doctor" || normalizedRole === "physician") {
+      navigateTo("doctor");
+    } else if (["staff", "receptionist", "nurse"].includes(normalizedRole)) {
       navigateTo("staff");
+    } else if (normalizedRole === "admin") {
+      navigateTo("doctor");
     } else {
       navigateTo("patient", "walkin");
     }
@@ -456,28 +486,64 @@ export default function App() {
     navigateTo("patient", "walkin");
   };
 
-  // Fetch family members from backend (for role=user only)
+  // Fetch family members from backend
   const fetchFamilyMembers = useCallback((user) => {
-    const u = user || currentUser;
-    if (!u || !u.email || !(["user", "patient"].includes(u.role))) return;
-    const token = u.token || localStorage.getItem("ai_queue_token");
-    fetch(`${API_BASE}/api/v1/family-members`, {
+    let savedUser = null;
+    try {
+      const s = localStorage.getItem("ai_queue_user");
+      if (s) savedUser = JSON.parse(s);
+    } catch (e) {}
+    const u = user || currentUser || savedUser;
+    const token = u?.token || localStorage.getItem("ai_queue_token");
+    const validToken = token && token !== "undefined" && token !== "null" ? token : null;
+    const ident = u?.email || u?.username || localStorage.getItem("last_patient_name") || "";
+    const phone = u?.phone || "";
+
+    const q = new URLSearchParams();
+    if (ident) q.set("email", ident);
+    if (phone) q.set("phone", phone);
+    if (u?.id) q.set("user_id", String(u.id));
+
+    fetch(`${API_BASE}/api/v1/family-members?${q.toString()}`, {
       headers: {
-        "X-User-Email": u.email,
-        ...(token ? { Authorization: `Bearer ${token}` } : {})
+        ...(ident ? { "X-User-Email": ident } : {}),
+        ...(phone ? { "X-User-Phone": phone } : {}),
+        ...(validToken ? { Authorization: `Bearer ${validToken}` } : {})
       }
     })
       .then((r) => r.json())
       .then((data) => {
         if (data.status === "success" && Array.isArray(data.members)) {
-          setFamilyMembers(data.members);
+          setFamilyMembers(data.members.filter((m) => m && m.id !== "self"));
         }
       })
       .catch((e) => console.log("Family members fetch error:", e));
   }, [currentUser]);
 
-  // Real-time synchronization when family members are updated anywhere in the app
+  // Real-time synchronization when family members are updated anywhere in the app (including other tabs)
   useEffect(() => {
+    let bc = null;
+    try {
+      if (typeof BroadcastChannel !== "undefined") {
+        bc = new BroadcastChannel("hospital_family_sync");
+        bc.onmessage = (event) => {
+          if (event.data?.type === "FAMILY_MEMBERS_UPDATED" && Array.isArray(event.data.members)) {
+            setFamilyMembers(event.data.members.filter((m) => m && m.id !== "self"));
+          } else if (event.data?.type === "FAMILY_TICKET_ADDED") {
+            fetchFamilyMembers();
+            if (event.data.famMap) {
+              window.dispatchEvent(new CustomEvent("family_tickets_updated", { detail: event.data.famMap }));
+            }
+            if (event.data.ticket) {
+              window.dispatchEvent(new CustomEvent("active_ticket_updated", { detail: event.data.ticket }));
+            }
+          } else {
+            fetchFamilyMembers();
+          }
+        };
+      }
+    } catch (e) {}
+
     const handleFamilySync = (e) => {
       if (e?.detail && Array.isArray(e.detail) && e.detail.length > 0) {
         setFamilyMembers((prev) => {
@@ -491,19 +557,31 @@ export default function App() {
         fetchFamilyMembers();
       }
     };
+
+    const handleStorage = (e) => {
+      if (e.key && e.key.startsWith("family_members_") && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setFamilyMembers(parsed.filter((m) => m && m.id !== "self"));
+          }
+        } catch (err) {}
+      }
+    };
+
     window.addEventListener("family_members_updated", handleFamilySync);
-    return () => window.removeEventListener("family_members_updated", handleFamilySync);
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      if (bc) bc.close();
+      window.removeEventListener("family_members_updated", handleFamilySync);
+      window.removeEventListener("storage", handleStorage);
+    };
   }, [fetchFamilyMembers]);
 
   // Load family members when user is available
   useEffect(() => {
-    if (currentUser && ["user", "patient"].includes(currentUser.role)) {
-      fetchFamilyMembers(currentUser);
-    } else {
-      setFamilyMembers([]);
-      setActiveFamilyMember(null);
-    }
-  }, [currentUser]);
+    fetchFamilyMembers(currentUser);
+  }, [currentUser, fetchFamilyMembers]);
 
   // Handle profile switch from header
   const handleSwitchProfile = useCallback((member) => {
@@ -626,46 +704,130 @@ export default function App() {
       .catch((e) => console.log("Ticket verification error in App:", e));
   }, [activeTicket?.ticket_id]);
 
-  // Auto-restore active ticket from history on mount / login if state is empty or stale
+  // Auto-restore active ticket and sync family tickets from history on mount / login / event
   useEffect(() => {
+    const handleActiveTicketBroadcast = (e) => {
+      if (e?.detail && e.detail.ticket_id) {
+        const t = e.detail;
+        const depNames = (familyMembers || [])
+          .filter((m) => m && m.id !== "self")
+          .map((m) => String(m.name || "").toLowerCase().trim())
+          .filter(Boolean);
+        const isDep = (t.family_member_id && t.family_member_id !== "self") || (t.name && depNames.includes(String(t.name).toLowerCase().trim()));
+
+        if (activeFamilyMember) {
+          const curMemName = String(activeFamilyMember.name || "").toLowerCase().trim();
+          const curMemId = String(activeFamilyMember.id);
+          if (String(t.family_member_id) === curMemId || String(t.name || "").toLowerCase().trim() === curMemName) {
+            setActiveTicket(t);
+          }
+        } else {
+          if (!isDep) {
+            setActiveTicket(t);
+          }
+        }
+      }
+    };
+    window.addEventListener("active_ticket_updated", handleActiveTicketBroadcast);
+
     const ident =
       currentUser?.email ||
+      currentUser?.phone ||
       currentUser?.username ||
       localStorage.getItem("last_patient_name") ||
       "";
-    if (!ident.trim()) return;
+    if (!ident.trim()) return () => window.removeEventListener("active_ticket_updated", handleActiveTicketBroadcast);
 
     fetch(`${API_BASE}/api/v1/plugin/tickets/history/${encodeURIComponent(ident.trim())}`)
       .then((r) => r.json())
       .then((d) => {
         if (d && Array.isArray(d.tickets)) {
-          const active = d.tickets.find((t) =>
+          const liveTickets = d.tickets.filter((t) =>
             ["waiting", "serving", "on_hold", "hold"].includes(String(t.status || "").toLowerCase())
           );
-          if (active) {
-            setActiveTicket((prev) => {
-              if (!prev || prev.ticket_id !== active.ticket_id) {
-                return active;
+
+          const depList = (familyMembers || []).filter((m) => m && m.id !== "self");
+          const depNames = depList.map((m) => String(m.name || "").toLowerCase().trim()).filter(Boolean);
+
+          // 1. Map tickets to family tickets dictionary
+          const activeTicketsMap = {};
+          liveTickets.forEach((t) => {
+            const tName = String(t.name || "").toLowerCase().trim();
+            const matchingDep = depList.find((m) =>
+              (t.family_member_id && String(t.family_member_id) === String(m.id)) ||
+              (tName && String(m.name || "").toLowerCase().trim() === tName)
+            );
+
+            if (matchingDep) {
+              activeTicketsMap[matchingDep.id] = t;
+              activeTicketsMap[String(matchingDep.id)] = t;
+              if (matchingDep.name) {
+                activeTicketsMap[`name_${matchingDep.name.toLowerCase().trim()}`] = t;
+                activeTicketsMap[matchingDep.name.toLowerCase().trim()] = t;
               }
-              return { ...prev, ...active };
-            });
+            } else if (!t.family_member_id || t.family_member_id === "self") {
+              if (!depNames.includes(tName)) {
+                activeTicketsMap["self"] = t;
+              }
+            }
+            if (t.name) {
+              activeTicketsMap[`name_${tName}`] = t;
+            }
+          });
+
+          // Sync into localStorage & dispatch event so PatientPage and Header update instantly
+          const ticketStorageKey = `family_tickets_${currentUser ? (currentUser.username || currentUser.email) : "guest"}`;
+          try {
+            const saved = localStorage.getItem(ticketStorageKey);
+            const currentMap = saved ? JSON.parse(saved) : {};
+            if (currentMap["self"]) {
+              const selfTName = String(currentMap["self"].name || "").toLowerCase().trim();
+              if (depNames.includes(selfTName) || (currentMap["self"].family_member_id && currentMap["self"].family_member_id !== "self")) {
+                delete currentMap["self"];
+              }
+            }
+            const merged = { ...currentMap, ...activeTicketsMap };
+            localStorage.setItem(ticketStorageKey, JSON.stringify(merged));
+            window.dispatchEvent(new CustomEvent("family_tickets_updated", { detail: merged }));
+          } catch (e) {}
+
+          // 2. Set primary active ticket if present
+          const selfActiveTicket = liveTickets.find((t) => {
+            const tName = String(t.name || "").toLowerCase().trim();
+            const isDep = (t.family_member_id && t.family_member_id !== "self") || depNames.includes(tName);
+            return !isDep;
+          });
+
+          if (activeFamilyMember) {
+            const curMemName = String(activeFamilyMember.name || "").toLowerCase().trim();
+            const curMemId = String(activeFamilyMember.id);
+            const depTicket = liveTickets.find((t) =>
+              String(t.family_member_id) === curMemId || String(t.name || "").toLowerCase().trim() === curMemName
+            );
+            setActiveTicket(depTicket || null);
           } else {
-            // No live tickets found on server for this user; clear any stale active ticket
-            setActiveTicket((prev) => {
-              if (prev) {
-                try {
-                  localStorage.removeItem("ai_queue_active_ticket");
-                } catch (e) {}
-                return null;
-              }
-              return null;
-            });
-            setTicketQrData(null);
+            if (selfActiveTicket) {
+              setActiveTicket((prev) => {
+                if (!prev || prev.ticket_id !== selfActiveTicket.ticket_id) {
+                  return selfActiveTicket;
+                }
+                return { ...prev, ...selfActiveTicket };
+              });
+            } else {
+              // No live tickets found for self; clear stale self active ticket
+              setActiveTicket(null);
+              setTicketQrData(null);
+              try {
+                localStorage.removeItem("ai_queue_active_ticket");
+              } catch (e) {}
+            }
           }
         }
       })
       .catch((e) => console.log("Active ticket restore error:", e));
-  }, [currentUser]);
+
+    return () => window.removeEventListener("active_ticket_updated", handleActiveTicketBroadcast);
+  }, [currentUser, familyMembers, activeFamilyMember]);
 
   // Sync page & tab state when URL changes
   useEffect(() => {
@@ -692,6 +854,12 @@ export default function App() {
   const isAdmin = isStaffOrAdmin;
   const userRole = (currentUser?.role || "").toLowerCase();
   const isPatientOrGuest = !currentUser || userRole === "user" || userRole === "patient";
+  const isDoctorAccess = Boolean(currentUser) && (
+    ["doctor", "physician", "admin"].includes(userRole) || isSuperAdmin
+  );
+  const isStaffAccess = Boolean(currentUser) && (
+    ["staff", "receptionist", "nurse", "admin"].includes(userRole) || isSuperAdmin
+  );
   const canAccessDbInspector =
     Boolean(currentUser) &&
     userRole !== "doctor" &&
@@ -722,69 +890,37 @@ export default function App() {
 
     socket.on("disconnect", () => setSocketConnected(false));
 
-    socket.on("queue_update", (data) => {
+    const handleQueueSync = (data) => {
       const dept = adminDeptRef.current;
+      const snap = data.snapshot || [];
+      const srv = data.serving || [];
+      const hld = data.held || [];
+
       if (data.snapshot) {
-        setQueueSnapshot(dept && dept !== "all" ? data.snapshot.filter(t => (t.service_category || "").toLowerCase() === dept) : data.snapshot);
-        const cur = activeTicketRef.current;
-        if (cur && cur.status === "waiting") {
-          const updatedCur = data.snapshot.find(t => t.ticket_id === cur.ticket_id);
-          if (updatedCur) {
-            setActiveTicket(updatedCur);
-          }
-        }
+        setQueueSnapshot(dept && dept !== "all" ? snap.filter(t => (t.service_category || "").toLowerCase() === dept) : snap);
       }
       if (data.serving) {
-        setServingTickets(dept && dept !== "all" ? data.serving.filter(t => (t.service_category || "").toLowerCase() === dept) : data.serving);
+        setServingTickets(dept && dept !== "all" ? srv.filter(t => (t.service_category || "").toLowerCase() === dept) : srv);
       }
       if (data.held) {
-        setHeldTickets(dept && dept !== "all" ? data.held.filter(t => (t.service_category || "").toLowerCase() === dept) : data.held);
+        setHeldTickets(dept && dept !== "all" ? hld.filter(t => (t.service_category || "").toLowerCase() === dept) : hld);
       }
-    });
-
-    socket.on("queue_updated", (data) => {
-      const dept = adminDeptRef.current;
       if (data.analytics) setAnalytics(data.analytics);
-      if (data.snapshot) {
-        setQueueSnapshot(dept && dept !== "all" ? data.snapshot.filter(t => (t.service_category || "").toLowerCase() === dept) : data.snapshot);
-        const cur = activeTicketRef.current;
-        if (cur && cur.status === "waiting") {
-          const updatedCur = data.snapshot.find(t => t.ticket_id === cur.ticket_id);
-          if (updatedCur) {
-            setActiveTicket(updatedCur);
-          }
-        }
-      }
-      if (data.serving) {
-        setServingTickets(dept && dept !== "all" ? data.serving.filter(t => (t.service_category || "").toLowerCase() === dept) : data.serving);
-      }
-      if (data.held) {
-        setHeldTickets(dept && dept !== "all" ? data.held.filter(t => (t.service_category || "").toLowerCase() === dept) : data.held);
-      }
-    });
 
-    socket.on("ticket_cancelled", (data) => {
-      if (data && (data.ticket || data.ticket_id)) {
-        const tId = data.ticket?.ticket_id || data.ticket_id;
-        const cur = activeTicketRef.current;
-        if (cur && cur.ticket_id === tId) {
-          setActiveTicket(null);
-          setTicketQrData(null);
-          try {
-            localStorage.removeItem("ai_queue_active_ticket");
-          } catch (e) {}
-        }
-      }
-      refreshData();
-    });
-
-    socket.on("ticket_updated", (data) => {
-      if (data && data.ticket) {
-        const cur = activeTicketRef.current;
-        if (cur && (cur.ticket_id === data.ticket.ticket_id || cur.ticket_id === data.ticket_id)) {
-          const s = String(data.ticket.status || "").toLowerCase();
+      // Sync active ticket across snapshot, serving, and held
+      const cur = activeTicketRef.current;
+      if (cur && cur.ticket_id) {
+        const match =
+          snap.find((t) => t.ticket_id === cur.ticket_id) ||
+          srv.find((t) => t.ticket_id === cur.ticket_id) ||
+          hld.find((t) => t.ticket_id === cur.ticket_id);
+        if (match) {
+          const s = String(match.status || "").toLowerCase();
           if (["waiting", "serving", "on_hold", "hold"].includes(s)) {
-            setActiveTicket(data.ticket);
+            setActiveTicket((prev) => ({ ...prev, ...match }));
+            try {
+              localStorage.setItem("ai_queue_active_ticket", JSON.stringify({ ...(cur || {}), ...match }));
+            } catch (e) {}
           } else {
             setActiveTicket(null);
             setTicketQrData(null);
@@ -794,8 +930,103 @@ export default function App() {
           }
         }
       }
+      window.dispatchEvent(new CustomEvent("queue_updated_live", { detail: data }));
+    };
+
+    socket.on("queue_update", handleQueueSync);
+    socket.on("queue_updated", handleQueueSync);
+
+    socket.on("ticket_cancelled", (data) => {
+      const tId = data?.ticket?.ticket_id || data?.ticket_id;
+      if (tId) {
+        const cur = activeTicketRef.current;
+        if (cur && cur.ticket_id === tId) {
+          setActiveTicket(null);
+          setTicketQrData(null);
+          try {
+            localStorage.removeItem("ai_queue_active_ticket");
+          } catch (e) {}
+        }
+        // Also cleanup family tickets in localStorage
+        try {
+          const u = currentUser;
+          const idents = [u?.username, u?.email, u?.phone, "guest"].filter(Boolean);
+          idents.forEach((k) => {
+            const famKey = `family_tickets_${k}`;
+            const s = localStorage.getItem(famKey);
+            if (s) {
+              const m = JSON.parse(s);
+              let changed = false;
+              Object.keys(m).forEach((mk) => {
+                if (m[mk]?.ticket_id === tId) {
+                  delete m[mk];
+                  changed = true;
+                }
+              });
+              if (changed) {
+                localStorage.setItem(famKey, JSON.stringify(m));
+                window.dispatchEvent(new CustomEvent("family_tickets_updated", { detail: m }));
+              }
+            }
+          });
+        } catch (e) {}
+        window.dispatchEvent(new CustomEvent("ticket_cancelled", { detail: data }));
+      }
       refreshData();
     });
+
+    const handleTicketUpdated = (data) => {
+      const t = data?.ticket;
+      const tid = t?.ticket_id || data?.ticket_id;
+      if (t && tid) {
+        const cur = activeTicketRef.current;
+        if (cur && cur.ticket_id === tid) {
+          const s = String(t.status || "").toLowerCase();
+          if (["waiting", "serving", "on_hold", "hold"].includes(s)) {
+            setActiveTicket(t);
+            try {
+              localStorage.setItem("ai_queue_active_ticket", JSON.stringify(t));
+            } catch (e) {}
+          } else {
+            setActiveTicket(null);
+            setTicketQrData(null);
+            try {
+              localStorage.removeItem("ai_queue_active_ticket");
+            } catch (e) {}
+          }
+        }
+        // Also sync family tickets in localStorage
+        try {
+          const u = currentUser;
+          const idents = [u?.username, u?.email, u?.phone, "guest"].filter(Boolean);
+          idents.forEach((k) => {
+            const famKey = `family_tickets_${k}`;
+            const s = localStorage.getItem(famKey);
+            if (s) {
+              const m = JSON.parse(s);
+              let changed = false;
+              Object.keys(m).forEach((mk) => {
+                if (m[mk]?.ticket_id === tid) {
+                  m[mk] = { ...m[mk], ...t };
+                  changed = true;
+                }
+              });
+              if (changed) {
+                localStorage.setItem(famKey, JSON.stringify(m));
+                window.dispatchEvent(new CustomEvent("family_tickets_updated", { detail: m }));
+              }
+            }
+          });
+        } catch (e) {}
+      }
+      window.dispatchEvent(new CustomEvent("active_ticket_updated", { detail: t || data }));
+      refreshData();
+    };
+
+    socket.on("ticket_updated", handleTicketUpdated);
+    socket.on("priority_changed", handleTicketUpdated);
+    socket.on("ticket_held", handleTicketUpdated);
+    socket.on("ticket_recalled", handleTicketUpdated);
 
     socket.on("ticket_completed", (data) => {
       if (data && (data.ticket || data.ticket_id)) {
@@ -808,28 +1039,33 @@ export default function App() {
             localStorage.removeItem("ai_queue_active_ticket");
           } catch (e) {}
         }
+        try {
+          const u = currentUser;
+          const idents = [u?.username, u?.email, u?.phone, "guest"].filter(Boolean);
+          idents.forEach((k) => {
+            const famKey = `family_tickets_${k}`;
+            const s = localStorage.getItem(famKey);
+            if (s) {
+              const m = JSON.parse(s);
+              let changed = false;
+              Object.keys(m).forEach((mk) => {
+                if (m[mk]?.ticket_id === tId) {
+                  delete m[mk];
+                  changed = true;
+                }
+              });
+              if (changed) {
+                localStorage.setItem(famKey, JSON.stringify(m));
+                window.dispatchEvent(new CustomEvent("family_tickets_updated", { detail: m }));
+              }
+            }
+          });
+        } catch (e) {}
       }
       refreshData();
     });
 
-    socket.on("prescription_saved", (data) => {
-      if (data && data.ticket) {
-        const cur = activeTicketRef.current;
-        if (cur && (cur.ticket_id === data.ticket.ticket_id || cur.ticket_id === data.ticket_id)) {
-          const s = String(data.ticket.status || "").toLowerCase();
-          if (["waiting", "serving", "on_hold", "hold"].includes(s)) {
-            setActiveTicket(data.ticket);
-          } else {
-            setActiveTicket(null);
-            setTicketQrData(null);
-            try {
-              localStorage.removeItem("ai_queue_active_ticket");
-            } catch (e) {}
-          }
-        }
-      }
-      refreshData();
-    });
+    socket.on("prescription_saved", handleTicketUpdated);
 
     socket.on("analytics_update", (data) => {
       if (data) setAnalytics(data);
@@ -851,14 +1087,43 @@ export default function App() {
 
     socket.on("ticket_transferred", (data) => {
       if (data && data.new_ticket) {
+        const origId = data.original_ticket?.ticket_id;
+        const newT = data.new_ticket;
         const cur = activeTicketRef.current;
-        if (cur && (cur.ticket_id === data.original_ticket?.ticket_id || cur.ticket_id === data.new_ticket?.ticket_id)) {
-          setActiveTicket(data.new_ticket);
-          fetch(`${API_BASE}/api/v1/plugin/ticket-qr/${data.new_ticket.ticket_id}`)
+        if (cur && (cur.ticket_id === origId || cur.ticket_id === newT.ticket_id)) {
+          setActiveTicket(newT);
+          try {
+            localStorage.setItem("ai_queue_active_ticket", JSON.stringify(newT));
+          } catch (e) {}
+          fetch(`${API_BASE}/api/v1/plugin/ticket-qr/${newT.ticket_id}`)
             .then((r) => r.json())
             .then((qr) => setTicketQrData(qr))
             .catch((e) => console.log("QR fetch error:", e));
         }
+        // Update family tickets
+        try {
+          const u = currentUser;
+          const idents = [u?.username, u?.email, u?.phone, "guest"].filter(Boolean);
+          idents.forEach((k) => {
+            const famKey = `family_tickets_${k}`;
+            const s = localStorage.getItem(famKey);
+            if (s) {
+              const m = JSON.parse(s);
+              let changed = false;
+              Object.keys(m).forEach((mk) => {
+                if (m[mk]?.ticket_id === origId) {
+                  m[mk] = { ...newT };
+                  changed = true;
+                }
+              });
+              if (changed) {
+                localStorage.setItem(famKey, JSON.stringify(m));
+                window.dispatchEvent(new CustomEvent("family_tickets_updated", { detail: m }));
+              }
+            }
+          });
+        } catch (e) {}
+        window.dispatchEvent(new CustomEvent("active_ticket_updated", { detail: newT }));
       }
       refreshData();
     });
@@ -867,7 +1132,8 @@ export default function App() {
       if (data && data.ticket) {
         const cur = activeTicketRef.current;
         if (cur && data.ticket.ticket_id === cur.ticket_id) {
-          setActiveTicket(data.ticket);
+          const newStatus = data.ticket.status === "serving" ? "serving" : (data.re_announced ? (cur.status || "waiting") : (data.ticket.status || "serving"));
+          setActiveTicket((prev) => ({ ...prev, ...data.ticket, status: newStatus }));
         }
 
         // Only play audio chime & voice announcement on the Dedicated Waiting Room Kiosk TV (NOT on Patient/User Portal)
@@ -878,10 +1144,43 @@ export default function App() {
       }
     });
 
+    socket.on("ticket_announced", (data) => {
+      if (data && data.ticket) {
+        if (activePageRef.current === "kiosk") {
+          playChimeSound();
+          announceTicketVoice(data.ticket, languageRef.current || "en");
+        }
+      }
+    });
+
+    socket.on("ticket_noshow", (data) => {
+      const tid = data?.ticket_id;
+      if (tid) {
+        const cur = activeTicketRef.current;
+        if (cur && cur.ticket_id === tid) {
+          setActiveTicket(null);
+          setTicketQrData(null);
+          try {
+            localStorage.removeItem("ai_queue_active_ticket");
+          } catch (e) {}
+        }
+      }
+      refreshData();
+    });
+
     socket.on("serve_error", (data) => {
       if (data && data.message) {
         window.dispatchEvent(new CustomEvent("queue_serve_error", { detail: data }));
       }
+    });
+
+    socket.on("family_members_updated", (data) => {
+      fetchFamilyMembers();
+      window.dispatchEvent(new CustomEvent("family_members_updated", { detail: data }));
+    });
+
+    socket.on("ticket_created", (data) => {
+      window.dispatchEvent(new CustomEvent("ticket_created", { detail: data }));
     });
 
     return () => socket.disconnect();
@@ -1217,8 +1516,8 @@ export default function App() {
 
   return (
     <div
-      className={`app-main-layout-wrapper ${(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "admin") && theme === "dark" ? "dark-theme" : ""}`}
-      style={(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "admin") && theme === "dark" ? darkAppBgStyle : appBgStyle}
+      className={`app-main-layout-wrapper ${(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "doctor" || activePage === "admin") && theme === "dark" ? "dark-theme" : ""}`}
+      style={(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "doctor" || activePage === "admin") && theme === "dark" ? darkAppBgStyle : appBgStyle}
     >
       <style>{`
         .app-main-layout-wrapper {
@@ -1348,17 +1647,17 @@ export default function App() {
               )
             )}
 
-            {activePage === "staff" && (
-              !isAdmin ? (
+            {activePage === "doctor" && (
+              !isDoctorAccess ? (
                 <AccessDeniedGuard
-                  requiredRole="admin"
-                  pageName="Doctor & Staff Desk Dashboard"
+                  requiredRole="doctor"
+                  pageName="Doctor Consultation Desk"
                   currentUser={currentUser}
                   onLoginSuccess={handleLoginSuccess}
                   navigateTo={navigateTo}
                 />
               ) : (
-                <StaffPage
+                <DoctorPage
                   tenantId={tenantId}
                   currentUser={currentUser}
                   analytics={analytics}
@@ -1377,6 +1676,34 @@ export default function App() {
                   navigateTo={navigateTo}
                   hospitalBranding={hospitalBranding}
                   onUpdateHospitalBranding={setHospitalBranding}
+                  theme={theme}
+                  setTheme={setTheme}
+                />
+              )
+            )}
+
+            {activePage === "staff" && (
+              !isStaffAccess ? (
+                <AccessDeniedGuard
+                  requiredRole="staff"
+                  pageName="Staff Reception & Queue Terminal"
+                  currentUser={currentUser}
+                  onLoginSuccess={handleLoginSuccess}
+                  navigateTo={navigateTo}
+                />
+              ) : (
+                <StaffPortalPage
+                  tenantId={tenantId}
+                  currentUser={currentUser}
+                  analytics={analytics}
+                  queueSnapshot={queueSnapshot}
+                  servingTickets={servingTickets}
+                  heldTickets={heldTickets}
+                  refreshData={refreshData}
+                  language={language}
+                  socketRef={socketRef}
+                  navigateTo={navigateTo}
+                  hospitalBranding={hospitalBranding}
                   theme={theme}
                   setTheme={setTheme}
                 />

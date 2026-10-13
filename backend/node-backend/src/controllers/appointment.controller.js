@@ -170,6 +170,7 @@ async function bookAppointmentEndpoint(req, res, next) {
       appointmentDate: appointment_date,
       timeSlot: time_slot,
       patientId,
+      familyMemberId: family_member_id || null,
     });
 
     return res.status(200).json({
@@ -230,6 +231,7 @@ async function getTenantAppointmentsEndpoint(req, res, next) {
 
     const appointments = await getTenantAppointments(tenantId, department, activeOnly);
     return res.status(200).json({
+      status: "success",
       appointments,
     });
   } catch (error) {
