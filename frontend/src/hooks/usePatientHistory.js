@@ -1,9 +1,4 @@
-/**
- * usePatientHistory.js
- * --------------------
- * Custom React Hook for accessing live Patient Medical History, Past Visits,
- * Prescriptions, and Diagnostic Reports with real-time sync.
- */
+
 
 import { useState, useEffect, useCallback } from "react";
 import { fetchPatientHistoryByTicket, fetchPatientHistory } from "../services/patientHistoryService";
