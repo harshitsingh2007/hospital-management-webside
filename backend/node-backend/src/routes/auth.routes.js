@@ -17,6 +17,7 @@ const {
   getAllUsers,
   getUserHistory,
   checkEmail,
+  checkPhone,
   sendVerificationOtp,
   sendMobileOtp,
   verifyMobileOtp,
@@ -31,9 +32,12 @@ const router = express.Router();
 // Real-Time Validation & Verification (Email & Mobile OTP)
 router.get("/check-email", checkEmail);
 router.post("/check-email", checkEmail);
+router.get("/check-phone", checkPhone);
+router.post("/check-phone", checkPhone);
 router.post("/send-verification-otp", sendVerificationOtp);
 router.post("/send-mobile-otp", sendMobileOtp);
 router.post("/verify-mobile-otp", verifyMobileOtp);
+router.post("/verify-signup-phone", verifyMobileOtp);
 router.post("/login-mobile", verifyMobileOtp);
 
 // Password Reset Flow

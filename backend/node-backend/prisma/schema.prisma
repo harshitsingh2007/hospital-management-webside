@@ -453,10 +453,12 @@ model verification_tokens {
   id         Int      @id @default(autoincrement())
   email      String   @db.VarChar(255)
   token      String   @db.VarChar(255)
-  type       String   @db.VarChar(50) // "email_verification" | "password_reset"
+  type       String   @db.VarChar(50) // "email_verification" | "password_reset" | "mobile_verification"
   expires_at DateTime @db.Timestamptz(6)
   used       Boolean  @default(false)
   created_at DateTime @default(now()) @db.Timestamptz(6)
+  attempts   Int?     @default(0)
 
   @@index([email, type], map: "idx_verification_tokens_email_type")
 }
+

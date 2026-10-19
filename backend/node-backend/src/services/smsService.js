@@ -27,7 +27,7 @@ async function sendOtpSms(phone, otp, hospitalName = "City General Hospital") {
     console.warn(`[SMS Service] Warning: Phone number ${phone} does not appear to be a standard 10-digit number.`);
   }
 
-  const messageText = `Your OTP for ${hospitalName} patient portal is ${otp}. Valid for 15 minutes. Do not share this code with anyone.`;
+  const messageText = `Your OTP for ${hospitalName} patient portal is ${otp}. Valid for 5 minutes. Do not share this code with anyone.`;
 
   // 1. Check for Fast2SMS (India)
   const fast2SmsKey = process.env.FAST2SMS_API_KEY || env.FAST2SMS_API_KEY;

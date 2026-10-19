@@ -9,7 +9,7 @@ const { hashPassword, verifyPassword } = require("../utils/password");
 const { generateToken } = require("../utils/jwt");
 const { createHospital } = require("../services/hospitalService");
 const engine = require("../services/queueEngine");
-const { createVerificationOtp, verifyOtp } = require("../services/tokenService");
+const { createVerificationOtp, verifyOtp, verifyOtpDetailed, checkRateLimit } = require("../services/tokenService");
 const { sendVerificationEmail, sendPasswordResetEmail } = require("../services/emailService");
 
 /**
@@ -76,6 +76,25 @@ async function signupSuperAdmin(req, res, next) {
       return res.status(400).json({ status: "error", message: "An account with this email address already exists." });
     }
 
+    const cleanPhoneDigits = String(phone || "").replace(/\D/g, "").slice(-10);
+    if (cleanPhoneDigits && cleanPhoneDigits.length === 10) {
+      const existingPhone = await prisma.users.findFirst({
+        where: {
+          OR: [
+            { phone: { contains: cleanPhoneDigits } },
+            { email: `patient_${cleanPhoneDigits}@hospital.local` },
+          ],
+        },
+      });
+      if (existingPhone) {
+        return res.status(400).json({
+          status: "error",
+          code: "PHONE_ALREADY_EXISTS",
+          message: "An account with this mobile number already exists. Please sign in or use a different number.",
+        });
+      }
+    }
+
     const pwdHash = await hashPassword(password);
     const user = await prisma.users.create({
       data: {
@@ -131,6 +150,25 @@ async function signupAdmin(req, res, next) {
     const existing = await prisma.users.findUnique({ where: { email: cleanEmail } });
     if (existing) {
       return res.status(400).json({ status: "error", message: "An account with this email address already exists." });
+    }
+
+    const cleanAdminPhone = String(phone || "").replace(/\D/g, "").slice(-10);
+    if (cleanAdminPhone && cleanAdminPhone.length === 10) {
+      const existingPhone = await prisma.users.findFirst({
+        where: {
+          OR: [
+            { phone: { contains: cleanAdminPhone } },
+            { email: `patient_${cleanAdminPhone}@hospital.local` },
+          ],
+        },
+      });
+      if (existingPhone) {
+        return res.status(400).json({
+          status: "error",
+          code: "PHONE_ALREADY_EXISTS",
+          message: "An account with this mobile number already exists. Please sign in or use a different number.",
+        });
+      }
     }
 
     const hid = await engine.resolveHospitalId(hospital_code);
@@ -192,13 +230,52 @@ async function signupPatient(req, res, next) {
       return res.status(400).json({ status: "error", message: "An account with this email address already exists." });
     }
 
-    // Verify OTP if provided
+    // Verify Mobile Phone uniqueness
+    const cleanPatientPhoneDigits = String(phone || "").replace(/\D/g, "").slice(-10);
+    if (cleanPatientPhoneDigits && cleanPatientPhoneDigits.length === 10) {
+      const existingPhone = await prisma.users.findFirst({
+        where: {
+          OR: [
+            { phone: { contains: cleanPatientPhoneDigits } },
+            { email: `patient_${cleanPatientPhoneDigits}@hospital.local` },
+          ],
+        },
+      });
+      if (existingPhone) {
+        return res.status(400).json({
+          status: "error",
+          code: "PHONE_ALREADY_EXISTS",
+          message: "An account with this mobile number already exists. Please sign in or use a different number.",
+        });
+      }
+    }
+
+    // Verify Email OTP if provided
     if (otp) {
       const isValidOtp = await verifyOtp(cleanEmail, otp, "email_verification", true);
       if (!isValidOtp) {
         return res.status(400).json({
           status: "error",
           message: "Invalid or expired email verification code. Please enter the correct 6-digit code or request a new one.",
+        });
+      }
+    }
+
+    // Verify Mobile OTP if provided
+    if (req.body.mobile_otp) {
+      const cleanPatPhone = String(phone || "").replace(/\D/g, "").slice(-10);
+      // Check for matching token for this phone
+      const matchingToken = await prisma.verification_tokens.findFirst({
+        where: {
+          email: cleanPatPhone,
+          type: "mobile_verification",
+          token: String(req.body.mobile_otp).trim(),
+        },
+      });
+      if (!matchingToken) {
+        return res.status(400).json({
+          status: "error",
+          message: "Invalid or expired mobile verification code.",
         });
       }
     }
@@ -240,6 +317,11 @@ async function signupPatient(req, res, next) {
         age: 30,
       },
     });
+
+    // Auto-link any past walk-in records created under this phone
+    if (phone) {
+      await linkPastWalkinRecordsToUser(user.id, phone, username);
+    }
 
     const token = generateToken({
       id: user.id,
@@ -1040,6 +1122,47 @@ async function checkEmail(req, res, next) {
 }
 
 /**
+ * Real-time check if a mobile phone number already exists in the system.
+ */
+async function checkPhone(req, res, next) {
+  try {
+    const rawPhone = String(req.query.phone || req.body?.phone || "").trim();
+    const cleanDigits = rawPhone.replace(/\D/g, "");
+    const target10 = cleanDigits.slice(-10);
+
+    if (!target10 || target10.length !== 10) {
+      return res.status(400).json({ status: "error", message: "Please provide a valid 10-digit mobile phone number." });
+    }
+
+    const existing = await prisma.users.findFirst({
+      where: {
+        OR: [
+          { phone: { contains: target10 } },
+          { email: `patient_${target10}@hospital.local` },
+        ],
+      },
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        role: true,
+      },
+    });
+
+    return res.status(200).json({
+      status: "success",
+      exists: Boolean(existing),
+      phone: `+91${target10}`,
+      message: existing
+        ? "This mobile number is already registered. Please sign in or use a different number."
+        : "Mobile number is available for registration.",
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
  * Sends a 6-digit email verification code for new patient registration.
  */
 async function sendVerificationOtp(req, res, next) {
@@ -1079,7 +1202,6 @@ async function sendVerificationOtp(req, res, next) {
       message: "Verification code sent to your email address.",
       expires_at: expiresAt,
       simulated: dispatchResult.simulated || false,
-      ...(dispatchResult.simulated ? { dev_otp: otp } : {}),
     });
   } catch (error) {
     next(error);
@@ -1135,7 +1257,6 @@ async function forgotPassword(req, res, next) {
       message: "Password reset instructions sent to your email.",
       expires_at: expiresAt,
       simulated: dispatchResult.simulated || false,
-      ...(dispatchResult.simulated ? { dev_otp: otp } : {}),
     });
   } catch (error) {
     next(error);
@@ -1216,41 +1337,81 @@ async function resetPassword(req, res, next) {
 }
 
 /**
- * Sends a 6-digit OTP to a mobile phone number for instant registration or login.
+ * Sends a 6-digit OTP to a mobile phone number for instant registration, verification, or login.
+ * Enforces rate limiting (30s cooldown, max 5 per window) and a strict 5-minute OTP expiry.
  */
 async function sendMobileOtp(req, res, next) {
   try {
-    const { phone, hospital_code } = req.body;
+    const { phone, hospital_code, purpose, action, is_signup } = req.body;
     const cleanPhone = String(phone || "").trim();
     const cleanDigits = cleanPhone.replace(/\D/g, "");
+    const target10 = cleanDigits.slice(-10);
 
-    if (!cleanDigits || cleanDigits.length < 7) {
+    if (!target10 || target10.length !== 10) {
       return res.status(400).json({
         status: "error",
-        message: "Valid mobile phone number with at least 7 digits is required.",
+        message: "Please enter a valid 10-digit mobile phone number.",
       });
     }
 
-    const { otp, expiresAt } = await createVerificationOtp(cleanDigits, "mobile_verification", 15);
+    // Duplicate check for Signup verification flow
+    if (purpose === "signup" || action === "signup" || is_signup) {
+      const existingUser = await prisma.users.findFirst({
+        where: {
+          OR: [
+            { phone: { contains: target10 } },
+            { email: `patient_${target10}@hospital.local` },
+          ],
+        },
+      });
 
-    // Dispatch SMS via smsService (Fast2SMS / Twilio / MSG91 / Simulation)
+      if (existingUser) {
+        return res.status(400).json({
+          status: "error",
+          code: "PHONE_ALREADY_EXISTS",
+          message: "This mobile number is already registered. Please sign in or use a different number.",
+        });
+      }
+    }
+
+    // 1. Rate Limiting Check: 30-second cooldown between requests, max 5 requests per 15 minutes
+    const rateCheck = await checkRateLimit(target10, "mobile_verification", 30, 5);
+    if (!rateCheck.allowed) {
+      return res.status(429).json({
+        status: "error",
+        message: rateCheck.message || "Please wait before requesting another verification code.",
+        retry_after: rateCheck.retryAfterSeconds,
+      });
+    }
+
+    // 2. OTP Expiry: strictly 5 minutes (300 seconds)
+    const { otp, expiresAt } = await createVerificationOtp(target10, "mobile_verification", 5);
+
+    // 3. Resolve hospital branding name if hospital_code is present
+    let hospitalName = "City General Hospital";
+    if (hospital_code) {
+      try {
+        const hosp = await prisma.hospitals.findFirst({ where: { hospital_code: String(hospital_code).trim() } });
+        if (hosp?.name) hospitalName = hosp.name;
+      } catch (e) {}
+    }
+
+    // 4. Dispatch SMS via smsService (Twilio / MSG91 / Fast2SMS / Simulation fallback)
     let smsDispatchResult = { simulated: true };
     try {
       const { sendOtpSms } = require("../services/smsService");
-      smsDispatchResult = await sendOtpSms(cleanPhone, otp);
+      smsDispatchResult = await sendOtpSms(`+91${target10}`, otp, hospitalName);
     } catch (smsErr) {
       console.error("[Auth Controller] SMS dispatch error:", smsErr);
     }
 
     return res.status(200).json({
       status: "success",
-      message: smsDispatchResult.simulated
-        ? `OTP code [${otp}] generated for mobile number ${cleanPhone}. (Displayed on desk & pass slip)`
-        : `Verification code successfully sent via SMS to mobile number ${cleanPhone}.`,
+      message: `Verification code successfully sent via SMS to +91 ${target10} (valid for 5 mins).`,
       expires_at: expiresAt,
-      phone: cleanPhone,
+      expires_in: 300,
+      phone: `+91${target10}`,
       simulated: Boolean(smsDispatchResult.simulated),
-      dev_otp: otp,
     });
   } catch (error) {
     next(error);
@@ -1258,75 +1419,106 @@ async function sendMobileOtp(req, res, next) {
 }
 
 /**
- * Verifies mobile OTP and logs in or automatically registers the patient account,
- * immediately claiming all prior walk-in records associated with this phone.
+ * Verifies mobile OTP with maximum 3 attempts and 5-minute expiry.
+ * Supports:
+ *  1. Verification only (for signup mobile number verification before account creation): action === "verify_only"
+ *  2. Direct Mobile + OTP Login (or auto-registration): action omitted or undefined
  */
 async function verifyMobileOtp(req, res, next) {
   try {
-    const { phone, otp, name, hospital_code = "city-hospital-01" } = req.body;
+    const { phone, otp, name, hospital_code = "city-hospital-01", action, purpose } = req.body;
     const cleanPhone = String(phone || "").trim();
     const cleanDigits = cleanPhone.replace(/\D/g, "");
+    const target10 = cleanDigits.slice(-10);
     const cleanOtp = String(otp || "").trim();
 
-    if (!cleanDigits || cleanDigits.length < 7) {
-      return res.status(400).json({ status: "error", message: "Valid mobile phone number is required." });
+    if (!target10 || target10.length !== 10) {
+      return res.status(400).json({ status: "error", message: "Please enter a valid 10-digit mobile phone number." });
     }
     if (!cleanOtp) {
       return res.status(400).json({ status: "error", message: "6-digit verification code is required." });
     }
 
-    // Verify OTP
-    const last10 = cleanDigits.slice(-10);
+    // Check Twilio Verify service if active
     let isTwilioValid = false;
     try {
       const { verifyTwilioOtp } = require("../services/smsService");
-      isTwilioValid = await verifyTwilioOtp(cleanDigits, cleanOtp);
+      isTwilioValid = await verifyTwilioOtp(target10, cleanOtp);
     } catch (e) {}
 
-    const isValidOtp = isTwilioValid ||
-      (await verifyOtp(cleanDigits, cleanOtp, "mobile_verification")) ||
-      (await verifyOtp(last10, cleanOtp, "mobile_verification")) ||
-      cleanOtp === "123456";
+    // Verify OTP with max 3 attempts & 5-minute expiry tracking
+    const detailedResult = await verifyOtpDetailed(target10, cleanOtp, "mobile_verification", true);
+
+    const isValidOtp = isTwilioValid || detailedResult.valid || (cleanOtp === "123456" && process.env.NODE_ENV !== "production");
 
     if (!isValidOtp) {
       return res.status(400).json({
         status: "error",
-        message: "Invalid or expired verification code. Please request a new OTP.",
+        message: detailedResult.message || "Invalid or expired verification code. Please request a new OTP.",
+        remaining_attempts: detailedResult.remainingAttempts,
+        max_attempts_exceeded: Boolean(detailedResult.maxAttemptsExceeded),
       });
     }
 
-    // Resolve hospital
-    const targetCode = String(hospital_code || "city-hospital-01").trim();
-    let targetHospital = await prisma.hospitals.findFirst({
-      where: { hospital_code: targetCode },
-    });
-    if (!targetHospital) {
-      targetHospital = await prisma.hospitals.findFirst({ where: { status: "active" } });
+    // If verification-only mode (used in Signup before account creation)
+    if (action === "verify_only" || action === "signup" || purpose === "signup") {
+      const existingUser = await prisma.users.findFirst({
+        where: {
+          OR: [
+            { phone: { contains: target10 } },
+            { email: `patient_${target10}@hospital.local` },
+          ],
+        },
+      });
+
+      if (existingUser) {
+        return res.status(400).json({
+          status: "error",
+          code: "PHONE_ALREADY_EXISTS",
+          message: "This mobile number is already registered to an existing account. Please sign in or use a different number.",
+        });
+      }
+
+      return res.status(200).json({
+        status: "success",
+        verified: true,
+        phone: `+91${target10}`,
+        message: "Mobile number successfully verified.",
+      });
     }
-    const resolvedHospitalCode = targetHospital?.hospital_code || "city-hospital-01";
-    const resolvedHospitalName = targetHospital?.name || "City General Hospital";
 
     // Check if user already exists with this phone number
     let user = await prisma.users.findFirst({
       where: {
-        phone: { contains: last10 },
+        phone: { contains: target10 },
       },
       include: {
         patients: true,
       },
     });
 
+    // Resolve hospital: prefer user's primary hospital, then provided code, then active fallback
+    const targetCode = String(user?.primary_hospital_code || hospital_code || "city-hospital-01").trim();
+    let targetHospital = await prisma.hospitals.findFirst({
+      where: { hospital_code: targetCode },
+    });
+    if (!targetHospital) {
+      targetHospital = await prisma.hospitals.findFirst({ where: { status: "active" } });
+    }
+    const resolvedHospitalCode = targetHospital?.hospital_code || targetCode || "city-hospital-01";
+    const resolvedHospitalName = targetHospital?.name || "City General Hospital";
+
     if (!user) {
       // Auto-create new Patient user account
-      const safeEmail = `patient_${last10}@hospital.local`;
-      const safeUsername = name ? String(name).trim() : `Patient ${last10.slice(-4)}`;
+      const safeEmail = `patient_${target10}@hospital.local`;
+      const safeUsername = name ? String(name).trim() : `Patient ${target10.slice(-4)}`;
       const pwdHash = await hashPassword(Math.random().toString(36));
 
       user = await prisma.users.create({
         data: {
           email: safeEmail,
           username: safeUsername,
-          phone: cleanPhone,
+          phone: `+91${target10}`,
           role: "user",
           status: "active",
           password_hash: pwdHash,
@@ -1339,7 +1531,7 @@ async function verifyMobileOtp(req, res, next) {
     }
 
     // Retrospective Reconciliation: Auto-link all prior walk-in tickets/records created under this phone
-    await linkPastWalkinRecordsToUser(user.id, cleanPhone, user.username);
+    await linkPastWalkinRecordsToUser(user.id, `+91${target10}`, user.username);
 
     const token = generateToken({
       id: user.id,
@@ -1357,7 +1549,7 @@ async function verifyMobileOtp(req, res, next) {
         email: user.email,
         username: user.username,
         role: user.role,
-        phone: user.phone || cleanPhone,
+        phone: user.phone || `+91${target10}`,
         status: "active",
         hospital_code: resolvedHospitalCode,
         hospital_name: resolvedHospitalName,
@@ -1778,6 +1970,7 @@ module.exports = {
   lookupPatientAccount,
   addFamilyMemberFromStaff,
   checkEmail,
+  checkPhone,
   sendVerificationOtp,
   sendMobileOtp,
   verifyMobileOtp,

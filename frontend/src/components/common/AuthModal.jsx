@@ -24,9 +24,11 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
   });
 
   // Login Form States (Always empty by default)
+  const [loginMethod, setLoginMethod] = useState("email"); // "email" | "mobile"
   const [loginIdentifier, setLoginIdentifier] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [loginRemainingAttempts, setLoginRemainingAttempts] = useState(null);
 
   // Registration Form States (Always empty by default)
   const [fullName, setFullName] = useState("");
@@ -36,14 +38,25 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
   const [regConfirmPassword, setRegConfirmPassword] = useState("");
   const [hospitalName, setHospitalName] = useState("");
 
-  // Mobile OTP States
+  // Mobile OTP States (Login)
   const [mobilePhone, setMobilePhone] = useState("");
   const [mobileOtp, setMobileOtp] = useState("");
   const [mobileName, setMobileName] = useState("");
   const [mobileOtpSent, setMobileOtpSent] = useState(false);
   const [mobileOtpLoading, setMobileOtpLoading] = useState(false);
-  const [otpDevCode, setOtpDevCode] = useState("");
   const [otpCountdown, setOtpCountdown] = useState(0);
+
+  // Signup Mobile Verification States (+91 default country code)
+  const [signupMobile, setSignupMobile] = useState("");
+  const [signupOtp, setSignupOtp] = useState("");
+  const [signupOtpSent, setSignupOtpSent] = useState(false);
+  const [signupOtpLoading, setSignupOtpLoading] = useState(false);
+  const [signupOtpCountdown, setSignupOtpCountdown] = useState(0);
+  const [isMobileVerified, setIsMobileVerified] = useState(false);
+  const [signupVerifying, setSignupVerifying] = useState(false);
+  const [signupRemainingAttempts, setSignupRemainingAttempts] = useState(null);
+  const [signupPhoneStatus, setSignupPhoneStatus] = useState("idle"); // "idle" | "checking" | "taken" | "available"
+  const [phoneCheckMessage, setPhoneCheckMessage] = useState("");
 
   useEffect(() => {
     let timer = null;
@@ -52,6 +65,15 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
     }
     return () => { if (timer) clearTimeout(timer); };
   }, [otpCountdown]);
+
+  useEffect(() => {
+    let timer = null;
+    if (signupOtpCountdown > 0) {
+      timer = setTimeout(() => setSignupOtpCountdown(signupOtpCountdown - 1), 1000);
+    }
+    return () => { if (timer) clearTimeout(timer); };
+  }, [signupOtpCountdown]);
+
 
   // Multi-Hospital Tenant Selection
   const [hospitalsList, setHospitalsList] = useState([]);
@@ -119,18 +141,49 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
   const [errorMsg, setErrorMsg] = useState(null);
   const [loading, setLoading] = useState(false);
 
+  // Real-time check if signup mobile number is already taken
+  useEffect(() => {
+    const cleanDigits = signupMobile.replace(/\D/g, "");
+    if (cleanDigits.length !== 10) {
+      setSignupPhoneStatus("idle");
+      setPhoneCheckMessage("");
+      return;
+    }
+
+    setSignupPhoneStatus("checking");
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/auth/check-phone?phone=${cleanDigits}`);
+        const data = await res.json();
+        if (data.exists) {
+          setSignupPhoneStatus("taken");
+          setPhoneCheckMessage("This mobile number is already registered. Please sign in or use another number.");
+          setErrorMsg("This mobile number is already registered. Please sign in or use a different number.");
+        } else {
+          setSignupPhoneStatus("available");
+          setPhoneCheckMessage("");
+          setErrorMsg((prev) => (prev && prev.includes("mobile number is already registered") ? null : prev));
+        }
+      } catch (e) {
+        setSignupPhoneStatus("idle");
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [signupMobile]);
+
   const switchMode = (mode) => {
     setCurrentMode(mode);
     setErrorMsg(null);
     if (setAuthMode) setAuthMode(mode);
   };
 
-  // 0. Submit Mobile OTP Handlers (Instant Phone-Number Registration & Past Walk-In Sync)
+  // 0. Submit Mobile OTP Handlers (Login: +91, 5-minute expiry, max 3 attempts)
   const handleSendMobileOtp = async (e) => {
-    if (e) e.preventDefault();
+    if (e && e.preventDefault) e.preventDefault();
     const cleanDigits = mobilePhone.replace(/\D/g, "");
-    if (!cleanDigits || cleanDigits.length < 7) {
-      setErrorMsg("Please enter a valid mobile phone number with at least 7 digits.");
+    if (!cleanDigits || cleanDigits.length !== 10) {
+      setErrorMsg("Please enter a valid 10-digit mobile phone number.");
       return;
     }
     setErrorMsg(null);
@@ -140,14 +193,17 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
       const res = await fetch(`${API_BASE}/api/v1/auth/send-mobile-otp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: mobilePhone, hospital_code: selectedHospitalCode }),
+        body: JSON.stringify({
+          phone: `+91${cleanDigits}`,
+          hospital_code: selectedHospitalCode || "city-hospital-01",
+        }),
       });
       const data = await res.json();
       setMobileOtpLoading(false);
       if (res.ok && data.status === "success") {
         setMobileOtpSent(true);
-        setOtpCountdown(45);
-        if (data.dev_otp) setOtpDevCode(data.dev_otp);
+        setOtpCountdown(30);
+        setLoginRemainingAttempts(null);
       } else {
         setErrorMsg(data.message || "Failed to send OTP to mobile. Please try again.");
       }
@@ -158,8 +214,14 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
   };
 
   const handleVerifyMobileOtp = async (e) => {
-    if (e) e.preventDefault();
-    if (!mobileOtp.trim()) {
+    if (e && e.preventDefault) e.preventDefault();
+    const cleanDigits = mobilePhone.replace(/\D/g, "");
+    const cleanOtp = mobileOtp.trim();
+    if (!cleanDigits || cleanDigits.length !== 10) {
+      setErrorMsg("Please enter a valid 10-digit mobile phone number.");
+      return;
+    }
+    if (!cleanOtp || cleanOtp.length !== 6) {
       setErrorMsg("Please enter the 6-digit verification code.");
       return;
     }
@@ -171,8 +233,8 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          phone: mobilePhone.trim(),
-          otp: mobileOtp.trim(),
+          phone: `+91${cleanDigits}`,
+          otp: cleanOtp,
           name: mobileName.trim() || undefined,
           hospital_code: selectedHospitalCode || "city-hospital-01",
         }),
@@ -186,16 +248,116 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
             localStorage.setItem("ai_queue_token", data.token);
           } catch (e) {}
         }
-        try {
-          localStorage.setItem("ai_queue_current_hospital", selectedHospitalCode || "city-hospital-01");
-        } catch (e) {}
+        if (data.user?.hospital_code || selectedHospitalCode) {
+          try {
+            localStorage.setItem("ai_queue_current_hospital", data.user?.hospital_code || selectedHospitalCode || "city-hospital-01");
+          } catch (e) {}
+        }
         onLoginSuccess(data.user);
       } else {
+        if (data.remaining_attempts !== undefined) {
+          setLoginRemainingAttempts(data.remaining_attempts);
+        }
         setErrorMsg(data.message || data.detail || "Invalid or expired OTP. Please try again.");
       }
     } catch (err) {
       setLoading(false);
       setErrorMsg(`Server connection error: ${err.message}`);
+    }
+  };
+
+  // Signup: Send Mobile OTP (+91 default country code)
+  const handleSendSignupOtp = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    const cleanDigits = signupMobile.replace(/\D/g, "");
+    if (!cleanDigits || cleanDigits.length !== 10) {
+      setErrorMsg("Please enter a valid 10-digit mobile phone number.");
+      return;
+    }
+    if (signupPhoneStatus === "taken") {
+      setErrorMsg("This mobile number is already registered. Please sign in or use a different number.");
+      return;
+    }
+    setErrorMsg(null);
+    setSignupOtpLoading(true);
+
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/auth/send-mobile-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone: `+91${cleanDigits}`,
+          purpose: "signup",
+          hospital_code: selectedHospitalCode || "city-hospital-01",
+        }),
+      });
+      const data = await res.json();
+      setSignupOtpLoading(false);
+
+      if (res.ok && data.status === "success") {
+        setSignupOtpSent(true);
+        setSignupOtpCountdown(30);
+        setSignupRemainingAttempts(null);
+      } else {
+        if (data.code === "PHONE_ALREADY_EXISTS" || data.message?.includes("already registered")) {
+          setSignupPhoneStatus("taken");
+        }
+        setErrorMsg(data.message || "Failed to send verification code. Please try again.");
+      }
+    } catch (err) {
+      setSignupOtpLoading(false);
+      setErrorMsg(`Connection error: ${err.message}`);
+    }
+  };
+
+  // Signup: Verify Mobile OTP before account creation
+  const handleVerifySignupOtp = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    const cleanDigits = signupMobile.replace(/\D/g, "");
+    const cleanOtp = signupOtp.trim();
+
+    if (!cleanDigits || cleanDigits.length !== 10) {
+      setErrorMsg("Please enter a valid 10-digit mobile phone number.");
+      return;
+    }
+    if (!cleanOtp || cleanOtp.length !== 6) {
+      setErrorMsg("Please enter the 6-digit verification code.");
+      return;
+    }
+
+    setErrorMsg(null);
+    setSignupVerifying(true);
+
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/auth/verify-mobile-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone: `+91${cleanDigits}`,
+          otp: cleanOtp,
+          action: "verify_only",
+          purpose: "signup",
+        }),
+      });
+      const data = await res.json();
+      setSignupVerifying(false);
+
+      if (res.ok && data.status === "success") {
+        setIsMobileVerified(true);
+        setRegPhone(`+91${cleanDigits}`);
+        setSignupRemainingAttempts(null);
+      } else {
+        if (data.code === "PHONE_ALREADY_EXISTS" || data.message?.includes("already registered")) {
+          setSignupPhoneStatus("taken");
+        }
+        if (data.remaining_attempts !== undefined) {
+          setSignupRemainingAttempts(data.remaining_attempts);
+        }
+        setErrorMsg(data.message || "Invalid or expired OTP. Please try again.");
+      }
+    } catch (err) {
+      setSignupVerifying(false);
+      setErrorMsg(`Connection error: ${err.message}`);
     }
   };
 
@@ -241,6 +403,11 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
     e.preventDefault();
     setErrorMsg(null);
 
+    if (currentMode === "signup-patient" && !isMobileVerified) {
+      setErrorMsg("Please verify your mobile number via OTP before creating your account.");
+      return;
+    }
+
     if (regPassword !== regConfirmPassword) {
       setErrorMsg("Passwords do not match. Please re-enter.");
       return;
@@ -252,11 +419,12 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
 
     setLoading(true);
     let endpoint = "/api/v1/auth/signup/patient";
+    const cleanPhoneDigits = (signupMobile || regPhone).replace(/\D/g, "").slice(-10);
     let payload = {
       username: fullName.trim(),
       email: regEmail.trim(),
       password: regPassword,
-      phone: regPhone.trim(),
+      phone: cleanPhoneDigits ? `+91${cleanPhoneDigits}` : regPhone.trim(),
     };
 
     if (currentMode === "signup-superadmin") {
@@ -264,6 +432,10 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
       payload.hospital_name = hospitalName.trim() || `${fullName.trim()}'s Medical Center`;
     } else {
       payload.hospital_code = selectedHospitalCode || "city-hospital-01";
+      if (signupOtp) {
+        payload.mobile_otp = signupOtp.trim();
+      }
+      payload.mobile_verified = isMobileVerified;
     }
 
     try {
@@ -287,9 +459,11 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
             localStorage.setItem("ai_queue_current_hospital", payload.hospital_code);
           } catch (e) {}
         }
-        onLoginSuccess(data.user);
       } else {
-        setErrorMsg(data.detail || "Registration failed. Please try again.");
+        if (data.code === "PHONE_ALREADY_EXISTS" || data.message?.includes("already exists") || data.message?.includes("already registered")) {
+          setSignupPhoneStatus("taken");
+        }
+        setErrorMsg(data.message || data.detail || "Registration failed. Please try again.");
       }
     } catch (err) {
       setLoading(false);
@@ -339,19 +513,15 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
           </div>
           <div>
             <h2 style={{ margin: 0, fontSize: "20px", color: "#064E3B", fontWeight: 800, letterSpacing: "-0.3px" }}>
-              {currentMode === "login"
+              {currentMode === "login" || currentMode === "login-mobile"
                 ? "Sign In"
-                : currentMode === "login-mobile"
-                ? "Patient Mobile OTP Access"
                 : currentMode === "signup-superadmin"
                 ? "Register as Super Admin"
                 : "Register as Patient"}
             </h2>
             <span style={{ fontSize: "12px", color: "#64748B", fontWeight: 500 }}>
-              {currentMode === "login"
-                ? "Sign in with your Email or Assigned ID"
-                : currentMode === "login-mobile"
-                ? "Instant login & retrospective walk-in record sync"
+              {currentMode === "login" || currentMode === "login-mobile"
+                ? (loginMethod === "mobile" ? "Sign in with Mobile OTP & retrospective walk-in sync" : "Sign in with your Email or Assigned ID")
                 : currentMode === "signup-superadmin"
                 ? "Hospital Owner & Network Administrator Account"
                 : "Patient Self-Service Account"}
@@ -366,203 +536,207 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
         )}
       </div>
 
-      {/* VIEW 0: PATIENT MOBILE OTP LOGIN & RETROSPECTIVE SYNC */}
-      {currentMode === "login-mobile" && (
-        <form onSubmit={mobileOtpSent ? handleVerifyMobileOtp : handleSendMobileOtp}>
+      {/* VIEW 1: UNIFIED LOGIN (Email + Password OR Mobile + OTP) */}
+      {(currentMode === "login" || currentMode === "login-mobile") && (
+        <>
+          {/* Login Method Tab Selector: Email vs Mobile OTP */}
           <div style={{
-            marginBottom: "14px",
-            padding: "10px 14px",
-            borderRadius: "10px",
-            background: "#ECFDF5",
-            border: "1px solid #A7F3D0",
-            fontSize: "11.5px",
-            color: "#065F46",
-            lineHeight: "1.5",
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: "6px",
+            padding: "4px",
+            background: "#F1F5F9",
+            borderRadius: "12px",
+            marginBottom: "16px",
           }}>
-            📱 <strong>Past Record Sync:</strong> If you received a walk-in token or prescription previously, entering your mobile number will automatically connect all your previous visit history to your account!
-          </div>
-
-          <div style={{ marginBottom: "12px" }}>
-            <label style={fieldLabelStyle}>Select Hospital / Clinic *</label>
-            <select
-              value={selectedHospitalCode}
-              onChange={(e) => {
-                setSelectedHospitalCode(e.target.value);
-                try { localStorage.setItem("ai_queue_current_hospital", e.target.value); } catch (err) {}
-              }}
-              required
+            <button
+              type="button"
+              onClick={() => { setLoginMethod("email"); setErrorMsg(null); }}
               style={{
-                ...fieldInputStyle,
+                padding: "8px 12px",
+                borderRadius: "9px",
+                border: "none",
+                background: loginMethod === "email" ? "#FFFFFF" : "transparent",
+                color: loginMethod === "email" ? "#0F172A" : "#64748B",
+                fontWeight: 700,
+                fontSize: "12.5px",
                 cursor: "pointer",
-                background: "#FFFFFF",
-                fontWeight: 600,
-                color: "#0F172A",
+                boxShadow: loginMethod === "email" ? "0 2px 8px rgba(0,0,0,0.06)" : "none",
+                transition: "all 0.18s ease",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "7px",
               }}
             >
-              {hospitalsList.map((h) => (
-                <option key={h.hospital_code} value={h.hospital_code}>
-                  {h.name} {h.address ? `• ${h.address}` : ""}
-                </option>
-              ))}
-            </select>
+              <span>✉️</span>
+              <span>Email + Password</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => { setLoginMethod("mobile"); setErrorMsg(null); }}
+              style={{
+                padding: "8px 12px",
+                borderRadius: "9px",
+                border: "none",
+                background: loginMethod === "mobile" ? "#FFFFFF" : "transparent",
+                color: loginMethod === "mobile" ? "#0F172A" : "#64748B",
+                fontWeight: 700,
+                fontSize: "12.5px",
+                cursor: "pointer",
+                boxShadow: loginMethod === "mobile" ? "0 2px 8px rgba(0,0,0,0.06)" : "none",
+                transition: "all 0.18s ease",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "7px",
+              }}
+            >
+              <span>📱</span>
+              <span>Mobile + OTP</span>
+            </button>
           </div>
 
-          <div style={{ marginBottom: "12px" }}>
-            <label style={fieldLabelStyle}>Mobile Phone Number *</label>
-            <div style={{ display: "flex", gap: "8px" }}>
-              <input
-                type="tel"
-                placeholder="e.g. 9876543210"
-                value={mobilePhone}
-                onChange={(e) => setMobilePhone(e.target.value)}
-                required
-                disabled={mobileOtpSent}
-                style={{ ...fieldInputStyle, flex: 1 }}
-                autoFocus
-              />
-              <button
-                type="button"
-                onClick={handleSendMobileOtp}
-                disabled={mobileOtpLoading || (mobileOtpSent && otpCountdown > 0)}
-                style={{
-                  padding: "0 14px",
-                  borderRadius: "10px",
-                  border: "none",
-                  background: (mobileOtpSent && otpCountdown > 0) ? "#94A3B8" : "#0284C7",
-                  color: "#FFFFFF",
-                  fontSize: "12px",
-                  fontWeight: 700,
-                  cursor: (mobileOtpSent && otpCountdown > 0) ? "not-allowed" : "pointer",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {mobileOtpLoading
-                  ? "Sending..."
-                  : mobileOtpSent
-                  ? (otpCountdown > 0 ? `Resend (${otpCountdown}s)` : "Resend OTP")
-                  : "Send OTP"}
-              </button>
-            </div>
-            {mobileOtpSent && (
-              <div style={{ fontSize: "11px", color: "#10B981", fontWeight: 700, marginTop: "4px" }}>
-                ✓ OTP sent to {mobilePhone} {otpDevCode ? `(Code: ${otpDevCode})` : ""}
-              </div>
-            )}
-          </div>
-
-          {mobileOtpSent && (
-            <>
-              <div style={{ marginBottom: "12px" }}>
-                <label style={fieldLabelStyle}>Your Full Name (Optional if previously registered)</label>
+          {/* Option A: Email + Password */}
+          {loginMethod === "email" && (
+            <form onSubmit={handleLoginSubmit}>
+              <div style={{ marginBottom: "14px" }}>
+                <label style={fieldLabelStyle}>Email / Assigned ID</label>
                 <input
                   type="text"
-                  placeholder="e.g. Ramesh Kumar"
-                  value={mobileName}
-                  onChange={(e) => setMobileName(e.target.value)}
-                  style={fieldInputStyle}
-                />
-              </div>
-
-              <div style={{ marginBottom: "18px" }}>
-                <label style={fieldLabelStyle}>Enter 6-Digit OTP Code *</label>
-                <input
-                  type="text"
-                  placeholder="••••••"
-                  maxLength={6}
-                  value={mobileOtp}
-                  onChange={(e) => setMobileOtp(e.target.value)}
+                  placeholder="name@hospital.com or DOC-1024"
+                  value={loginIdentifier}
+                  onChange={(e) => setLoginIdentifier(e.target.value)}
                   required
-                  style={{ ...fieldInputStyle, fontSize: "18px", letterSpacing: "4px", textAlign: "center", fontWeight: 800 }}
+                  style={fieldInputStyle}
                   autoFocus
                 />
               </div>
 
+              <div style={{ marginBottom: "18px" }}>
+                <label style={fieldLabelStyle}>Password</label>
+                <div style={{ position: "relative" }}>
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    placeholder="••••••••"
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    required
+                    style={{ ...fieldInputStyle, paddingRight: "40px" }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    style={passwordToggleBtnStyle}
+                    tabIndex={-1}
+                    title={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? "👁️" : "🔒"}
+                  </button>
+                </div>
+              </div>
+
               <button type="submit" disabled={loading} style={modalSubmitBtnStyle}>
-                {loading ? "Verifying & Syncing Records..." : "Verify OTP & Enter Patient Portal"}
+                {loading ? "Signing in..." : "Sign In"}
               </button>
-            </>
+            </form>
           )}
 
-          <button
-            type="button"
-            onClick={() => switchMode("login")}
-            style={backLinkBtnStyle}
-          >
-            ← Back to Email / Staff Sign In
-          </button>
-        </form>
-      )}
+          {/* Option B: Mobile + OTP */}
+          {loginMethod === "mobile" && (
+            <form onSubmit={handleVerifyMobileOtp}>
 
-      {/* VIEW 1: UNIFIED LOGIN (Admin, Staff, Doctor, Super Admin, Patient) */}
-      {currentMode === "login" && (
-        <>
-          <form onSubmit={handleLoginSubmit}>
-            <div style={{ marginBottom: "14px" }}>
-              <label style={fieldLabelStyle}>Email / Assigned ID</label>
-              <input
-                type="text"
-                placeholder="name@hospital.com or DOC-1024"
-                value={loginIdentifier}
-                onChange={(e) => setLoginIdentifier(e.target.value)}
-                required
-                style={fieldInputStyle}
-                autoFocus
-              />
-            </div>
-
-            <div style={{ marginBottom: "18px" }}>
-              <label style={fieldLabelStyle}>Password</label>
-              <div style={{ position: "relative" }}>
-                <input
-                  type={showPassword ? "text" : "password"}
-                  placeholder="••••••••"
-                  value={loginPassword}
-                  onChange={(e) => setLoginPassword(e.target.value)}
-                  required
-                  style={{ ...fieldInputStyle, paddingRight: "40px" }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  style={passwordToggleBtnStyle}
-                  tabIndex={-1}
-                  title={showPassword ? "Hide password" : "Show password"}
-                >
-                  {showPassword ? "👁️" : "🔒"}
-                </button>
+              {/* Mobile Phone Input with +91 Country Code */}
+              <div style={{ marginBottom: "12px" }}>
+                <label style={fieldLabelStyle}>Mobile Phone Number *</label>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <div style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "4px",
+                    padding: "0 10px",
+                    background: "#F1F5F9",
+                    border: "1.5px solid #CBD5E1",
+                    borderRadius: "10px",
+                    fontSize: "13px",
+                    fontWeight: 700,
+                    color: "#0F172A",
+                    flexShrink: 0,
+                  }}>
+                    <span>🇮🇳</span>
+                    <span>+91</span>
+                  </div>
+                  <input
+                    type="tel"
+                    maxLength={10}
+                    placeholder="9876543210"
+                    value={mobilePhone}
+                    onChange={(e) => setMobilePhone(e.target.value.replace(/\D/g, ""))}
+                    required
+                    disabled={mobileOtpSent && otpCountdown > 0}
+                    style={{ ...fieldInputStyle, flex: 1 }}
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSendMobileOtp}
+                    disabled={mobileOtpLoading || (mobileOtpSent && otpCountdown > 0) || mobilePhone.length !== 10}
+                    style={{
+                      padding: "0 14px",
+                      borderRadius: "10px",
+                      border: "none",
+                      background: (mobileOtpSent && otpCountdown > 0) ? "#94A3B8" : "#0284C7",
+                      color: "#FFFFFF",
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      cursor: (mobileOtpSent && otpCountdown > 0) ? "not-allowed" : "pointer",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {mobileOtpLoading
+                      ? "Sending..."
+                      : mobileOtpSent
+                      ? (otpCountdown > 0 ? `Resend (${otpCountdown}s)` : "Resend OTP")
+                      : "Send OTP"}
+                  </button>
+                </div>
               </div>
-            </div>
 
-            <button type="submit" disabled={loading} style={modalSubmitBtnStyle}>
-              {loading ? "Signing in..." : "Sign In"}
-            </button>
-          </form>
+              {/* 6-Digit OTP Code Input */}
+              {mobileOtpSent && (
+                <>
+                  <div style={{ marginBottom: "16px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                      <label style={fieldLabelStyle}>Enter 6-Digit OTP Code *</label>
+                      <span style={{ fontSize: "11px", color: "#64748B" }}>
+                        Valid 5 mins (Max 3 attempts)
+                      </span>
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="••••••"
+                      maxLength={6}
+                      value={mobileOtp}
+                      onChange={(e) => setMobileOtp(e.target.value.replace(/\D/g, ""))}
+                      required
+                      style={{ ...fieldInputStyle, fontSize: "18px", letterSpacing: "5px", textAlign: "center", fontWeight: 800 }}
+                      autoFocus
+                    />
+                    {loginRemainingAttempts !== null && loginRemainingAttempts < 3 && (
+                      <div style={{ fontSize: "11px", color: "#DC2626", fontWeight: 700, marginTop: "4px" }}>
+                        {loginRemainingAttempts} attempt(s) remaining before OTP locks
+                      </div>
+                    )}
+                  </div>
 
-          {/* Quick Mobile OTP Access for Patients */}
-          <button
-            type="button"
-            onClick={() => switchMode("login-mobile")}
-            style={{
-              width: "100%",
-              padding: "11px 14px",
-              borderRadius: "12px",
-              border: "1.5px solid #A7F3D0",
-              background: "#ECFDF5",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: "12px",
-              marginTop: "12px",
-              transition: "all 0.15s ease",
-            }}
-          >
-            <span style={{ fontSize: "18px" }}>📱</span>
-            <div style={{ textAlign: "left", flex: 1 }}>
-              <div style={{ fontWeight: 800, fontSize: "12.5px", color: "#065F46" }}>Patient Mobile OTP Login / Register</div>
-              <span style={{ fontSize: "11px", color: "#059669" }}>Instant login & sync all past walk-in tokens</span>
-            </div>
-            <span style={{ fontSize: "14px", color: "#059669", fontWeight: 700 }}>→</span>
-          </button>
+                  <button type="submit" disabled={loading || mobileOtp.length !== 6} style={modalSubmitBtnStyle}>
+                    {loading ? "Verifying & Signing In..." : "Sign in with Mobile OTP"}
+                  </button>
+                </>
+              )}
+
+            </form>
+          )}
 
           {/* Admin, Doctor & Staff Policy Notice */}
           <div style={noticeBoxStyle}>
@@ -604,8 +778,8 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
             >
               <span style={{ fontSize: "18px" }}>👤</span>
               <div style={{ textAlign: "left", flex: 1 }}>
-                <div style={{ fontWeight: 800, fontSize: "12.5px", color: "#0369A1" }}>Register as Patient (Email)</div>
-                <span style={{ fontSize: "11px", color: "#0284C7" }}>Book appointments and track live queue passes</span>
+                <div style={{ fontWeight: 800, fontSize: "12.5px", color: "#0369A1" }}>Register as Patient</div>
+                <span style={{ fontSize: "11px", color: "#0284C7" }}>Mobile OTP verified patient account</span>
               </div>
               <span style={{ fontSize: "14px", color: "#0284C7", fontWeight: 700 }}>→</span>
             </button>
@@ -812,28 +986,224 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
             />
           </div>
 
-          <div className="auth-modal-row-2col" style={{ marginBottom: "12px" }}>
-            <div>
-              <label style={fieldLabelStyle}>Email Address *</label>
-              <input
-                type="email"
-                placeholder="patient@example.com"
-                value={regEmail}
-                onChange={(e) => setRegEmail(e.target.value)}
-                required
-                style={fieldInputStyle}
-              />
+          {/* Mobile Number with OTP Verification (+91 default country code) */}
+          <div style={{ marginBottom: "14px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+              <label style={fieldLabelStyle}>Mobile Phone Number (OTP Verification) *</label>
+              {isMobileVerified && (
+                <span style={{ fontSize: "11px", color: "#10B981", fontWeight: 700 }}>
+                  ✓ Verified
+                </span>
+              )}
             </div>
-            <div>
-              <label style={fieldLabelStyle}>Phone Number</label>
-              <input
-                type="tel"
-                placeholder="+1 (555) 000-0000"
-                value={regPhone}
-                onChange={(e) => setRegPhone(e.target.value)}
-                style={fieldInputStyle}
-              />
-            </div>
+
+            {isMobileVerified ? (
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "10px 12px",
+                background: "#ECFDF5",
+                border: "1.5px solid #10B981",
+                borderRadius: "10px",
+                color: "#065F46",
+                fontWeight: 700,
+                fontSize: "13px",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span>✓</span>
+                  <span>+91 {signupMobile}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMobileVerified(false);
+                    setSignupOtpSent(false);
+                    setSignupOtp("");
+                  }}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "#059669",
+                    fontSize: "11px",
+                    cursor: "pointer",
+                    textDecoration: "underline",
+                    fontWeight: 600,
+                  }}
+                >
+                  Change
+                </button>
+              </div>
+            ) : (
+              <div>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <div style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "4px",
+                    padding: "0 10px",
+                    background: "#F1F5F9",
+                    border: "1.5px solid #CBD5E1",
+                    borderRadius: "10px",
+                    fontSize: "13px",
+                    fontWeight: 700,
+                    color: "#0F172A",
+                    flexShrink: 0,
+                  }}>
+                    <span>🇮🇳</span>
+                    <span>+91</span>
+                  </div>
+                  <input
+                    type="tel"
+                    maxLength={10}
+                    placeholder="9876543210"
+                    value={signupMobile}
+                    onChange={(e) => {
+                      const d = e.target.value.replace(/\D/g, "");
+                      setSignupMobile(d);
+                      setRegPhone("+91" + d);
+                    }}
+                    disabled={signupOtpSent && signupOtpCountdown > 0 && !isMobileVerified}
+                    style={{
+                      ...fieldInputStyle,
+                      flex: 1,
+                      borderColor: signupPhoneStatus === "taken" ? "#EF4444" : fieldInputStyle.borderColor,
+                    }}
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSendSignupOtp}
+                    disabled={signupOtpLoading || (signupOtpSent && signupOtpCountdown > 0) || signupMobile.length !== 10 || signupPhoneStatus === "taken"}
+                    style={{
+                      padding: "0 14px",
+                      borderRadius: "10px",
+                      border: "none",
+                      background: (signupOtpSent && signupOtpCountdown > 0) || signupPhoneStatus === "taken" ? "#94A3B8" : "#0284C7",
+                      color: "#FFFFFF",
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      cursor: (signupOtpSent && signupOtpCountdown > 0) || signupPhoneStatus === "taken" ? "not-allowed" : "pointer",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {signupOtpLoading
+                      ? "Sending..."
+                      : signupOtpSent
+                      ? (signupOtpCountdown > 0 ? `Resend (${signupOtpCountdown}s)` : "Resend OTP")
+                      : "Send OTP"}
+                  </button>
+                </div>
+
+                {signupPhoneStatus === "taken" && (
+                  <div style={{
+                    marginTop: "8px",
+                    padding: "8px 12px",
+                    background: "#FEF2F2",
+                    border: "1px solid #FCA5A5",
+                    borderRadius: "8px",
+                    fontSize: "11.5px",
+                    color: "#B91C1C",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "6px",
+                  }}>
+                    <span style={{ fontWeight: 600 }}>⚠️ This mobile number is already registered.</span>
+                    <button
+                      type="button"
+                      onClick={() => switchMode("login")}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "#DC2626",
+                        fontWeight: 800,
+                        textDecoration: "underline",
+                        cursor: "pointer",
+                        padding: 0,
+                        fontSize: "11.5px",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      Sign In →
+                    </button>
+                  </div>
+                )}
+
+                {signupOtpSent && !isMobileVerified && (
+                  <div style={{
+                    marginTop: "10px",
+                    padding: "10px 12px",
+                    background: "#F8FAFC",
+                    border: "1.5px dashed #0284C7",
+                    borderRadius: "10px",
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                      <span style={{ fontSize: "11.5px", fontWeight: 700, color: "#0369A1" }}>
+                        Enter 6-Digit SMS Code
+                      </span>
+                      <span style={{ fontSize: "10.5px", color: "#64748B" }}>
+                        Valid 5 mins (Max 3 attempts)
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <input
+                        type="text"
+                        maxLength={6}
+                        placeholder="••••••"
+                        value={signupOtp}
+                        onChange={(e) => setSignupOtp(e.target.value.replace(/\D/g, ""))}
+                        style={{
+                          ...fieldInputStyle,
+                          flex: 1,
+                          fontSize: "16px",
+                          letterSpacing: "4px",
+                          textAlign: "center",
+                          fontWeight: 800,
+                          background: "#FFFFFF",
+                        }}
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        onClick={handleVerifySignupOtp}
+                        disabled={signupVerifying || signupOtp.length !== 6}
+                        style={{
+                          padding: "0 14px",
+                          borderRadius: "10px",
+                          border: "none",
+                          background: signupOtp.length === 6 ? "#10B981" : "#94A3B8",
+                          color: "#FFFFFF",
+                          fontSize: "12px",
+                          fontWeight: 700,
+                          cursor: signupOtp.length === 6 ? "pointer" : "not-allowed",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {signupVerifying ? "Verifying..." : "Verify Mobile"}
+                      </button>
+                    </div>
+                    {signupRemainingAttempts !== null && signupRemainingAttempts < 3 && (
+                      <div style={{ fontSize: "11px", color: "#DC2626", fontWeight: 700, marginTop: "4px" }}>
+                        {signupRemainingAttempts} attempt(s) remaining before OTP locks
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div style={{ marginBottom: "12px" }}>
+            <label style={fieldLabelStyle}>Email Address *</label>
+            <input
+              type="email"
+              placeholder="patient@example.com"
+              value={regEmail}
+              onChange={(e) => setRegEmail(e.target.value)}
+              required
+              style={fieldInputStyle}
+            />
           </div>
 
           <div className="auth-modal-row-2col" style={{ marginBottom: "18px" }}>

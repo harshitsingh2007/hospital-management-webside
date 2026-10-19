@@ -100,7 +100,7 @@ export default function App() {
       if (typeof window !== "undefined") {
         const p = new URLSearchParams(window.location.search);
         const m = p.get("mode") || p.get("auth") || p.get("page") || p.get("view");
-        if (m && (m.includes("reg") || m.includes("signup"))) return null;
+        if (m && (m.includes("reg") || m.includes("signup") || m.includes("login") || m.includes("signin") || m.includes("auth"))) return null;
       }
       const saved = localStorage.getItem("ai_queue_user");
       return saved ? JSON.parse(saved) : null;
@@ -400,9 +400,9 @@ export default function App() {
     }
   }, [currentUser, activePage, navigateTo]);
 
-  // Sync latest user profile on initial mount only if not already initialized
+  // Sync latest user profile on initial mount and purge session if account was deleted
   useEffect(() => {
-    if (currentUser?.email && !currentUser.hospital_code) {
+    if (currentUser?.email) {
       fetch(`${API_BASE}/api/v1/auth/me?email=${encodeURIComponent(currentUser.email)}`)
         .then((res) => res.json())
         .then((data) => {
@@ -418,6 +418,9 @@ export default function App() {
             if (!savedHosp && data.user.hospital_code && data.user.hospital_code !== "all") {
               setCurrentHospitalTenant(data.user.hospital_code);
             }
+          } else if (data.status === "error" && (data.message === "User not found" || data.message?.includes("not found"))) {
+            console.warn("Cached user no longer exists in database. Clearing session.");
+            handleLogout();
           }
         })
         .catch(() => {});
@@ -482,6 +485,8 @@ export default function App() {
     setFamilyMembers([]);
     try {
       localStorage.removeItem("ai_queue_user");
+      localStorage.removeItem("ai_queue_token");
+      localStorage.removeItem("ai_queue_current_hospital");
     } catch (e) {}
     navigateTo("patient", "walkin");
   };
@@ -1482,8 +1487,8 @@ export default function App() {
     );
   }
 
-  // Dedicated full-viewport view for unauthenticated login screen (no outer wrapper padding / scrolling)
-  if (!currentUser) {
+  // Dedicated full-viewport view for unauthenticated login screen or explicit login/auth navigation
+  if (!currentUser || activePage === "login" || activePage === "auth") {
     const params = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
     const urlMode = params ? (params.get("mode") || params.get("auth") || params.get("page") || params.get("view")) : null;
     const isRegMode = urlMode && (urlMode.includes("reg") || urlMode.includes("signup"));
@@ -1492,25 +1497,27 @@ export default function App() {
       : "login";
 
     return (
-      <div style={{ minHeight: "100vh", width: "100vw", overflowX: "hidden", margin: 0, padding: 0 }}>
-        <MandatoryAuthScreen
-          initialMode={initialAuthMode}
-          onLoginSuccess={(user) => {
-            handleLoginSuccess(user);
-          }}
-          language={language}
-          setLanguage={setLanguage}
-          navigateTo={navigateTo}
-        />
-        {showAuthModal && (
-          <AuthModal
-            authMode={authMode}
-            setAuthMode={setAuthMode}
-            onClose={() => setShowAuthModal(false)}
-            onLoginSuccess={handleLoginSuccess}
+      <ErrorBoundary fallbackTitle="Hospital Login Portal Error">
+        <div style={{ minHeight: "100vh", width: "100vw", overflowX: "hidden", margin: 0, padding: 0 }}>
+          <MandatoryAuthScreen
+            initialMode={initialAuthMode}
+            onLoginSuccess={(user) => {
+              handleLoginSuccess(user);
+            }}
+            language={language}
+            setLanguage={setLanguage}
+            navigateTo={navigateTo}
           />
-        )}
-      </div>
+          {showAuthModal && (
+            <AuthModal
+              authMode={authMode}
+              setAuthMode={setAuthMode}
+              onClose={() => setShowAuthModal(false)}
+              onLoginSuccess={handleLoginSuccess}
+            />
+          )}
+        </div>
+      </ErrorBoundary>
     );
   }
 

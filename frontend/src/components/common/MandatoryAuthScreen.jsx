@@ -29,9 +29,18 @@ export default function MandatoryAuthScreen({
   });
 
   // Login Form States
+  const [loginMethod, setLoginMethod] = useState("email"); // "email" | "mobile"
   const [loginIdentifier, setLoginIdentifier] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+
+  // Mobile + OTP Login States
+  const [loginPhone, setLoginPhone] = useState("");
+  const [loginOtp, setLoginOtp] = useState("");
+  const [loginOtpSent, setLoginOtpSent] = useState(false);
+  const [loginOtpLoading, setLoginOtpLoading] = useState(false);
+  const [loginOtpCountdown, setLoginOtpCountdown] = useState(0);
+  const [loginRemainingAttempts, setLoginRemainingAttempts] = useState(null);
 
   // Registration Form States
   const [fullName, setFullName] = useState("");
@@ -40,6 +49,16 @@ export default function MandatoryAuthScreen({
   const [regPassword, setRegPassword] = useState("");
   const [regConfirmPassword, setRegConfirmPassword] = useState("");
   const [hospitalName, setHospitalName] = useState("");
+
+  const [signupMobile, setSignupMobile] = useState("");
+  const [signupOtp, setSignupOtp] = useState("");
+  const [signupOtpSent, setSignupOtpSent] = useState(false);
+  const [signupOtpLoading, setSignupOtpLoading] = useState(false);
+  const [signupOtpCountdown, setSignupOtpCountdown] = useState(0);
+  const [isMobileVerified, setIsMobileVerified] = useState(false);
+  const [signupVerifying, setSignupVerifying] = useState(false);
+  const [signupRemainingAttempts, setSignupRemainingAttempts] = useState(null);
+  const [signupPhoneStatus, setSignupPhoneStatus] = useState("idle"); // "idle" | "checking" | "taken" | "available"
 
   // Multi-Hospital Tenant Selection & URL / QR Pre-selection States
   const [hospitalsList, setHospitalsList] = useState([]);
@@ -125,19 +144,45 @@ export default function MandatoryAuthScreen({
   const [showForgotPwd, setShowForgotPwd] = useState(false);
   const [forgotLoading, setForgotLoading] = useState(false);
   const [forgotError, setForgotError] = useState(null);
-  const [forgotDevNotice, setForgotDevNotice] = useState(null);
 
   // Real-Time Registration States (Email check, OTP verification step, Password strength)
   const [regStep, setRegStep] = useState("form"); // "form" | "otp"
   const [regOtp, setRegOtp] = useState("");
   const [emailCheckStatus, setEmailCheckStatus] = useState("idle"); // "idle" | "checking" | "available" | "taken"
   const [resendCountdown, setResendCountdown] = useState(0);
-  const [devOtpNotice, setDevOtpNotice] = useState(null);
 
   const [errorMsg, setErrorMsg] = useState(null);
   const [loading, setLoading] = useState(false);
 
   const isHindi = language === "hi";
+
+  // Real-time check if signup mobile number is already taken
+  useEffect(() => {
+    const cleanDigits = signupMobile.replace(/\D/g, "");
+    if (cleanDigits.length !== 10) {
+      setSignupPhoneStatus("idle");
+      return;
+    }
+
+    setSignupPhoneStatus("checking");
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/auth/check-phone?phone=${cleanDigits}`);
+        const data = await res.json();
+        if (data.exists) {
+          setSignupPhoneStatus("taken");
+          setErrorMsg(isHindi ? "यह मोबाइल नंबर पहले से पंजीकृत है। कृपया लॉगिन करें या दूसरा नंबर दर्ज करें।" : "This mobile number is already registered. Please sign in or use a different number.");
+        } else {
+          setSignupPhoneStatus("available");
+          setErrorMsg((prev) => (prev && (prev.includes("mobile number is already registered") || prev.includes("यह मोबाइल नंबर पहले से पंजीकृत है")) ? null : prev));
+        }
+      } catch (e) {
+        setSignupPhoneStatus("idle");
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [signupMobile, isHindi]);
 
   // Debounced real-time email availability checker
   useEffect(() => {
@@ -171,6 +216,25 @@ export default function MandatoryAuthScreen({
     }, 1000);
     return () => clearInterval(interval);
   }, [resendCountdown]);
+
+  // 30-Second Countdown Timer for Login Mobile OTP
+  useEffect(() => {
+    if (loginOtpCountdown <= 0) return;
+    const interval = setInterval(() => {
+      setLoginOtpCountdown((prev) => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [loginOtpCountdown]);
+
+  // 30-Second Countdown Timer for Signup Mobile OTP
+  useEffect(() => {
+    if (signupOtpCountdown <= 0) return;
+    const interval = setInterval(() => {
+      setSignupOtpCountdown((prev) => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [signupOtpCountdown]);
+
 
   // Calculate password strength
   const getPasswordStrength = (pwd) => {
@@ -237,11 +301,196 @@ export default function MandatoryAuthScreen({
     }
   };
 
+  // Mobile + OTP Login: Send OTP
+  const handleSendLoginOtp = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    const cleanDigits = loginPhone.replace(/\D/g, "");
+    if (!cleanDigits || cleanDigits.length !== 10) {
+      setErrorMsg(isHindi ? "कृपया 10 अंकों का मान्य मोबाइल नंबर दर्ज करें।" : "Please enter a valid 10-digit mobile phone number.");
+      return;
+    }
+    setErrorMsg(null);
+    setLoginOtpLoading(true);
+
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/auth/send-mobile-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone: `+91${cleanDigits}`,
+          hospital_code: selectedHospitalCode || "city-hospital-01",
+        }),
+      });
+      const data = await res.json();
+      setLoginOtpLoading(false);
+
+      if (res.ok && data.status === "success") {
+        setLoginOtpSent(true);
+        setLoginOtpCountdown(30);
+        setLoginRemainingAttempts(null);
+      } else {
+        setErrorMsg(data.message || (isHindi ? "OTP भेजने में विफल। कृपया पुनः प्रयास करें।" : "Failed to send OTP to mobile. Please try again."));
+      }
+    } catch (err) {
+      setLoginOtpLoading(false);
+      setErrorMsg(isHindi ? `कनेक्शन त्रुटि: ${err.message}` : `Connection error: ${err.message}`);
+    }
+  };
+
+  // Mobile + OTP Login: Verify OTP & Sign In
+  const handleVerifyLoginOtp = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    const cleanDigits = loginPhone.replace(/\D/g, "");
+    const cleanOtp = loginOtp.trim();
+
+    if (!cleanDigits || cleanDigits.length !== 10) {
+      setErrorMsg(isHindi ? "कृपया 10 अंकों का मान्य मोबाइल नंबर दर्ज करें।" : "Please enter a valid 10-digit mobile phone number.");
+      return;
+    }
+    if (!cleanOtp || cleanOtp.length !== 6) {
+      setErrorMsg(isHindi ? "कृपया 6-अंकीय सत्यापन कोड दर्ज करें।" : "Please enter the 6-digit verification code.");
+      return;
+    }
+
+    setErrorMsg(null);
+    setLoading(true);
+
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/auth/verify-mobile-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone: `+91${cleanDigits}`,
+          otp: cleanOtp,
+          hospital_code: selectedHospitalCode || "city-hospital-01",
+        }),
+      });
+      const data = await res.json();
+      setLoading(false);
+
+      if (res.ok && data.status === "success") {
+        if (data.token) {
+          try {
+            localStorage.setItem("ai_queue_token", data.token);
+          } catch (e) {}
+        }
+        if (data.user?.hospital_code || selectedHospitalCode) {
+          try {
+            localStorage.setItem("ai_queue_current_hospital", data.user?.hospital_code || selectedHospitalCode || "city-hospital-01");
+          } catch (e) {}
+        }
+        if (onLoginSuccess) onLoginSuccess(data.user);
+      } else {
+        if (data.remaining_attempts !== undefined) {
+          setLoginRemainingAttempts(data.remaining_attempts);
+        }
+        setErrorMsg(data.message || (isHindi ? "अमान्य या समाप्त OTP।" : "Invalid or expired verification code. Please request a new OTP."));
+      }
+    } catch (err) {
+      setLoading(false);
+      setErrorMsg(isHindi ? `सर्वर कनेक्शन त्रुटि: ${err.message}` : `Server connection error: ${err.message}`);
+    }
+  };
+
+  // Signup: Send Mobile OTP (+91 default country code)
+  const handleSendSignupOtp = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    const cleanDigits = signupMobile.replace(/\D/g, "");
+    if (!cleanDigits || cleanDigits.length !== 10) {
+      setErrorMsg(isHindi ? "कृपया 10 अंकों का मान्य मोबाइल नंबर दर्ज करें।" : "Please enter a valid 10-digit mobile phone number.");
+      return;
+    }
+    if (signupPhoneStatus === "taken") {
+      setErrorMsg(isHindi ? "यह मोबाइल नंबर पहले से पंजीकृत है। कृपया लॉगिन करें या दूसरा नंबर दर्ज करें।" : "This mobile number is already registered. Please sign in or use a different number.");
+      return;
+    }
+    setErrorMsg(null);
+    setSignupOtpLoading(true);
+
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/auth/send-mobile-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone: `+91${cleanDigits}`,
+          purpose: "signup",
+          hospital_code: selectedHospitalCode || "city-hospital-01",
+        }),
+      });
+      const data = await res.json();
+      setSignupOtpLoading(false);
+
+      if (res.ok && data.status === "success") {
+        setSignupOtpSent(true);
+        setSignupOtpCountdown(30);
+        setSignupRemainingAttempts(null);
+      } else {
+        if (data.code === "PHONE_ALREADY_EXISTS" || data.message?.includes("already registered")) {
+          setSignupPhoneStatus("taken");
+        }
+        setErrorMsg(data.message || (isHindi ? "मोबाइल OTP भेजने में विफल।" : "Failed to send verification code. Please try again."));
+      }
+    } catch (err) {
+      setSignupOtpLoading(false);
+      setErrorMsg(err.message);
+    }
+  };
+
+  // Signup: Verify Mobile OTP before account creation
+  const handleVerifySignupOtp = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    const cleanDigits = signupMobile.replace(/\D/g, "");
+    const cleanOtp = signupOtp.trim();
+
+    if (!cleanDigits || cleanDigits.length !== 10) {
+      setErrorMsg(isHindi ? "कृपया 10 अंकों का मान्य मोबाइल नंबर दर्ज करें।" : "Please enter a valid 10-digit mobile phone number.");
+      return;
+    }
+    if (!cleanOtp || cleanOtp.length !== 6) {
+      setErrorMsg(isHindi ? "कृपया 6-अंकीय सत्यापन कोड दर्ज करें।" : "Please enter the 6-digit verification code.");
+      return;
+    }
+
+    setErrorMsg(null);
+    setSignupVerifying(true);
+
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/auth/verify-mobile-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone: `+91${cleanDigits}`,
+          otp: cleanOtp,
+          action: "verify_only",
+          purpose: "signup",
+        }),
+      });
+      const data = await res.json();
+      setSignupVerifying(false);
+
+      if (res.ok && data.status === "success") {
+        setIsMobileVerified(true);
+        setRegPhone(`+91${cleanDigits}`);
+        setSignupRemainingAttempts(null);
+      } else {
+        if (data.code === "PHONE_ALREADY_EXISTS" || data.message?.includes("already registered")) {
+          setSignupPhoneStatus("taken");
+        }
+        if (data.remaining_attempts !== undefined) {
+          setSignupRemainingAttempts(data.remaining_attempts);
+        }
+        setErrorMsg(data.message || (isHindi ? "अमान्य या समाप्त OTP।" : "Invalid or expired OTP. Please try again."));
+      }
+    } catch (err) {
+      setSignupVerifying(false);
+      setErrorMsg(err.message);
+    }
+  };
+
   // Request Sign-Up Email OTP Verification
   const handleRequestSignupOtp = async (e) => {
     e.preventDefault();
     setErrorMsg(null);
-    setDevOtpNotice(null);
 
     if (!fullName.trim()) {
       setErrorMsg(isHindi ? "कृपया अपना पूरा नाम दर्ज करें।" : "Please enter your full name.");
@@ -255,6 +504,16 @@ export default function MandatoryAuthScreen({
 
     if (emailCheckStatus === "taken") {
       setErrorMsg(isHindi ? "यह ईमेल पहले से पंजीकृत है।" : "This email address is already registered. Please sign in.");
+      return;
+    }
+
+    // Require mobile verification before patient account creation
+    if (authMode === "signup-patient" && !isMobileVerified) {
+      setErrorMsg(
+        isHindi
+          ? "खाता बनाने से पहले कृपया अपने मोबाइल नंबर को OTP से सत्यापित करें।"
+          : "Please verify your mobile number with the OTP code before creating your account."
+      );
       return;
     }
 
@@ -292,9 +551,6 @@ export default function MandatoryAuthScreen({
       if (res.ok && data.status === "success") {
         setRegStep("otp");
         setResendCountdown(60);
-        if (data.dev_otp) {
-          setDevOtpNotice(`[Dev Mode] Verification code: ${data.dev_otp}`);
-        }
       } else {
         setErrorMsg(data.message || (isHindi ? "सत्यापन कोड भेजने में विफल।" : "Failed to send verification code."));
       }
@@ -324,9 +580,6 @@ export default function MandatoryAuthScreen({
       setLoading(false);
       if (res.ok && data.status === "success") {
         setResendCountdown(60);
-        if (data.dev_otp) {
-          setDevOtpNotice(`[Dev Mode] New verification code: ${data.dev_otp}`);
-        }
       } else {
         setErrorMsg(data.message || "Failed to resend code.");
       }
@@ -343,11 +596,12 @@ export default function MandatoryAuthScreen({
     setLoading(true);
 
     let endpoint = "/api/v1/auth/signup/patient";
+    const cleanPhoneDigits = (signupMobile || regPhone).replace(/\D/g, "").slice(-10);
     let payload = {
       username: fullName.trim(),
       email: regEmail.trim(),
       password: regPassword,
-      phone: regPhone.trim(),
+      phone: cleanPhoneDigits ? `+91${cleanPhoneDigits}` : regPhone.trim(),
     };
 
     if (authMode === "signup-superadmin") {
@@ -358,7 +612,12 @@ export default function MandatoryAuthScreen({
       if (regOtp) {
         payload.otp = regOtp.trim();
       }
+      if (signupOtp) {
+        payload.mobile_otp = signupOtp.trim();
+      }
+      payload.mobile_verified = isMobileVerified;
     }
+
 
     try {
       const res = await fetch(`${API_BASE}${endpoint}`, {
@@ -383,6 +642,9 @@ export default function MandatoryAuthScreen({
         }
         if (onLoginSuccess) onLoginSuccess(data.user);
       } else {
+        if (data.code === "PHONE_ALREADY_EXISTS" || data.message?.includes("already exists") || data.message?.includes("already registered")) {
+          setSignupPhoneStatus("taken");
+        }
         setErrorMsg(
           data.message ||
           data.detail ||
@@ -409,7 +671,6 @@ export default function MandatoryAuthScreen({
   const handleForgotRequestOtp = async (e) => {
     e.preventDefault();
     setForgotError(null);
-    setForgotDevNotice(null);
     setForgotLoading(true);
 
     try {
@@ -427,9 +688,6 @@ export default function MandatoryAuthScreen({
 
       if (res.ok && data.status === "success") {
         setForgotStep(2);
-        if (data.dev_otp) {
-          setForgotDevNotice(`[Dev Mode] Reset code: ${data.dev_otp}`);
-        }
       } else {
         setForgotError(data.message || "Failed to send reset instructions.");
       }
@@ -1183,110 +1441,309 @@ export default function MandatoryAuthScreen({
 
             {/* ================= LOGIN FORM ================= */}
             {authMode === "login" && (
-              <form onSubmit={handleLoginSubmit}>
-                {/* Email or Patient ID */}
-                <div className="pl-input-group">
-                  <div className="pl-input-label-row">
-                    <label className="pl-input-label">
-                      {isHindi ? "ईमेल या रोगी आईडी" : "EMAIL OR PATIENT ID"}
-                    </label>
-                  </div>
-                  <div className="pl-input-wrapper">
-                    <span className="pl-input-icon">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                        <circle cx="12" cy="7" r="4" />
-                      </svg>
-                    </span>
-                    <input
-                      type="text"
-                      className="pl-text-input"
-                      placeholder={isHindi ? "अपना ईमेल या रोगी आईडी दर्ज करें" : "Enter your email or patient ID"}
-                      value={loginIdentifier}
-                      onChange={(e) => setLoginIdentifier(e.target.value)}
-                      required
-                      autoFocus
-                    />
-                  </div>
-                </div>
-
-                {/* Password */}
-                <div className="pl-input-group">
-                  <div className="pl-input-label-row">
-                    <label className="pl-input-label">
-                      {isHindi ? "पासवर्ड" : "PASSWORD"}
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => { setShowForgotModal(true); setForgotSuccess(false); setForgotEmail(loginIdentifier); }}
-                      className="pl-forgot-link"
-                    >
-                      {isHindi ? "पासवर्ड भूल गए?" : "Forgot password?"}
-                    </button>
-                  </div>
-                  <div className="pl-input-wrapper">
-                    <span className="pl-input-icon">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                      </svg>
-                    </span>
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      className="pl-text-input"
-                      placeholder={isHindi ? "अपना पासवर्ड दर्ज करें" : "Enter your password"}
-                      value={loginPassword}
-                      onChange={(e) => setLoginPassword(e.target.value)}
-                      required
-                      style={{ paddingRight: "42px" }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="pl-eye-btn"
-                      tabIndex={-1}
-                      title={showPassword ? "Hide password" : "Show password"}
-                    >
-                      {showPassword ? (
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                          <circle cx="12" cy="12" r="3" />
-                        </svg>
-                      ) : (
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-                          <line x1="1" y1="1" x2="23" y2="23" />
-                        </svg>
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Primary Button */}
-                <button type="submit" disabled={loading} className="pl-primary-btn">
-                  {loading ? (
-                    <span>{isHindi ? "साइन इन हो रहा है..." : "Signing in..."}</span>
-                  ) : (
-                    <>
-                      <span>{isHindi ? "मेरे पोर्टल में साइन इन करें" : "Sign in to my portal"}</span>
-                      <span>→</span>
-                    </>
-                  )}
-                </button>
-
-                {/* Registration Link */}
-                <div className="pl-register-row">
-                  <span>{isHindi ? "रोगी पोर्टल पर नए हैं?" : "New to the patient portal?"}</span>
+              <div>
+                {/* Method Switcher Tabs: Email + Password vs Mobile + OTP */}
+                <div style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  background: "#F1F5F9",
+                  padding: "4px",
+                  borderRadius: "14px",
+                  marginBottom: "20px",
+                  gap: "4px",
+                }}>
                   <button
                     type="button"
-                    onClick={() => { setAuthMode("signup-patient"); setRegStep("form"); setErrorMsg(null); }}
-                    className="pl-register-link"
+                    onClick={() => { setLoginMethod("email"); setErrorMsg(null); }}
+                    style={{
+                      padding: "9px 12px",
+                      borderRadius: "10px",
+                      border: "none",
+                      background: loginMethod === "email" ? "#FFFFFF" : "transparent",
+                      color: loginMethod === "email" ? "#0369A1" : "#64748B",
+                      fontWeight: 700,
+                      fontSize: "13px",
+                      cursor: "pointer",
+                      boxShadow: loginMethod === "email" ? "0 2px 8px rgba(0,0,0,0.06)" : "none",
+                      transition: "all 0.18s ease",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "7px",
+                    }}
                   >
-                    {isHindi ? "खाता बनाएं" : "Create an account"}
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                      <polyline points="22,6 12,13 2,6" />
+                    </svg>
+                    <span>{isHindi ? "ईमेल + पासवर्ड" : "Email + Password"}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => { setLoginMethod("mobile"); setErrorMsg(null); }}
+                    style={{
+                      padding: "9px 12px",
+                      borderRadius: "10px",
+                      border: "none",
+                      background: loginMethod === "mobile" ? "#FFFFFF" : "transparent",
+                      color: loginMethod === "mobile" ? "#059669" : "#64748B",
+                      fontWeight: 700,
+                      fontSize: "13px",
+                      cursor: "pointer",
+                      boxShadow: loginMethod === "mobile" ? "0 2px 8px rgba(0,0,0,0.06)" : "none",
+                      transition: "all 0.18s ease",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "7px",
+                    }}
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
+                      <line x1="12" y1="18" x2="12.01" y2="18" />
+                    </svg>
+                    <span>{isHindi ? "मोबाइल + OTP" : "Mobile + OTP"}</span>
                   </button>
                 </div>
 
-              </form>
+                {/* Option A: Email + Password Login Flow */}
+                {loginMethod === "email" && (
+                  <form onSubmit={handleLoginSubmit}>
+                    {/* Email or Patient ID */}
+                    <div className="pl-input-group">
+                      <div className="pl-input-label-row">
+                        <label className="pl-input-label">
+                          {isHindi ? "ईमेल या रोगी आईडी" : "EMAIL OR PATIENT ID"}
+                        </label>
+                      </div>
+                      <div className="pl-input-wrapper">
+                        <span className="pl-input-icon">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                            <circle cx="12" cy="7" r="4" />
+                          </svg>
+                        </span>
+                        <input
+                          type="text"
+                          className="pl-text-input"
+                          placeholder={isHindi ? "अपना ईमेल या रोगी आईडी दर्ज करें" : "Enter your email or patient ID"}
+                          value={loginIdentifier}
+                          onChange={(e) => setLoginIdentifier(e.target.value)}
+                          required
+                          autoFocus
+                        />
+                      </div>
+                    </div>
+
+                    {/* Password */}
+                    <div className="pl-input-group">
+                      <div className="pl-input-label-row">
+                        <label className="pl-input-label">
+                          {isHindi ? "पासवर्ड" : "PASSWORD"}
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => { setShowForgotModal(true); setForgotSuccess(false); setForgotEmail(loginIdentifier); }}
+                          className="pl-forgot-link"
+                        >
+                          {isHindi ? "पासवर्ड भूल गए?" : "Forgot password?"}
+                        </button>
+                      </div>
+                      <div className="pl-input-wrapper">
+                        <span className="pl-input-icon">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                          </svg>
+                        </span>
+                        <input
+                          type={showPassword ? "text" : "password"}
+                          className="pl-text-input"
+                          placeholder={isHindi ? "अपना पासवर्ड दर्ज करें" : "Enter your password"}
+                          value={loginPassword}
+                          onChange={(e) => setLoginPassword(e.target.value)}
+                          required
+                          style={{ paddingRight: "42px" }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="pl-eye-btn"
+                          tabIndex={-1}
+                          title={showPassword ? "Hide password" : "Show password"}
+                        >
+                          {showPassword ? (
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                              <circle cx="12" cy="12" r="3" />
+                            </svg>
+                          ) : (
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                              <line x1="1" y1="1" x2="23" y2="23" />
+                            </svg>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Primary Button */}
+                    <button type="submit" disabled={loading} className="pl-primary-btn">
+                      {loading ? (
+                        <span>{isHindi ? "साइन इन हो रहा है..." : "Signing in..."}</span>
+                      ) : (
+                        <>
+                          <span>{isHindi ? "मेरे पोर्टल में साइन इन करें" : "Sign in to my portal"}</span>
+                          <span>→</span>
+                        </>
+                      )}
+                    </button>
+
+                    {/* Registration Link */}
+                    <div className="pl-register-row">
+                      <span>{isHindi ? "रोगी पोर्टल पर नए हैं?" : "New to the patient portal?"}</span>
+                      <button
+                        type="button"
+                        onClick={() => { setAuthMode("signup-patient"); setRegStep("form"); setErrorMsg(null); }}
+                        className="pl-register-link"
+                      >
+                        {isHindi ? "खाता बनाएं" : "Create an account"}
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {/* Option B: Mobile + OTP Login Flow */}
+                {loginMethod === "mobile" && (
+                  <form onSubmit={handleVerifyLoginOtp}>
+
+                    {/* Mobile Number with +91 Country Code & Send OTP */}
+                    <div className="pl-input-group">
+                      <div className="pl-input-label-row">
+                        <label className="pl-input-label">{isHindi ? "मोबाइल नंबर *" : "MOBILE NUMBER *"}</label>
+                      </div>
+                      <div style={{ display: "flex", gap: "8px" }}>
+                        <div style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "4px",
+                          padding: "0 12px",
+                          background: "#F1F5F9",
+                          border: "1.5px solid #E2E8F0",
+                          borderRadius: "12px",
+                          fontSize: "13.5px",
+                          fontWeight: 700,
+                          color: "#0F172A",
+                          flexShrink: 0,
+                        }}>
+                          <span>🇮🇳</span>
+                          <span>+91</span>
+                        </div>
+                        <input
+                          type="tel"
+                          maxLength={10}
+                          className="pl-text-input"
+                          placeholder="9876543210"
+                          value={loginPhone}
+                          onChange={(e) => setLoginPhone(e.target.value.replace(/\D/g, ""))}
+                          disabled={loginOtpSent && loginOtpCountdown > 0}
+                          required
+                          style={{ flex: 1, paddingLeft: "14px" }}
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          onClick={handleSendLoginOtp}
+                          disabled={loginOtpLoading || (loginOtpSent && loginOtpCountdown > 0) || loginPhone.length !== 10}
+                          style={{
+                            padding: "0 16px",
+                            borderRadius: "12px",
+                            border: "none",
+                            background: (loginOtpSent && loginOtpCountdown > 0) ? "#94A3B8" : "#0284C7",
+                            color: "#FFFFFF",
+                            fontSize: "12.5px",
+                            fontWeight: 700,
+                            cursor: (loginOtpSent && loginOtpCountdown > 0) ? "not-allowed" : "pointer",
+                            whiteSpace: "nowrap",
+                            boxShadow: "0 2px 8px rgba(2, 132, 199, 0.25)",
+                            transition: "all 0.15s ease",
+                          }}
+                        >
+                          {loginOtpLoading
+                            ? (isHindi ? "भेज रहे हैं..." : "Sending...")
+                            : loginOtpSent
+                            ? (loginOtpCountdown > 0 ? `${isHindi ? "पुनः भेजें" : "Resend"} (${loginOtpCountdown}s)` : (isHindi ? "पुनः भेजें" : "Resend OTP"))
+                            : (isHindi ? "OTP भेजें" : "Send OTP")}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* 6-Digit OTP Code Input */}
+                    {loginOtpSent && (
+                      <>
+                        <div className="pl-input-group">
+                          <div className="pl-input-label-row">
+                            <label className="pl-input-label">{isHindi ? "6-अंकीय OTP कोड *" : "6-DIGIT OTP CODE *"}</label>
+                            <span style={{ fontSize: "11px", color: "#64748B" }}>
+                              {isHindi ? "वैधता: 5 मिनट (अधिकतम 3 प्रयास)" : "Valid 5 mins (Max 3 attempts)"}
+                            </span>
+                          </div>
+                          <div className="pl-input-wrapper">
+                            <input
+                              type="text"
+                              maxLength={6}
+                              className="pl-text-input"
+                              placeholder="••••••"
+                              value={loginOtp}
+                              onChange={(e) => setLoginOtp(e.target.value.replace(/\D/g, ""))}
+                              required
+                              style={{
+                                fontSize: "20px",
+                                letterSpacing: "6px",
+                                textAlign: "center",
+                                fontWeight: 800,
+                                padding: "0 16px",
+                                background: "#FAFCFF",
+                              }}
+                              autoFocus
+                            />
+                          </div>
+                          {loginRemainingAttempts !== null && loginRemainingAttempts < 3 && (
+                            <div style={{ fontSize: "11.5px", color: "#DC2626", fontWeight: 700, marginTop: "4px" }}>
+                              {loginRemainingAttempts} {isHindi ? "प्रयास शेष" : "attempt(s) remaining before OTP locks"}
+                            </div>
+                          )}
+                        </div>
+
+                        <button type="submit" disabled={loading || loginOtp.length !== 6} className="pl-primary-btn">
+                          {loading ? (
+                            <span>{isHindi ? "सत्यापित और साइन इन हो रहा है..." : "Verifying & Signing In..."}</span>
+                          ) : (
+                            <>
+                              <span>{isHindi ? "OTP से साइन इन करें" : "Sign in with Mobile OTP"}</span>
+                              <span>→</span>
+                            </>
+                          )}
+                        </button>
+                      </>
+                    )}
+
+
+                    {/* Registration Link */}
+                    <div className="pl-register-row" style={{ marginTop: "16px" }}>
+                      <span>{isHindi ? "रोगी पोर्टल पर नए हैं?" : "New to the patient portal?"}</span>
+                      <button
+                        type="button"
+                        onClick={() => { setAuthMode("signup-patient"); setRegStep("form"); setErrorMsg(null); }}
+                        className="pl-register-link"
+                      >
+                        {isHindi ? "खाता बनाएं" : "Create an account"}
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
             )}
 
             {/* ================= REGISTRATION FORM ================= */}
@@ -1615,12 +2072,6 @@ export default function MandatoryAuthScreen({
                       </p>
                     </div>
 
-                    {devOtpNotice && (
-                      <div style={{ padding: "8px 12px", background: "#FEF3C7", border: "1px solid #FCD34D", borderRadius: "8px", fontSize: "12px", color: "#92400E", marginBottom: "14px", textAlign: "center", fontWeight: 700 }}>
-                        {devOtpNotice}
-                      </div>
-                    )}
-
                     <div className="pl-input-group">
                       <div className="pl-input-label-row">
                         <label className="pl-input-label">{isHindi ? "6-अंकीय सुरक्षा कोड *" : "6-DIGIT SECURITY CODE *"}</label>
@@ -1697,61 +2148,297 @@ export default function MandatoryAuthScreen({
                 ) : (
                   /* ================= REGISTRATION FIELDS ================= */
                   <>
-                    {/* Email & Phone 2-Col */}
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-                      <div className="pl-input-group">
-                        <div className="pl-input-label-row">
-                          <label className="pl-input-label">{isHindi ? "ईमेल *" : "EMAIL *"}</label>
-                          {emailCheckStatus === "checking" && (
-                            <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "10px", color: "#64748B", fontWeight: 600 }}>
-                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
-                              {isHindi ? "जांच..." : "Checking..."}
-                            </span>
-                          )}
-                          {emailCheckStatus === "available" && (
-                            <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "10px", color: "#10B981", fontWeight: 700 }}>
-                              <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#10B981" }} />
-                              {isHindi ? "उपलब्ध" : "Available"}
-                            </span>
-                          )}
-                          {emailCheckStatus === "taken" && (
-                            <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "10px", color: "#EF4444", fontWeight: 700 }}>
-                              <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#EF4444" }} />
-                              {isHindi ? "पंजीकृत" : "Taken"}
-                            </span>
-                          )}
-                        </div>
-                        <div className="pl-input-wrapper">
-                          <input
-                            type="email"
-                            className="pl-text-input"
-                            placeholder="name@example.com"
-                            value={regEmail}
-                            onChange={(e) => setRegEmail(e.target.value)}
-                            required
-                            style={{
-                              paddingLeft: "16px",
-                              borderColor: emailCheckStatus === "taken" ? "#FCA5A5" : (emailCheckStatus === "available" ? "#86EFAC" : "#E2E8F0"),
-                            }}
-                          />
-                        </div>
+                    {/* Email Input Field */}
+                    <div className="pl-input-group" style={{ marginBottom: "14px" }}>
+                      <div className="pl-input-label-row">
+                        <label className="pl-input-label">{isHindi ? "ईमेल पता *" : "EMAIL ADDRESS *"}</label>
+                        {emailCheckStatus === "checking" && (
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "10px", color: "#64748B", fontWeight: 600 }}>
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+                            {isHindi ? "जांच..." : "Checking..."}
+                          </span>
+                        )}
+                        {emailCheckStatus === "available" && (
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "10px", color: "#10B981", fontWeight: 700 }}>
+                            <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#10B981" }} />
+                            {isHindi ? "उपलब्ध" : "Available"}
+                          </span>
+                        )}
+                        {emailCheckStatus === "taken" && (
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "10px", color: "#EF4444", fontWeight: 700 }}>
+                            <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#EF4444" }} />
+                            {isHindi ? "पंजीकृत" : "Taken"}
+                          </span>
+                        )}
                       </div>
-                      <div className="pl-input-group">
+                      <div className="pl-input-wrapper">
+                        <input
+                          type="email"
+                          className="pl-text-input"
+                          placeholder="name@example.com"
+                          value={regEmail}
+                          onChange={(e) => setRegEmail(e.target.value)}
+                          required
+                          style={{
+                            paddingLeft: "16px",
+                            borderColor: emailCheckStatus === "taken" ? "#FCA5A5" : (emailCheckStatus === "available" ? "#86EFAC" : "#E2E8F0"),
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Patient Mobile Number Verification with +91 Country Code */}
+                    {authMode === "signup-patient" ? (
+                      <div className="pl-input-group" style={{ marginBottom: "16px" }}>
                         <div className="pl-input-label-row">
-                          <label className="pl-input-label">{isHindi ? "फोन नंबर" : "PHONE"}</label>
+                          <label className="pl-input-label">
+                            {isHindi ? "मोबाइल नंबर (OTP सत्यापन) *" : "MOBILE NUMBER (OTP VERIFICATION) *"}
+                          </label>
+                          {isMobileVerified && (
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "11px", color: "#10B981", fontWeight: 700 }}>
+                              ✓ {isHindi ? "सत्यापित" : "Verified"}
+                            </span>
+                          )}
                         </div>
-                        <div className="pl-input-wrapper">
+
+                        {isMobileVerified ? (
+                          <div style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            padding: "10px 14px",
+                            background: "#ECFDF5",
+                            border: "1.5px solid #10B981",
+                            borderRadius: "12px",
+                            color: "#065F46",
+                            fontWeight: 700,
+                            fontSize: "13px",
+                          }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                              <span style={{ fontSize: "16px" }}>✓</span>
+                              <span>+91 {signupMobile}</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsMobileVerified(false);
+                                setSignupOtpSent(false);
+                                setSignupOtp("");
+                              }}
+                              style={{
+                                background: "none",
+                                border: "none",
+                                color: "#059669",
+                                fontSize: "11.5px",
+                                cursor: "pointer",
+                                textDecoration: "underline",
+                                fontWeight: 600,
+                              }}
+                            >
+                              {isHindi ? "नंबर बदलें" : "Change Number"}
+                            </button>
+                          </div>
+                        ) : (
+                          <div>
+                            <div style={{ display: "flex", gap: "8px" }}>
+                              <div style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                padding: "0 12px",
+                                background: "#F1F5F9",
+                                border: "1.5px solid #E2E8F0",
+                                borderRadius: "12px",
+                                fontSize: "13.5px",
+                                fontWeight: 700,
+                                color: "#0F172A",
+                                flexShrink: 0,
+                              }}>
+                                <span>🇮🇳</span>
+                                <span>+91</span>
+                              </div>
+                              <input
+                                type="tel"
+                                maxLength={10}
+                                className="pl-text-input"
+                                placeholder="9876543210"
+                                value={signupMobile}
+                                onChange={(e) => {
+                                  const digits = e.target.value.replace(/\D/g, "");
+                                  setSignupMobile(digits);
+                                  setRegPhone("+91" + digits);
+                                }}
+                                disabled={signupOtpSent && signupOtpCountdown > 0 && !isMobileVerified}
+                                style={{
+                                  flex: 1,
+                                  paddingLeft: "14px",
+                                  borderColor: signupPhoneStatus === "taken" ? "#EF4444" : undefined,
+                                }}
+                                required
+                              />
+                              <button
+                                type="button"
+                                onClick={handleSendSignupOtp}
+                                disabled={signupOtpLoading || (signupOtpSent && signupOtpCountdown > 0) || signupMobile.length !== 10 || signupPhoneStatus === "taken"}
+                                style={{
+                                  padding: "0 16px",
+                                  borderRadius: "12px",
+                                  border: "none",
+                                  background: (signupOtpSent && signupOtpCountdown > 0) || signupPhoneStatus === "taken" ? "#94A3B8" : "#0284C7",
+                                  color: "#FFFFFF",
+                                  fontSize: "12.5px",
+                                  fontWeight: 700,
+                                  cursor: (signupOtpSent && signupOtpCountdown > 0) || signupPhoneStatus === "taken" ? "not-allowed" : "pointer",
+                                  whiteSpace: "nowrap",
+                                  boxShadow: "0 2px 8px rgba(2, 132, 199, 0.25)",
+                                  transition: "all 0.15s ease",
+                                }}
+                              >
+                                {signupOtpLoading
+                                  ? (isHindi ? "भेज रहे हैं..." : "Sending...")
+                                  : signupOtpSent
+                                  ? (signupOtpCountdown > 0 ? `${isHindi ? "पुनः भेजें" : "Resend"} (${signupOtpCountdown}s)` : (isHindi ? "पुनः भेजें" : "Resend OTP"))
+                                  : (isHindi ? "OTP भेजें" : "Send OTP")}
+                              </button>
+                            </div>
+
+                            {signupPhoneStatus === "taken" && (
+                              <div style={{
+                                marginTop: "8px",
+                                padding: "8px 12px",
+                                background: "#FEF2F2",
+                                border: "1px solid #FCA5A5",
+                                borderRadius: "10px",
+                                fontSize: "12px",
+                                color: "#B91C1C",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                gap: "8px",
+                              }}>
+                                <span style={{ fontWeight: 600 }}>⚠️ {isHindi ? "यह मोबाइल नंबर पहले से पंजीकृत है।" : "This mobile number is already registered."}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => { setAuthMode("login"); setErrorMsg(null); }}
+                                  style={{
+                                    background: "none",
+                                    border: "none",
+                                    color: "#DC2626",
+                                    fontWeight: 800,
+                                    textDecoration: "underline",
+                                    cursor: "pointer",
+                                    padding: 0,
+                                    fontSize: "12px",
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  {isHindi ? "साइन इन करें →" : "Sign In →"}
+                                </button>
+                              </div>
+                            )}
+
+                            {/* 6-Digit OTP Input & Verification Action */}
+                            {signupOtpSent && !isMobileVerified && (
+                              <div style={{
+                                marginTop: "10px",
+                                padding: "12px 14px",
+                                background: "#F8FAFC",
+                                border: "1.5px dashed #0284C7",
+                                borderRadius: "12px",
+                              }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                                  <span style={{ fontSize: "11px", fontWeight: 700, color: "#0369A1", textTransform: "uppercase" }}>
+                                    {isHindi ? "6-अंकीय OTP कोड दर्ज करें" : "ENTER 6-DIGIT OTP"}
+                                  </span>
+                                  <span style={{ fontSize: "11px", color: "#64748B" }}>
+                                    {isHindi ? "वैधता: 5 मिनट" : "Valid for 5 mins"}
+                                  </span>
+                                </div>
+
+                                <div style={{ display: "flex", gap: "8px" }}>
+                                  <input
+                                    type="text"
+                                    maxLength={6}
+                                    className="pl-text-input"
+                                    placeholder="••••••"
+                                    value={signupOtp}
+                                    onChange={(e) => setSignupOtp(e.target.value.replace(/\D/g, ""))}
+                                    style={{
+                                      flex: 1,
+                                      fontSize: "18px",
+                                      letterSpacing: "6px",
+                                      textAlign: "center",
+                                      fontWeight: 800,
+                                      padding: "0 10px",
+                                      background: "#FFFFFF",
+                                    }}
+                                    autoFocus
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={handleVerifySignupOtp}
+                                    disabled={signupVerifying || signupOtp.length !== 6}
+                                    style={{
+                                      padding: "0 18px",
+                                      borderRadius: "12px",
+                                      border: "none",
+                                      background: "#10B981",
+                                      color: "#FFFFFF",
+                                      fontSize: "13px",
+                                      fontWeight: 700,
+                                      cursor: (signupVerifying || signupOtp.length !== 6) ? "not-allowed" : "pointer",
+                                      whiteSpace: "nowrap",
+                                      boxShadow: "0 2px 8px rgba(16, 185, 129, 0.3)",
+                                    }}
+                                  >
+                                    {signupVerifying ? (isHindi ? "जांच..." : "Verifying...") : (isHindi ? "सत्यापित करें" : "Verify Code")}
+                                  </button>
+                                </div>
+
+                                {signupRemainingAttempts !== null && signupRemainingAttempts < 3 && (
+                                  <div style={{ fontSize: "11px", color: "#DC2626", fontWeight: 600, marginTop: "4px" }}>
+                                    {signupRemainingAttempts} {isHindi ? "प्रयास शेष" : "attempt(s) remaining"}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      /* Super Admin Phone Input */
+                      <div className="pl-input-group" style={{ marginBottom: "14px" }}>
+                        <div className="pl-input-label-row">
+                          <label className="pl-input-label">{isHindi ? "फोन नंबर" : "PHONE NUMBER"}</label>
+                        </div>
+                        <div style={{ display: "flex", gap: "8px" }}>
+                          <div style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "4px",
+                            padding: "0 12px",
+                            background: "#F1F5F9",
+                            border: "1.5px solid #E2E8F0",
+                            borderRadius: "12px",
+                            fontSize: "13.5px",
+                            fontWeight: 700,
+                            color: "#0F172A",
+                            flexShrink: 0,
+                          }}>
+                            <span>🇮🇳</span>
+                            <span>+91</span>
+                          </div>
                           <input
                             type="tel"
                             className="pl-text-input"
                             placeholder="9876543210"
                             value={regPhone}
                             onChange={(e) => setRegPhone(e.target.value)}
-                            style={{ paddingLeft: "16px" }}
+                            style={{ flex: 1, paddingLeft: "14px" }}
                           />
                         </div>
                       </div>
-                    </div>
+                    )}
 
                     {/* Password & Confirm Password */}
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
@@ -2172,7 +2859,6 @@ export default function MandatoryAuthScreen({
                   setShowForgotModal(false);
                   setForgotStep(1);
                   setForgotError(null);
-                  setForgotDevNotice(null);
                 }}
                 style={modalCloseBtnStyle}
               >
@@ -2184,12 +2870,6 @@ export default function MandatoryAuthScreen({
               <div style={{ marginTop: "14px", padding: "10px 14px", background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: "10px", color: "#DC2626", fontSize: "12.5px", fontWeight: 600, display: "flex", alignItems: "center", gap: "7px" }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
                 <span>{forgotError}</span>
-              </div>
-            )}
-
-            {forgotDevNotice && (
-              <div style={{ marginTop: "14px", padding: "10px 14px", background: "#FEF3C7", border: "1px solid #FCD34D", borderRadius: "10px", color: "#92400E", fontSize: "12.5px", fontWeight: 700, textAlign: "center" }}>
-                {forgotDevNotice}
               </div>
             )}
 
