@@ -1487,7 +1487,7 @@ export default function MandatoryAuthScreen({
                       borderRadius: "10px",
                       border: "none",
                       background: loginMethod === "mobile" ? "#FFFFFF" : "transparent",
-                      color: loginMethod === "mobile" ? "#059669" : "#64748B",
+                      color: loginMethod === "mobile" ? "#0369A1" : "#64748B",
                       fontWeight: 700,
                       fontSize: "13px",
                       cursor: "pointer",
@@ -2228,7 +2228,7 @@ export default function MandatoryAuthScreen({
                               style={{
                                 background: "none",
                                 border: "none",
-                                color: "#059669",
+                                color: "#0284C7",
                                 fontSize: "11.5px",
                                 cursor: "pointer",
                                 textDecoration: "underline",

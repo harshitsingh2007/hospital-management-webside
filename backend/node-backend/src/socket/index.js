@@ -38,16 +38,13 @@ async function broadcastQueueUpdate(io, tenantId) {
   const held = await engine.getHeldTickets(tid);
   const analytics = await engine.getTenantAnalytics(tid);
 
-  io.to(tid).emit("queue_update", { snapshot, serving, held, tenant_id: tid });
-  io.emit("queue_update", { snapshot, serving, held, tenant_id: tid });
-  io.to(tid).emit("queue_updated", { snapshot, serving, held, analytics, tenant_id: tid });
-  io.emit("queue_updated", { snapshot, serving, held, analytics, tenant_id: tid });
-  io.to(tid).emit("analytics_update", analytics);
+  const queuePayload = { snapshot, serving, held, analytics, tenant_id: tid };
+  io.emit("queue_updated", queuePayload);
+  io.emit("queue_update", queuePayload);
   io.emit("analytics_update", analytics);
 
   const alerts = await engine.getTicketsNeedingTurnAlert(tid);
   if (alerts && alerts.length > 0) {
-    io.to(tid).emit("turn_alert", { tickets: alerts, tenant_id: tid });
     io.emit("turn_alert", { tickets: alerts, tenant_id: tid });
   }
 }

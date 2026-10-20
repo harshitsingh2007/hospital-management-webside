@@ -1011,9 +1011,10 @@ export default function DoctorPage({
     fetchTenantAppointments();
     if (refreshData) refreshData();
     const interval = setInterval(() => {
+      if (document.hidden) return; // Never poll when tab is inactive
       fetchTenantAppointments();
       if (refreshData) refreshData();
-    }, 4000);
+    }, 30000);
     return () => clearInterval(interval);
   }, [fetchTenantAppointments, refreshData]);
 

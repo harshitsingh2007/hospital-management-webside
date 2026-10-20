@@ -59,9 +59,13 @@ app.use(
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
-// HTTP Request Logging
+// HTTP Request Logging (suppress repetitive favicon and health checks)
 if (env.NODE_ENV !== "test") {
-  app.use(morgan("dev"));
+  app.use(
+    morgan("dev", {
+      skip: (req) => req.url === "/favicon.ico" || req.url === "/health",
+    })
+  );
 }
 
 // API Routes

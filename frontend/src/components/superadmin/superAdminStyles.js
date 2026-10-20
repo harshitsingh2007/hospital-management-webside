@@ -343,6 +343,8 @@ export const modalContentStyle = {
     color: "var(--superadmin-text-main, #0F172A)",
     maxHeight: "90vh",
     overflowY: "auto",
+    scrollbarWidth: "none",
+    msOverflowStyle: "none",
 };
 
 export const modalCloseIconBtnStyle = {

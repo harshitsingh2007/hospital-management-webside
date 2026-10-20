@@ -1009,9 +1009,21 @@ async function getUserHistory(req, res, next) {
       // Root ticket for timestamp
       const rootTicket = stages[0] ? ticketMap.get(String(stages[0].ticket_id)) || t : t;
 
-      const memFmId = (t.patient_id ? famByPatId.get(t.patient_id) : null) ||
-        (t.name ? famByName.get(t.name.toLowerCase().trim()) : null) ||
-        null;
+      const tNameClean = String(t.name || "").toLowerCase().trim();
+      const userNameClean = String(user?.username || "").toLowerCase().trim();
+      const isPrimaryUser = Boolean(userNameClean && tNameClean === userNameClean);
+
+      let memFmId = null;
+      if (!isPrimaryUser) {
+        if (tNameClean && famByName.has(tNameClean)) {
+          memFmId = famByName.get(tNameClean);
+        } else if (t.patient_id && famByPatId.has(t.patient_id)) {
+          const matchedFm = userFamilyMembers.find((fm) => fm.patient_id === t.patient_id);
+          if (matchedFm && (!tNameClean || matchedFm.name.toLowerCase().trim() === tNameClean)) {
+            memFmId = matchedFm.id;
+          }
+        }
+      }
 
       formatted.push({
         ticket_id: t.ticket_id,
@@ -1572,143 +1584,111 @@ async function lookupPatientAccount(req, res, next) {
     const isPhone = cleanDigits.length >= 7;
     const cleanLower = rawQuery.toLowerCase();
 
-    // 1. Search users table by phone, email, or username (prefer primary registered accounts)
-    let user = await prisma.users.findFirst({
-      where: {
-        OR: [
-          ...(isPhone ? [{ phone: { contains: cleanDigits.slice(-10) } }] : []),
-          { email: { equals: cleanLower, mode: "insensitive" } },
-          { username: { equals: cleanLower, mode: "insensitive" } },
-        ],
-      },
-      orderBy: { id: "asc" },
-      include: {
-        patients: true,
-        family_members: true,
-      },
-    });
+    let user = null;
 
-    // 2. If not found in users, search patients table by phone, medical_id, or name
-    let pat = user?.patients?.[0] || null;
-    if (!user) {
-      const patientRecord = await prisma.patients.findFirst({
+    if (isPhone) {
+      const last10 = cleanDigits.slice(-10);
+      // Strict search in registered user accounts by phone number (excluding auto-generated dummy accounts)
+      user = await prisma.users.findFirst({
         where: {
-          OR: [
-            ...(isPhone ? [{ phone: { contains: cleanDigits.slice(-10) } }] : []),
-            { medical_id: { equals: rawQuery, mode: "insensitive" } },
-            { name: { equals: rawQuery, mode: "insensitive" } },
-          ],
+          phone: { contains: last10 },
+          NOT: { email: { contains: "@hospital.local" } },
         },
+        orderBy: { id: "asc" },
         include: {
-          users: {
-            include: {
-              family_members: true,
-            },
-          },
+          patients: true,
           family_members: true,
         },
-        orderBy: { id: "desc" },
       });
 
-      if (patientRecord) {
-        pat = patientRecord;
-        if (patientRecord.users) {
+      // If not directly in users, check if a patient with this phone has an associated genuine user account
+      if (!user) {
+        const patientRecord = await prisma.patients.findFirst({
+          where: {
+            phone: { contains: last10 },
+            user_id: { not: null },
+          },
+          include: {
+            users: {
+              include: {
+                family_members: true,
+                patients: true,
+              },
+            },
+          },
+        });
+        if (patientRecord?.users && !patientRecord.users.email.includes("@hospital.local")) {
           user = patientRecord.users;
         }
       }
-    }
 
-    if (!user && !pat) {
-      return res.status(200).json({
-        status: "success",
-        found: false,
-        message: "No registered patient or account found",
-      });
-    }
-
-    // If patient exists without an associated user account, resolve or auto-provision one
-    // so family members and ticket history can be tied consistently to a user account.
-    if (pat && !user) {
-      const phDigits = (pat.phone || cleanDigits).replace(/\D/g, "");
-      if (phDigits.length >= 7) {
-        user = await prisma.users.findFirst({
-          where: { phone: { contains: phDigits.slice(-10) } },
-          orderBy: { id: "asc" },
-          include: { patients: true, family_members: true },
+      // If no genuine registered user is found with this phone number, return not found.
+      // NEVER match by random name/username and NEVER auto-provision fake accounts on lookup.
+      if (!user) {
+        return res.status(200).json({
+          status: "success",
+          found: false,
+          message: "Mobile number is not registered in the database.",
         });
       }
+    } else {
+      // Non-phone search: Email, Medical ID / UHID, or Username
+      user = await prisma.users.findFirst({
+        where: {
+          OR: [
+            { email: { equals: cleanLower, mode: "insensitive" } },
+            { username: { equals: cleanLower, mode: "insensitive" } },
+          ],
+          NOT: { email: { contains: "@hospital.local" } },
+        },
+        orderBy: { id: "asc" },
+        include: {
+          patients: true,
+          family_members: true,
+        },
+      });
 
-      if (!user && pat.name) {
-        user = await prisma.users.findFirst({
-          where: { username: { equals: pat.name, mode: "insensitive" } },
-          orderBy: { id: "asc" },
-          include: { patients: true, family_members: true },
+      if (!user) {
+        const patientRecord = await prisma.patients.findFirst({
+          where: {
+            medical_id: { equals: rawQuery, mode: "insensitive" },
+            user_id: { not: null },
+          },
+          include: {
+            users: {
+              include: {
+                family_members: true,
+                patients: true,
+              },
+            },
+          },
         });
-        if (user && !user.phone && phDigits.length >= 7) {
-          await prisma.users.update({
-            where: { id: user.id },
-            data: { phone: phDigits.slice(-10) },
-          });
-          user.phone = phDigits.slice(-10);
+        if (patientRecord?.users && !patientRecord.users.email.includes("@hospital.local")) {
+          user = patientRecord.users;
         }
       }
 
       if (!user) {
-        const genEmail = phDigits.length >= 7
-          ? `patient_${phDigits.slice(-10)}@hospital.local`
-          : `patient_${pat.id}_${Date.now()}@hospital.local`;
-
-        user = await prisma.users.findUnique({
-          where: { email: genEmail },
-          include: { patients: true, family_members: true },
+        return res.status(200).json({
+          status: "success",
+          found: false,
+          message: "No registered patient account found.",
         });
-
-        if (!user) {
-          user = await prisma.users.create({
-            data: {
-              email: genEmail,
-              username: pat.name || "Patient",
-              phone: pat.phone || (phDigits.length >= 7 ? phDigits.slice(-10) : ""),
-              role: "patient",
-              status: "active",
-              password_hash: await hashPassword(Math.random().toString(36)),
-              primary_hospital_code: req.user?.primary_hospital_code || "city-hospital-01",
-            },
-            include: { patients: true, family_members: true },
-          });
-        }
-      }
-
-      if (user && !pat.user_id) {
-        await prisma.patients.update({
-          where: { id: pat.id },
-          data: { user_id: user.id },
-        });
-        pat.user_id = user.id;
-
-        // Also link any other patient records with the same phone
-        if (phDigits.length >= 7) {
-          await prisma.patients.updateMany({
-            where: {
-              phone: { contains: phDigits.slice(-10) },
-              user_id: null,
-            },
-            data: { user_id: user.id },
-          });
-        }
       }
     }
 
-    const accountName = user?.username || pat?.name || "Patient";
-    const accountEmail = user?.email || "";
-    const accountPhone = user?.phone || pat?.phone || "";
+    // Genuine registered user account verified
+    const pat = user.patients?.[0] || null;
+    const accountName = user.username || pat?.name || "Patient";
+    const accountEmail = user.email || "";
+    const accountPhone = user.phone || pat?.phone || "";
     const primaryAge = pat?.age || 30;
     const primaryGender = pat?.gender || "male";
     const primaryMedId = pat?.medical_id || (pat?.id ? `PAT-${pat.id}` : "");
 
     const accountHolder = {
       id: "self",
-      user_id: user?.id || null,
+      user_id: user.id,
       patient_id: pat?.id || null,
       name: accountName,
       relation: "self",
@@ -1719,31 +1699,10 @@ async function lookupPatientAccount(req, res, next) {
       medical_id: primaryMedId,
     };
 
-    // Gather all family members across all linked user accounts and patient records
-    const allMatchingUids = user ? [user.id] : [];
-    if (cleanDigits.length >= 7) {
-      const siblingUsers = await prisma.users.findMany({
-        where: { phone: { contains: cleanDigits.slice(-10) } },
-        select: { id: true },
-      });
-      siblingUsers.forEach((su) => {
-        if (!allMatchingUids.includes(su.id)) allMatchingUids.push(su.id);
-      });
-    }
-
-    const dbFamilyMembers = await prisma.family_members.findMany({
-      where: {
-        OR: [
-          { user_id: { in: allMatchingUids } },
-          ...(pat?.id ? [{ patient_id: pat.id }] : []),
-          ...(cleanDigits.length >= 7 ? [{ phone: { contains: cleanDigits.slice(-10) } }] : []),
-        ],
-      },
-      orderBy: { created_at: "asc" },
-    });
-
+    // Gather family members of this registered user account
     const familyMembers = [];
     const seenNames = new Set();
+    const dbFamilyMembers = user.family_members || [];
     for (const fm of dbFamilyMembers) {
       if (fm) {
         const key = `${fm.name.trim().toLowerCase()}_${(fm.relation || "").trim().toLowerCase()}`;
@@ -1751,7 +1710,7 @@ async function lookupPatientAccount(req, res, next) {
           seenNames.add(key);
           familyMembers.push({
             id: fm.id,
-            user_id: fm.user_id || user?.id,
+            user_id: fm.user_id || user.id,
             patient_id: fm.patient_id,
             name: fm.name,
             relation: fm.relation || "other",

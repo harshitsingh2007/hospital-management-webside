@@ -353,6 +353,7 @@ export default function FamilyMemberSwitcher({
   onSelectMember,
   onAddMember,
   onDeleteMember,
+  showConfirm,
   language = "en",
   familyTickets = {},
 }) {
@@ -492,10 +493,18 @@ export default function FamilyMemberSwitcher({
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    const msg = language === "hi"
-                      ? `क्या आप वाकई ${member.name} को हटाना चाहते हैं?`
-                      : `Remove ${member.name}?`;
-                    if (window.confirm(msg)) {
+                    if (showConfirm) {
+                      showConfirm({
+                        title: language === "hi" ? "सदस्य प्रोफ़ाइल हटाएं" : "Remove Family Member",
+                        message: language === "hi"
+                          ? `क्या आप वाकई ${member.name} (${t(`relation_${member.relation}`, language) || member.relation}) को अपनी परिवार सूची से हटाना चाहते हैं?`
+                          : `Are you sure you want to remove ${member.name} (${t(`relation_${member.relation}`, language) || member.relation}) from your family profile?`,
+                        confirmText: language === "hi" ? "हाँ, हटाएं" : "Yes, Remove Member",
+                        cancelText: language === "hi" ? "रद्द करें" : "Cancel",
+                        isDestructive: true,
+                        onConfirm: () => onDeleteMember(member.id),
+                      });
+                    } else {
                       onDeleteMember(member.id);
                     }
                   }}

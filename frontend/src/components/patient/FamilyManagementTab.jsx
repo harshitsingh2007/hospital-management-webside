@@ -18,6 +18,7 @@ export default function FamilyManagementTab({
   setShowAddMemberModal,
   setEditingMember,
   handleDeleteMember,
+  showConfirm,
   familyTickets = {},
 }) {
   return (
@@ -253,7 +254,18 @@ export default function FamilyManagementTab({
                     <button
                       type="button"
                       onClick={() => {
-                        if (window.confirm(t("deleteMemberConfirm", language))) {
+                        if (showConfirm) {
+                          showConfirm({
+                            title: language === "hi" ? "सदस्य प्रोफ़ाइल हटाएं" : "Remove Family Member",
+                            message: language === "hi"
+                              ? `क्या आप वाकई ${member.name} (${t(`relation_${member.relation}`, language) || member.relation}) की प्रोफ़ाइल हटाना चाहते हैं?`
+                              : `Are you sure you want to remove ${member.name} (${t(`relation_${member.relation}`, language) || member.relation}) from your family profile?`,
+                            confirmText: language === "hi" ? "हाँ, हटाएं" : "Yes, Remove",
+                            cancelText: language === "hi" ? "रद्द करें" : "Cancel",
+                            isDestructive: true,
+                            onConfirm: () => handleDeleteMember(member.id),
+                          });
+                        } else {
                           handleDeleteMember(member.id);
                         }
                       }}

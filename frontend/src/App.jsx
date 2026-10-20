@@ -5,7 +5,7 @@
  * Theme: Soft Green Clinical (Clean Healthcare Palette 4)
  */
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { io } from "socket.io-client";
 import { API_BASE, WS_URL, HOSPITAL_CONFIG } from "./config/hospitalConfig";
 
@@ -519,7 +519,11 @@ export default function App() {
       .then((r) => r.json())
       .then((data) => {
         if (data.status === "success" && Array.isArray(data.members)) {
-          setFamilyMembers(data.members.filter((m) => m && m.id !== "self"));
+          const newFiltered = data.members.filter((m) => m && m.id !== "self");
+          setFamilyMembers((prev) => {
+            if (JSON.stringify(prev) === JSON.stringify(newFiltered)) return prev;
+            return newFiltered;
+          });
         }
       })
       .catch((e) => console.log("Family members fetch error:", e));
@@ -686,8 +690,16 @@ export default function App() {
   }, [activeTicket?.ticket_id, activeTicket?.status, ticketQrData]);
 
   // Verify activeTicket status against backend on mount or whenever ticket_id changes
+  const verifiedTicketIdRef = useRef(null);
   useEffect(() => {
-    if (!activeTicket?.ticket_id) return;
+    if (!activeTicket?.ticket_id) {
+      verifiedTicketIdRef.current = null;
+      return;
+    }
+    // Skip redundant network fetch if already verified or freshly created in this cycle
+    if (verifiedTicketIdRef.current === activeTicket.ticket_id) return;
+    verifiedTicketIdRef.current = activeTicket.ticket_id;
+
     fetch(`${API_BASE}/api/v1/plugin/ticket/${activeTicket.ticket_id}`)
       .then((r) => r.json())
       .then((d) => {
@@ -702,12 +714,29 @@ export default function App() {
               localStorage.removeItem("ai_queue_active_ticket");
             } catch (e) {}
           } else {
-            setActiveTicket((prev) => ({ ...prev, ...d.ticket }));
+            setActiveTicket((prev) => {
+              if (
+                prev &&
+                prev.ticket_id === d.ticket.ticket_id &&
+                prev.status === d.ticket.status &&
+                prev.position === d.ticket.position &&
+                prev.estimated_wait_minutes === d.ticket.estimated_wait_minutes
+              ) {
+                return prev;
+              }
+              return { ...prev, ...d.ticket };
+            });
           }
         }
       })
       .catch((e) => console.log("Ticket verification error in App:", e));
   }, [activeTicket?.ticket_id]);
+
+  // Stable key for family member composition to prevent refetch loops
+  const familyMemberKey = useMemo(
+    () => (familyMembers || []).map((m) => m?.id).filter(Boolean).sort().join(","),
+    [familyMembers]
+  );
 
   // Auto-restore active ticket and sync family tickets from history on mount / login / event
   useEffect(() => {
@@ -724,11 +753,11 @@ export default function App() {
           const curMemName = String(activeFamilyMember.name || "").toLowerCase().trim();
           const curMemId = String(activeFamilyMember.id);
           if (String(t.family_member_id) === curMemId || String(t.name || "").toLowerCase().trim() === curMemName) {
-            setActiveTicket(t);
+            setActiveTicket((prev) => (prev?.ticket_id === t.ticket_id && prev?.status === t.status ? prev : t));
           }
         } else {
           if (!isDep) {
-            setActiveTicket(t);
+            setActiveTicket((prev) => (prev?.ticket_id === t.ticket_id && prev?.status === t.status ? prev : t));
           }
         }
       }
@@ -780,7 +809,7 @@ export default function App() {
             }
           });
 
-          // Sync into localStorage & dispatch event so PatientPage and Header update instantly
+          // Sync into localStorage & dispatch event ONLY IF CHANGED so PatientPage doesn't loop
           const ticketStorageKey = `family_tickets_${currentUser ? (currentUser.username || currentUser.email) : "guest"}`;
           try {
             const saved = localStorage.getItem(ticketStorageKey);
@@ -792,8 +821,10 @@ export default function App() {
               }
             }
             const merged = { ...currentMap, ...activeTicketsMap };
-            localStorage.setItem(ticketStorageKey, JSON.stringify(merged));
-            window.dispatchEvent(new CustomEvent("family_tickets_updated", { detail: merged }));
+            if (JSON.stringify(currentMap) !== JSON.stringify(merged)) {
+              localStorage.setItem(ticketStorageKey, JSON.stringify(merged));
+              window.dispatchEvent(new CustomEvent("family_tickets_updated", { detail: merged }));
+            }
           } catch (e) {}
 
           // 2. Set primary active ticket if present
@@ -809,22 +840,36 @@ export default function App() {
             const depTicket = liveTickets.find((t) =>
               String(t.family_member_id) === curMemId || String(t.name || "").toLowerCase().trim() === curMemName
             );
-            setActiveTicket(depTicket || null);
+            setActiveTicket((prev) => {
+              if (!depTicket) return null;
+              if (prev && prev.ticket_id === depTicket.ticket_id && prev.status === depTicket.status && prev.position === depTicket.position) {
+                return prev;
+              }
+              return depTicket;
+            });
           } else {
             if (selfActiveTicket) {
               setActiveTicket((prev) => {
                 if (!prev || prev.ticket_id !== selfActiveTicket.ticket_id) {
                   return selfActiveTicket;
                 }
+                if (
+                  prev.status === selfActiveTicket.status &&
+                  prev.position === selfActiveTicket.position &&
+                  prev.estimated_wait_minutes === selfActiveTicket.estimated_wait_minutes
+                ) {
+                  return prev;
+                }
                 return { ...prev, ...selfActiveTicket };
               });
             } else {
-              // No live tickets found for self; clear stale self active ticket
-              setActiveTicket(null);
-              setTicketQrData(null);
-              try {
-                localStorage.removeItem("ai_queue_active_ticket");
-              } catch (e) {}
+              // If activeTicket is already live, do not abruptly null it out on async history check
+              setActiveTicket((prev) => {
+                if (!prev) return null;
+                const isLive = ["waiting", "serving", "on_hold", "hold"].includes(String(prev.status || "").toLowerCase());
+                if (isLive) return prev;
+                return null;
+              });
             }
           }
         }
@@ -832,7 +877,7 @@ export default function App() {
       .catch((e) => console.log("Active ticket restore error:", e));
 
     return () => window.removeEventListener("active_ticket_updated", handleActiveTicketBroadcast);
-  }, [currentUser, familyMembers, activeFamilyMember]);
+  }, [currentUser?.email, currentUser?.username, familyMemberKey, activeFamilyMember?.id]);
 
   // Sync page & tab state when URL changes
   useEffect(() => {
@@ -1191,16 +1236,28 @@ export default function App() {
     return () => socket.disconnect();
   }, [tenantId]);
 
-  // Fetch Queue & Analytics with Department Security Boundary
+  // Fetch Hospital Kiosk QR code ONCE per tenant (static, does not change with queue updates)
+  useEffect(() => {
+    if (!tenantId) return;
+    fetch(`${API_BASE}/api/v1/plugin/qr/${tenantId}`)
+      .then((r) => r.json())
+      .then((d) => setKioskQrData(d))
+      .catch((e) => console.log("QR error:", e));
+  }, [tenantId]);
+
+  // Fetch Queue & Analytics with In-Flight Guard
+  const isRefreshingRef = useRef(false);
   const refreshData = useCallback(() => {
+    if (isRefreshingRef.current) return;
+    isRefreshingRef.current = true;
     const deptQuery = adminDepartment && adminDepartment !== "all" ? `?department=${encodeURIComponent(adminDepartment)}` : "";
 
-    fetch(`${API_BASE}/api/v1/plugin/analytics/${tenantId}${deptQuery}`)
+    const p1 = fetch(`${API_BASE}/api/v1/plugin/analytics/${tenantId}${deptQuery}`)
       .then((r) => r.json())
       .then((d) => setAnalytics(d))
       .catch((e) => console.log("Analytics error:", e));
 
-    fetch(`${API_BASE}/api/v1/plugin/queue/${tenantId}${deptQuery}`)
+    const p2 = fetch(`${API_BASE}/api/v1/plugin/queue/${tenantId}${deptQuery}`)
       .then((r) => r.json())
       .then((d) => {
         const snap = d.snapshot || [];
@@ -1227,40 +1284,38 @@ export default function App() {
                 localStorage.removeItem("ai_queue_active_ticket");
               } catch (e) {}
             }
-          } else {
-            // Ticket is no longer in live queue; verify if it was completed or departed
-            fetch(`${API_BASE}/api/v1/plugin/ticket/${cur.ticket_id}`)
-              .then((r) => r.json())
-              .then((td) => {
-                if (td && td.ticket) {
-                  const s = String(td.ticket.status || "").toLowerCase();
-                  if (!["waiting", "serving", "on_hold", "hold"].includes(s)) {
-                    setActiveTicket(null);
-                    setTicketQrData(null);
-                    try {
-                      localStorage.removeItem("ai_queue_active_ticket");
-                    } catch (e) {}
-                  }
-                }
-              })
-              .catch(() => {});
           }
         }
       })
       .catch((e) => console.log("Queue error:", e));
 
-    fetch(`${API_BASE}/api/v1/plugin/qr/${tenantId}`)
-      .then((r) => r.json())
-      .then((d) => setKioskQrData(d))
-      .catch((e) => console.log("QR error:", e));
+    Promise.allSettled([p1, p2]).finally(() => {
+      isRefreshingRef.current = false;
+    });
   }, [tenantId, adminDepartment]);
 
   useEffect(() => {
-    // When on superadmin, SuperAdminPage manages its own scoped telemetry; avoid 4s root App re-renders
+    // When on superadmin, SuperAdminPage manages its own scoped telemetry; avoid root App polling
     if (activePage === "superadmin") return;
     refreshData();
-    const timer = setInterval(refreshData, 4000);
-    return () => clearInterval(timer);
+
+    // Relaxed 45s fallback heartbeat because Socket.IO pushes live queue updates in real-time
+    const timer = setInterval(() => {
+      if (document.hidden) return; // Never poll when tab is inactive/hidden!
+      refreshData();
+    }, 45000);
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        refreshData();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, [refreshData, activePage]);
 
   // Handle hospital facility switch from Header or Patient portal

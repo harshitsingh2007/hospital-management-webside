@@ -15,7 +15,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { API_BASE, HOSPITAL_CONFIG } from "../config/hospitalConfig";
-import { t, getCategoryLabel, getStatusLabel, formatCleanText } from "../utils/i18n";
+import { t, getCategoryLabel, getStatusLabel, formatCleanText, SYMPTOM_OPTIONS } from "../utils/i18n";
 import { announceTicketVoice } from "../utils/voiceSynthesizer";
 import { printTokenPass } from "../utils/printPassHelper";
 import Footer from "../components/common/Footer";
@@ -188,6 +188,7 @@ export default function StaffPortalPage({
   const [patientLookupResult, setPatientLookupResult] = useState(null); // { found: true, account_holder, family_members, all_profiles }
   const [selectedProfileId, setSelectedProfileId] = useState(null); // 'self' or family member id
   const [lookupFeedback, setLookupFeedback] = useState(null); // { type: 'success' | 'info' | 'warn', message: '' }
+  const [phoneLookupStatus, setPhoneLookupStatus] = useState(null); // null | 'registered' | 'not_registered'
   const [showAddDependentForm, setShowAddDependentForm] = useState(false);
   const [newDependent, setNewDependent] = useState({
     name: "",
@@ -379,7 +380,9 @@ export default function StaffPortalPage({
     };
 
     attachSocketListeners();
-    const socketCheckInterval = setInterval(attachSocketListeners, 1000);
+    const socketCheckInterval = setInterval(() => {
+      if (!attachedSocket) attachSocketListeners();
+    }, 10000);
 
     // 2. Window Custom Event Listeners
     const eventNames = [
@@ -418,14 +421,16 @@ export default function StaffPortalPage({
       }
     } catch (e) {}
 
-    // 4. Background quiet sync timer (every 2.5 seconds) ensuring 0 missed updates
+    // 4. Background quiet sync timer (every 30 seconds fallback; WebSockets push live changes)
     const livePollTimer = setInterval(() => {
+      if (document.hidden) return; // Do not poll when tab is inactive/hidden!
       fetchLiveQueueData();
       fetchAppointments();
-    }, 2500);
+    }, 30000);
 
     // 5. Immediate sync on Tab Focus & Page Visibility
     const handleFocus = () => {
+      if (document.hidden) return;
       fetchLiveQueueData();
       fetchAppointments();
       fetchDesksAndDoctors();
@@ -528,20 +533,23 @@ export default function StaffPortalPage({
 
   // 5b. Registered Patient & Family Auto-Lookup for Walk-In Desk
   const handleLookupPatient = async (queryToSearch) => {
-    const q = (queryToSearch !== undefined ? queryToSearch : patientLookupQuery).trim();
+    const q = (queryToSearch !== undefined ? queryToSearch : (patientLookupQuery || walkinForm.phone || "")).trim();
     if (!q || q.length < 3) {
       setLookupFeedback({
         type: "warn",
         message: isHi ? "कृपया कम से कम 3 अंक या अक्षर दर्ज करें।" : "Please enter at least 3 digits / characters to search.",
       });
+      showFeedback(isHi ? "कृपया कम से कम 3 अंक या अक्षर दर्ज करें।" : "Please enter at least 3 digits / characters to search.", "warn");
       return;
     }
     setIsSearchingPatient(true);
     setLookupFeedback(null);
+    setPhoneLookupStatus(null);
     try {
       const res = await fetch(`${API_BASE}/api/v1/plugin/patient-lookup?query=${encodeURIComponent(q)}`);
       const data = await res.json();
       if (res.ok && data.found) {
+        setPhoneLookupStatus("registered");
         setPatientLookupResult(data);
         const primary = data.account_holder;
         setSelectedProfileId(primary.id);
@@ -555,25 +563,37 @@ export default function StaffPortalPage({
         setLookupFeedback({
           type: "success",
           message: isHi
-            ? `खाता पहचाना गया: ${primary.name} (${data.family_members?.length || 0} परिवार के सदस्य मिले)`
-            : `Verified Account: ${primary.name} (${data.family_members?.length || 0} registered family member${data.family_members?.length === 1 ? "" : "s"})`,
+            ? `✓ खाता पहचाना गया: ${primary.name} (${data.family_members?.length || 0} परिवार के सदस्य मिले)`
+            : `✓ Verified Account: ${primary.name} (${data.family_members?.length || 0} registered family member${data.family_members?.length === 1 ? "" : "s"})`,
         });
+        showFeedback(
+          isHi
+            ? `✓ पंजीकृत खाता मिला: ${primary.name} (+91 ${primary.phone || q})`
+            : `✓ Registered account verified: ${primary.name} (+91 ${primary.phone || q})`,
+          "success"
+        );
       } else {
+        setPhoneLookupStatus("not_registered");
         setPatientLookupResult(null);
         setSelectedProfileId(null);
+        const warnMsg = isHi
+          ? "⚠️ यह मोबाइल नंबर / खाता डेटाबेस में पंजीकृत नहीं है। कृपया नए मरीज के रूप में विवरण दर्ज करें।"
+          : "⚠️ Mobile number is not registered in the database. Please proceed as a new walk-in patient.";
         setLookupFeedback({
-          type: "info",
-          message: isHi
-            ? "कोई पंजीकृत खाता नहीं मिला। आप सामान्य वॉक-इन के रूप में जारी रख सकते हैं।"
-            : "No registered patient account found. You can proceed as a new walk-in.",
+          type: "warn",
+          message: warnMsg,
         });
+        showFeedback(warnMsg, "warn");
       }
     } catch (err) {
       console.error("Lookup error:", err);
+      setPhoneLookupStatus(null);
+      const errMsg = isHi ? "⚠️ सत्यापन सर्वर से संपर्क नहीं हो सका।" : "⚠️ Could not connect to patient lookup service.";
       setLookupFeedback({
         type: "warn",
-        message: isHi ? "सत्यापन सर्वर से संपर्क नहीं हो सका।" : "Could not connect to patient lookup service.",
+        message: errMsg,
       });
+      showFeedback(errMsg, "error");
     } finally {
       setIsSearchingPatient(false);
     }
@@ -596,6 +616,7 @@ export default function StaffPortalPage({
     setSelectedProfileId(null);
     setPatientLookupQuery("");
     setLookupFeedback(null);
+    setPhoneLookupStatus(null);
     setShowAddDependentForm(false);
   };
 
@@ -851,7 +872,8 @@ export default function StaffPortalPage({
         gender: walkinForm.gender,
         phone: walkinForm.phone.trim(),
         service_category: walkinForm.department || "consultation",
-        symptoms: walkinForm.custom_symptom ? [walkinForm.custom_symptom] : [walkinForm.symptoms],
+        symptoms: (walkinForm.custom_symptom && walkinForm.custom_symptom.trim()) ? [walkinForm.custom_symptom.trim()] : [walkinForm.symptoms || "general_checkup"],
+        medical_condition: (walkinForm.custom_symptom && walkinForm.custom_symptom.trim()) || walkinForm.symptoms || "general_checkup",
         priority: parseInt(walkinForm.priority, 10) || 2,
         tenant_id: effectiveHospitalCode,
         ...(patientLookupResult?.account_holder?.email
@@ -2609,24 +2631,38 @@ export default function StaffPortalPage({
                       {isHi ? "मोबाइल फोन नंबर *" : "Mobile Phone Number *"}
                     </label>
                     <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                      {!patientLookupResult && walkinForm.phone && walkinForm.phone.length >= 7 && (
+                      {!patientLookupResult && walkinForm.phone && walkinForm.phone.replace(/\D/g, "").length >= 7 && (
                         <button
                           type="button"
+                          disabled={isSearchingPatient}
                           onClick={() => handleLookupPatient(walkinForm.phone)}
                           style={{
                             background: "none",
                             border: "none",
-                            padding: 0,
-                            fontSize: "11px",
+                            padding: "2px 6px",
+                            fontSize: "11.5px",
                             fontWeight: 700,
                             color: "#0284C7",
-                            cursor: "pointer",
+                            cursor: isSearchingPatient ? "not-allowed" : "pointer",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "4px",
                           }}
                         >
-                          🔍 Check Account
+                          {isSearchingPatient ? (
+                            <>
+                              <RefreshCw size={12} className="animate-spin" />
+                              <span>{isHi ? "जांच रहे हैं..." : "Checking..."}</span>
+                            </>
+                          ) : (
+                            <>
+                              <Search size={12} />
+                              <span>{isHi ? "मोबाइल नंबर जांचें" : "Check Mobile No"}</span>
+                            </>
+                          )}
                         </button>
                       )}
-                      {walkinForm.phone && walkinForm.phone.length >= 7 && (
+                      {walkinForm.phone && walkinForm.phone.replace(/\D/g, "").length >= 7 && (
                         walkinOtpState.verified ? (
                           <span style={{ fontSize: "11px", fontWeight: 700, color: "#10B981", display: "inline-flex", alignItems: "center", gap: "3px" }}>
                             <CheckCircle2 size={13} /> {isHi ? "सत्यापित" : "Verified"}
@@ -2667,12 +2703,19 @@ export default function StaffPortalPage({
                     required
                     placeholder={isHi ? "उदा. 9876543210 (अनिवार्य)" : "e.g. +91 98765 43210 (Required)"}
                     value={walkinForm.phone}
-                    onChange={(e) => setWalkinForm({ ...walkinForm, phone: e.target.value })}
+                    onChange={(e) => {
+                      setWalkinForm({ ...walkinForm, phone: e.target.value });
+                      if (phoneLookupStatus) setPhoneLookupStatus(null);
+                    }}
                     style={{
                       width: "100%",
                       padding: "10px 12px",
                       borderRadius: "10px",
-                      border: isDark ? "1px solid #334155" : "1.5px solid #CBD5E1",
+                      border: phoneLookupStatus === "not_registered"
+                        ? "1.5px solid #EF4444"
+                        : phoneLookupStatus === "registered"
+                        ? "1.5px solid #10B981"
+                        : (isDark ? "1px solid #334155" : "1.5px solid #CBD5E1"),
                       background: isDark ? "#1E293B" : "#F8FAFC",
                       color: isDark ? "#F8FAFC" : "#0F172A",
                       fontSize: "13.5px",
@@ -2680,6 +2723,55 @@ export default function StaffPortalPage({
                       outline: "none",
                     }}
                   />
+
+                  {/* Warning banner when mobile number is not registered */}
+                  {phoneLookupStatus === "not_registered" && (
+                    <div style={{
+                      marginTop: "6px",
+                      padding: "8px 12px",
+                      borderRadius: "8px",
+                      background: isDark ? "rgba(239, 68, 68, 0.18)" : "#FEF2F2",
+                      border: "1px solid #FECACA",
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      color: "#DC2626",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                    }}>
+                      <span>⚠️</span>
+                      <span>
+                        {isHi
+                          ? "यह मोबाइल नंबर डेटाबेस में पंजीकृत नहीं है। कृपया नए मरीज के रूप में विवरण दर्ज करें।"
+                          : "This mobile number is not registered in the database. Please proceed as a new walk-in patient."}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Success confirmation when registered */}
+                  {phoneLookupStatus === "registered" && patientLookupResult && (
+                    <div style={{
+                      marginTop: "6px",
+                      padding: "8px 12px",
+                      borderRadius: "8px",
+                      background: isDark ? "rgba(16, 185, 129, 0.18)" : "#ECFDF5",
+                      border: "1px solid #A7F3D0",
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      color: "#059669",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                    }}>
+                      <span>✓</span>
+                      <span>
+                        {isHi
+                          ? `पंजीकृत खाता मिल गया: ${patientLookupResult.account_holder?.name || ""}`
+                          : `Registered account verified: ${patientLookupResult.account_holder?.name || ""}`}
+                      </span>
+                    </div>
+                  )}
+
                   <div style={{ fontSize: "10.5px", color: "#0284C7", fontWeight: 600, marginTop: "3px" }}>
                     {isHi ? "अनिवार्य — भविष्य में डिजिटल टोकन व मेडिकल रिकॉर्ड सिंक करने हेतु" : "Required — Enables future digital pass & medical record syncing"}
                   </div>
@@ -2842,6 +2934,145 @@ export default function StaffPortalPage({
                     ))}
                     {departments.length === 0 && <option value="consultation">General OPD</option>}
                   </select>
+                </div>
+              </div>
+
+              {/* Patient Symptoms & Disease Reason Section */}
+              <div
+                style={{
+                  marginBottom: "16px",
+                  padding: "14px 16px",
+                  borderRadius: "12px",
+                  border: isDark ? "1px solid #334155" : "1.5px solid #E2E8F0",
+                  background: isDark ? "rgba(30, 41, 59, 0.45)" : "#F8FAFC",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <Activity size={15} color="#0284C7" />
+                    <label style={{ fontSize: "12.5px", fontWeight: 700, color: isDark ? "#E2E8F0" : "#334155" }}>
+                      {isHi ? "मरीज के लक्षण / बीमारी का कारण *" : "Patient Symptoms & Clinical Reason *"}
+                    </label>
+                  </div>
+                  <span style={{ fontSize: "11px", color: isDark ? "#94A3B8" : "#64748B" }}>
+                    {isHi ? "डॉक्टर पर्चे व टोकन पर प्रिंट होगा" : "Included on queue ticket & doctor desk"}
+                  </span>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1.9fr", gap: "10px", marginBottom: "10px" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "#64748B", marginBottom: "4px" }}>
+                      {isHi ? "लक्षण श्रेणी (Category)" : "Primary Category"}
+                    </label>
+                    <select
+                      value={walkinForm.symptoms || "general_checkup"}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const opt = SYMPTOM_OPTIONS.find((s) => s.id === val);
+                        setWalkinForm({
+                          ...walkinForm,
+                          symptoms: val,
+                          custom_symptom: !walkinForm.custom_symptom ? (opt ? (isHi ? opt.labelHi : opt.label) : "") : walkinForm.custom_symptom,
+                          ...(val === "chest_pain_severe" || val === "breathing_difficulty" ? { priority: 1 } : {}),
+                        });
+                      }}
+                      style={{
+                        width: "100%",
+                        padding: "9px 11px",
+                        borderRadius: "8px",
+                        border: isDark ? "1px solid #334155" : "1.5px solid #CBD5E1",
+                        background: isDark ? "#1E293B" : "#FFFFFF",
+                        color: isDark ? "#F8FAFC" : "#0F172A",
+                        fontSize: "13px",
+                        boxSizing: "border-box",
+                        outline: "none",
+                      }}
+                    >
+                      {SYMPTOM_OPTIONS.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {isHi ? s.labelHi : s.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "#64748B", marginBottom: "4px" }}>
+                      {isHi ? "मरीज द्वारा बताई गई बीमारी का विवरण (Patient Complaint)" : "Patient Complaint / Disease Details"}
+                    </label>
+                    <input
+                      type="text"
+                      placeholder={isHi ? "उदा. 2 दिन से तेज बुखार, पेट में दर्द, खांसी..." : "e.g. High fever for 2 days, acute abdomen pain, cough with phlegm..."}
+                      value={walkinForm.custom_symptom}
+                      onChange={(e) => setWalkinForm({ ...walkinForm, custom_symptom: e.target.value })}
+                      style={{
+                        width: "100%",
+                        padding: "9px 11px",
+                        borderRadius: "8px",
+                        border: isDark ? "1px solid #334155" : "1.5px solid #CBD5E1",
+                        background: isDark ? "#1E293B" : "#FFFFFF",
+                        color: isDark ? "#F8FAFC" : "#0F172A",
+                        fontSize: "13px",
+                        boxSizing: "border-box",
+                        outline: "none",
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Quick Symptom Chips */}
+                <div>
+                  <div style={{ fontSize: "11px", fontWeight: 600, color: "#64748B", marginBottom: "6px" }}>
+                    {isHi ? "त्वरित लक्षण चयन (Quick Tap Chips):" : "Quick Tap Common Symptoms:"}
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                    {[
+                      { id: "fever_flu", label: "🤒 " + (isHi ? "तेज़ बुखार" : "High Fever"), text: isHi ? "तेज़ बुखार और कंपकंपी" : "High fever and viral flu" },
+                      { id: "cough_cold", label: "🤧 " + (isHi ? "खांसी-जुकाम" : "Cough & Cold"), text: isHi ? "खांसी, जुकाम और गले में खराश" : "Severe cough and cold" },
+                      { id: "stomach_pain", label: "🤢 " + (isHi ? "पेट दर्द / उल्टी" : "Stomach Pain"), text: isHi ? "पेट में तेज दर्द एवं उल्टी" : "Acute stomach pain and nausea" },
+                      { id: "chest_pain_severe", label: "❤️ " + (isHi ? "सीने में दर्द (🚨 अर्जेंट)" : "Chest Pain (🚨 Urgent)"), text: isHi ? "सीने में गंभीर दर्द व बेचैनी" : "Severe chest pain and discomfort", emergency: true },
+                      { id: "breathing_difficulty", label: "🫁 " + (isHi ? "सांस में तकलीफ (🚨)" : "Breathlessness (🚨)"), text: isHi ? "सांस लेने में गंभीर तकलीफ" : "Shortness of breath / asthma attack", emergency: true },
+                      { id: "headache_migraine", label: "🤕 " + (isHi ? "सिरदर्द" : "Severe Headache"), text: isHi ? "गंभीर सिरदर्द एवं चक्कर" : "Severe headache and dizziness" },
+                      { id: "ortho_joint_pain", label: "🦴 " + (isHi ? "जोड़ों / कमर दर्द" : "Joint / Back Pain"), text: isHi ? "कमर एवं जोड़ों में दर्द" : "Joint stiffness and back pain" },
+                      { id: "fracture_trauma", label: "🩹 " + (isHi ? "चोट / घाव" : "Injury & Trauma"), text: isHi ? "हादसा, चोट या शारीरिक मोच" : "Physical injury or trauma" },
+                      { id: "general_checkup", label: "🩺 " + (isHi ? "सामान्य जांच" : "Routine Checkup"), text: isHi ? "सामान्य परामर्श एवं नियमित स्वास्थ्य जांच" : "Routine OPD checkup and consultation" },
+                    ].map((chip) => {
+                      const isSelected = walkinForm.symptoms === chip.id || walkinForm.custom_symptom === chip.text;
+                      return (
+                        <button
+                          key={chip.id}
+                          type="button"
+                          onClick={() => {
+                            setWalkinForm({
+                              ...walkinForm,
+                              symptoms: chip.id,
+                              custom_symptom: chip.text,
+                              ...(chip.emergency ? { priority: 1 } : {}),
+                            });
+                          }}
+                          style={{
+                            padding: "4px 9px",
+                            borderRadius: "6px",
+                            border: isSelected
+                              ? (chip.emergency ? "1px solid #DC2626" : "1px solid #0284C7")
+                              : (isDark ? "1px solid #334155" : "1.5px solid #CBD5E1"),
+                            background: isSelected
+                              ? (chip.emergency ? (isDark ? "rgba(220, 38, 38, 0.2)" : "#FEE2E2") : (isDark ? "rgba(2, 132, 199, 0.2)" : "#E0F2FE"))
+                              : (isDark ? "#1E293B" : "#FFFFFF"),
+                            color: isSelected
+                              ? (chip.emergency ? "#DC2626" : "#0284C7")
+                              : (isDark ? "#CBD5E1" : "#475569"),
+                            fontSize: "11px",
+                            fontWeight: isSelected ? 700 : 500,
+                            cursor: "pointer",
+                            transition: "all 0.15s ease",
+                          }}
+                        >
+                          {chip.label}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
 

@@ -6,13 +6,14 @@
  * Professional Healthcare Vector Styling matching IMAGE 2.
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { API_BASE, HOSPITAL_CONFIG } from "../config/hospitalConfig";
 import { t, getCategoryLabel, getStatusLabel, SYMPTOM_OPTIONS, RISK_OPTIONS, formatSymptomLabel, formatRiskLabel, formatCleanText } from "../utils/i18n";
 import { printTokenPass, printAppointmentRecord, printPrescriptionSlip, downloadPrescriptionPDF } from "../utils/printPassHelper";
 import HeroBanner from "../components/patient/HeroBanner";
 import Footer from "../components/common/Footer";
 import FamilyMemberSwitcher, { AddFamilyMemberModal, EditFamilyMemberModal, getRelationLabel } from "../components/patient/FamilyMemberSwitcher";
+import { InAppToast, InAppConfirmModal, InAppWarningBanner } from "../components/common/InAppNotification";
 import HistorySummary from "../components/patient-history/HistorySummary";
 import { usePatientHistory } from "../hooks/usePatientHistory";
 import WalkinTab from "../components/patient/WalkinTab";
@@ -109,22 +110,25 @@ export default function PatientPage({
 
   const [localFamilyMembers, setLocalFamilyMembers] = useState(getInitialFamilyMembers);
 
-  // Base primary user object (Self)
-  const selfObj = {
+  // Base primary user object (Self) - memoized to prevent infinite re-render loops
+  const selfObj = useMemo(() => ({
     id: "self",
     name: currentUser ? (currentUser.username || "Self") : "Self",
     relation: "self",
     age: currentUser && currentUser.age ? currentUser.age : 30,
     gender: currentUser && currentUser.gender ? currentUser.gender.toLowerCase() : "male",
-  };
+  }), [currentUser?.username, currentUser?.age, currentUser?.gender]);
 
   // Keep localFamilyMembers in sync with App-level familyMembersProp when it updates
   useEffect(() => {
     if (Array.isArray(familyMembersProp) && familyMembersProp.length > 0) {
-      const fullList = [selfObj, ...familyMembersProp.filter((m) => m && m.id !== "self")];
-      setLocalFamilyMembers(fullList);
+      setLocalFamilyMembers((prev) => {
+        const fullList = [selfObj, ...familyMembersProp.filter((m) => m && m.id !== "self")];
+        if (JSON.stringify(prev) === JSON.stringify(fullList)) return prev;
+        return fullList;
+      });
     }
-  }, [familyMembersProp]);
+  }, [familyMembersProp, selfObj]);
 
   // familyMembers is always driven by localFamilyMembers so additions are instant
   const familyMembers = localFamilyMembers;
@@ -132,9 +136,16 @@ export default function PatientPage({
   const setFamilyMembers = (newMembers) => {
     const list = Array.isArray(newMembers) ? newMembers : [];
     const fullList = list.some((m) => m && m.id === "self") ? list : [selfObj, ...list];
-    setLocalFamilyMembers(fullList);
+    setLocalFamilyMembers((prev) => {
+      if (JSON.stringify(prev) === JSON.stringify(fullList)) return prev;
+      return fullList;
+    });
     if (setFamilyMembersProp) {
-      setFamilyMembersProp(fullList.filter((m) => m && m.id !== "self"));
+      const deps = fullList.filter((m) => m && m.id !== "self");
+      setFamilyMembersProp((prev) => {
+        if (JSON.stringify(prev) === JSON.stringify(deps)) return prev;
+        return deps;
+      });
     }
     try {
       const storageKey = `family_members_${currentUser ? (currentUser.username || currentUser.email) : "guest"}`;
@@ -179,9 +190,15 @@ export default function PatientPage({
           };
           const dependents = data.members.filter((m) => m && m.id !== "self");
           const fullList = [self, ...dependents];
-          setLocalFamilyMembers(fullList);
+          setLocalFamilyMembers((prev) => {
+            if (JSON.stringify(prev) === JSON.stringify(fullList)) return prev;
+            return fullList;
+          });
           if (setFamilyMembersProp) {
-            setFamilyMembersProp(dependents);
+            setFamilyMembersProp((prev) => {
+              if (JSON.stringify(prev) === JSON.stringify(dependents)) return prev;
+              return dependents;
+            });
           }
           const keysToSave = [
             effUser?.username,
@@ -265,8 +282,17 @@ export default function PatientPage({
         bc.onmessage = (event) => {
           if (event.data?.type === "FAMILY_MEMBERS_UPDATED" && Array.isArray(event.data.members)) {
             const deps = event.data.members.filter((m) => m && m.id !== "self");
-            setLocalFamilyMembers([selfObj, ...deps]);
-            if (setFamilyMembersProp) setFamilyMembersProp(deps);
+            setLocalFamilyMembers((prev) => {
+              const fullList = [selfObj, ...deps];
+              if (JSON.stringify(prev) === JSON.stringify(fullList)) return prev;
+              return fullList;
+            });
+            if (setFamilyMembersProp) {
+              setFamilyMembersProp((prev) => {
+                if (JSON.stringify(prev) === JSON.stringify(deps)) return prev;
+                return deps;
+              });
+            }
           } else if (event.data?.type === "FAMILY_TICKET_ADDED") {
             if (event.data.famMap) {
               setFamilyTickets((prev) => ({ ...prev, ...event.data.famMap }));
@@ -282,9 +308,6 @@ export default function PatientPage({
                 return up;
               });
             }
-            if (typeof fetchFamilyMembersList === "function") fetchFamilyMembersList();
-          } else {
-            if (typeof fetchFamilyMembersList === "function") fetchFamilyMembersList();
           }
         };
       }
@@ -293,10 +316,17 @@ export default function PatientPage({
     const handleFamMembersSync = (e) => {
       if (e?.detail && Array.isArray(e.detail) && e.detail.length > 0) {
         const deps = e.detail.filter((m) => m && m.id !== "self");
-        setLocalFamilyMembers([selfObj, ...deps]);
-        if (setFamilyMembersProp) setFamilyMembersProp(deps);
-      } else {
-        if (typeof fetchFamilyMembersList === "function") fetchFamilyMembersList();
+        setLocalFamilyMembers((prev) => {
+          const fullList = [selfObj, ...deps];
+          if (JSON.stringify(prev) === JSON.stringify(fullList)) return prev;
+          return fullList;
+        });
+        if (setFamilyMembersProp) {
+          setFamilyMembersProp((prev) => {
+            if (JSON.stringify(prev) === JSON.stringify(deps)) return prev;
+            return deps;
+          });
+        }
       }
     };
 
@@ -327,7 +357,11 @@ export default function PatientPage({
           const parsed = JSON.parse(e.newValue);
           if (Array.isArray(parsed) && parsed.length > 0) {
             const deps = parsed.filter((m) => m && m.id !== "self");
-            setLocalFamilyMembers([selfObj, ...deps]);
+            setLocalFamilyMembers((prev) => {
+              const fullList = [selfObj, ...deps];
+              if (JSON.stringify(prev) === JSON.stringify(fullList)) return prev;
+              return fullList;
+            });
           }
         } catch (err) {}
       } else if (e.key && e.key.startsWith("family_tickets_") && e.newValue) {
@@ -352,7 +386,7 @@ export default function PatientPage({
       window.removeEventListener("active_ticket_updated", handleActiveTicketSync);
       window.removeEventListener("storage", handleStorageChange);
     };
-  }, [selfObj, setFamilyMembersProp, fetchFamilyMembersList]);
+  }, [selfObj, setFamilyMembersProp]);
 
   const isLiveTicketStatus = (ticket) => {
     if (!ticket || !ticket.status) return false;
@@ -422,6 +456,7 @@ export default function PatientPage({
 
   // Ensure activeTicket is restored from familyTickets or localStorage on mount/refresh ONLY IF LIVE ON SERVER
   // Strictly respects selectedMemberId: dependent profiles will NEVER incorrectly inherit "self"'s ticket!
+  const candidateCheckInProgressRef = useRef(null);
   useEffect(() => {
     if (!activeTicket) {
       const depNames = (familyMembers || [])
@@ -448,6 +483,9 @@ export default function PatientPage({
         : (familyTickets[selectedMemberId] || (selectedMember?.name ? familyTickets[`name_${selectedMember.name.toLowerCase().trim()}`] : null) || null);
 
       if (candidate && candidate.ticket_id && isLiveTicketStatus(candidate)) {
+        if (candidateCheckInProgressRef.current === candidate.ticket_id) return;
+        candidateCheckInProgressRef.current = candidate.ticket_id;
+
         // Authoritatively check backend to ensure candidate hasn't been completed or cancelled
         fetch(`${API_BASE}/api/v1/plugin/ticket/${candidate.ticket_id}`)
           .then((r) => r.json())
@@ -455,13 +493,16 @@ export default function PatientPage({
             if (d.status === "success" && d.ticket) {
               if (isLiveTicketStatus(d.ticket)) {
                 setActiveTicket(d.ticket);
-                fetch(`${API_BASE}/api/v1/plugin/ticket-qr/${d.ticket.ticket_id}`)
-                  .then((rqr) => rqr.json())
-                  .then((qr) => {
-                    if (setTicketQrData) setTicketQrData(qr);
-                  })
-                  .catch(() => {});
+                if (!ticketQrData || ticketQrData.ticket_id !== d.ticket.ticket_id) {
+                  fetch(`${API_BASE}/api/v1/plugin/ticket-qr/${d.ticket.ticket_id}`)
+                    .then((rqr) => rqr.json())
+                    .then((qr) => {
+                      if (setTicketQrData) setTicketQrData(qr);
+                    })
+                    .catch(() => {});
+                }
               } else {
+                candidateCheckInProgressRef.current = null;
                 // Ticket was already completed or cancelled on the server! Clean up local storage
                 removeTicketFromFamilyTickets(candidate.ticket_id);
                 if (selectedMemberId === "self") {
@@ -473,12 +514,15 @@ export default function PatientPage({
             }
           })
           .catch(() => {
+            candidateCheckInProgressRef.current = null;
             // Offline fallback
             setActiveTicket(candidate);
           });
       }
+    } else {
+      candidateCheckInProgressRef.current = null;
     }
-  }, [activeTicket, familyTickets, selectedMemberId, selectedMember, familyMembers, setActiveTicket, setTicketQrData, removeTicketFromFamilyTickets]);
+  }, [activeTicket?.ticket_id, activeTicket?.status, familyTickets, selectedMemberId, selectedMember, familyMembers, setActiveTicket, setTicketQrData, removeTicketFromFamilyTickets, ticketQrData]);
 
   // Sync tab with URL, including "family" and "history" tabs and aliases
   const [activeTab, setActiveTab] = useState(() => {
@@ -558,6 +602,36 @@ export default function PatientPage({
   const [priority, setPriority] = useState(2);
   const [statusMsg, setStatusMsg] = useState(null);
 
+  // In-App Toast & Confirmation States (replaces all window.alert and window.confirm)
+  const isDark = theme === "dark";
+  const [inAppToast, setInAppToast] = useState(null); // { id, message, title, type: "success" | "error" | "warn" | "info" }
+  const toastTimerRef = useRef(null);
+  const [confirmDialog, setConfirmDialog] = useState(null); // { title, message, confirmText, cancelText, isDestructive, onConfirm }
+
+  const showToast = useCallback((msg, type = "success", durationMs = null) => {
+    if (!msg) return;
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    const messageText = typeof msg === "object" ? msg.message : msg;
+    const titleText = typeof msg === "object" ? msg.title : null;
+    const finalType = (typeof msg === "object" ? msg.type : type) || "success";
+    setInAppToast({ id: Date.now(), message: messageText, title: titleText, type: finalType });
+    const autoDuration = durationMs || (finalType === "error" || finalType === "warn" ? 6500 : 4500);
+    toastTimerRef.current = setTimeout(() => {
+      setInAppToast(null);
+    }, autoDuration);
+  }, []);
+
+  const showConfirm = useCallback(({ title, message, confirmText, cancelText, isDestructive, onConfirm }) => {
+    setConfirmDialog({
+      title,
+      message,
+      confirmText,
+      cancelText,
+      isDestructive: Boolean(isDestructive),
+      onConfirm,
+    });
+  }, []);
+
   // Ticket Cancellation Modal State
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancelReason, setCancelReason] = useState("Running late");
@@ -599,6 +673,7 @@ export default function PatientPage({
 
     let isMounted = true;
     const fetchTelemetry = () => {
+      if (document.hidden) return;
       fetch(`${API_BASE}/api/v1/plugin/analytics/${encodeURIComponent(targetCode)}`)
         .then((r) => r.json())
         .then((d) => {
@@ -619,10 +694,22 @@ export default function PatientPage({
     };
 
     fetchTelemetry();
-    const interval = setInterval(fetchTelemetry, 4000);
+    // Relaxed 35s heartbeat fallback (WebSocket updates queue and analytics instantly)
+    const interval = setInterval(fetchTelemetry, 35000);
+
+    const handleLiveTelemetryEvent = (e) => {
+      const d = e?.detail;
+      if (d && isMounted) {
+        if (Array.isArray(d.snapshot)) setFacilityQueue(d.snapshot);
+        if (d.analytics) setFacilityAnalytics(d.analytics);
+      }
+    };
+    window.addEventListener("queue_updated_live", handleLiveTelemetryEvent);
+
     return () => {
       isMounted = false;
       clearInterval(interval);
+      window.removeEventListener("queue_updated_live", handleLiveTelemetryEvent);
     };
   }, [activeHospitalCode, tenantId, currentHospitalTenant]);
 
@@ -1262,6 +1349,7 @@ export default function PatientPage({
     let isSubscribed = true;
 
     const syncTicketStatus = () => {
+      if (document.hidden) return; // Do not poll when tab is inactive
       fetch(`${API_BASE}/api/v1/plugin/ticket/${activeTicket.ticket_id}`)
         .then((r) => r.json())
         .then((d) => {
@@ -1286,11 +1374,8 @@ export default function PatientPage({
         .catch(() => {});
     };
 
-    // Immediately sync on mount / activeTicket change
-    syncTicketStatus();
-
-    // Poll every 5 seconds to catch doctor completing or serving ticket in real time
-    const interval = setInterval(syncTicketStatus, 5000);
+    // Relaxed 30s fallback interval (WebSockets handle live turn calls, completion, holds in real-time)
+    const interval = setInterval(syncTicketStatus, 30000);
 
     return () => {
       isSubscribed = false;
@@ -1730,26 +1815,32 @@ export default function PatientPage({
   }, [historyTickets, historyFilterType, historySearchQuery]);
 
   // Initial fetch on mount / user change to populate badge counts and data immediately
+  const initialFetchUserKeyRef = useRef(null);
   useEffect(() => {
+    const userKey = currentUser ? (currentUser.id || currentUser.email || currentUser.username) : "guest";
+    if (initialFetchUserKeyRef.current === userKey) return;
+    initialFetchUserKeyRef.current = userKey;
+
     fetchUserAppointments();
     fetchUserTicketHistory();
     fetchFamilyMembersList();
-  }, [fetchUserAppointments, fetchUserTicketHistory, fetchFamilyMembersList]);
+  }, [currentUser?.id, currentUser?.email, currentUser?.username]);
 
-  // Live polling for "My Appointments", "History", "Family", and "Book" tabs so cancellations/progress update live
+  // Live polling for "My Appointments", "History", "Family", and "Book" tabs with relaxed 25s fallback
   useEffect(() => {
     if (activeTab === "my_apts" || activeTab === "history" || activeTab === "book" || activeTab === "family") {
       fetchUserAppointments();
       if (activeTab === "history" || activeTab === "family") fetchUserTicketHistory();
       if (activeTab === "family") fetchFamilyMembersList();
       const interval = setInterval(() => {
+        if (document.hidden) return; // Never poll when tab is inactive
         fetchUserAppointments();
         if (activeTab === "history" || activeTab === "family") fetchUserTicketHistory();
         if (activeTab === "family") fetchFamilyMembersList();
-      }, 3500);
+      }, 25000);
       return () => clearInterval(interval);
     }
-  }, [activeTab, fetchUserAppointments, fetchUserTicketHistory, fetchFamilyMembersList]);
+  }, [activeTab]);
 
   // Keep bookedAppointment in sync with the live userAppointments list.
   // If the booked appointment gets cancelled or checked-in via another route,
@@ -1765,34 +1856,77 @@ export default function PatientPage({
     }
   }, [userAppointments, bookedAppointment]);
 
-  // Real-time Socket.IO synchronization for appointments and tickets
+  // Real-time Socket.IO synchronization for appointments and tickets (Debounced & Scoped)
+  const userHistoryDebounceRef = useRef(null);
+  const appointmentsDebounceRef = useRef(null);
+  const familyDebounceRef = useRef(null);
+
   useEffect(() => {
     const socket = socketRef?.current;
     if (!socket) return;
 
-    const handleRealtimeSync = (data) => {
-      fetchUserAppointments();
-      fetchUserTicketHistory();
-      if (typeof fetchFamilyMembersList === "function") fetchFamilyMembersList();
-      if (refreshData) refreshData();
+    // Helper: Debounce ticket history refresh
+    const debounceFetchTicketHistory = () => {
+      if (userHistoryDebounceRef.current) clearTimeout(userHistoryDebounceRef.current);
+      userHistoryDebounceRef.current = setTimeout(() => {
+        fetchUserTicketHistory();
+      }, 400);
+    };
 
-      // If payload has direct ticket metadata, update or clear immediately
+    // Helper: Debounce appointments refresh
+    const debounceFetchAppointments = () => {
+      if (appointmentsDebounceRef.current) clearTimeout(appointmentsDebounceRef.current);
+      appointmentsDebounceRef.current = setTimeout(() => {
+        fetchUserAppointments();
+      }, 400);
+    };
+
+    // Helper: Debounce family list refresh
+    const debounceFetchFamily = () => {
+      if (familyDebounceRef.current) clearTimeout(familyDebounceRef.current);
+      familyDebounceRef.current = setTimeout(() => {
+        if (typeof fetchFamilyMembersList === "function") fetchFamilyMembersList();
+      }, 400);
+    };
+
+    const handleQueueUpdated = (data) => {
+      if (data) {
+        if (Array.isArray(data.snapshot)) setFacilityQueue(data.snapshot);
+        if (data.analytics) setFacilityAnalytics(data.analytics);
+      }
+    };
+
+    const handleTicketEvent = (data) => {
       const t = data?.ticket || data?.new_ticket;
       const tid = t?.ticket_id || data?.ticket_id;
-      if (tid) {
-        if (data?.type === "ticket_cancelled" || data?.status === "cancelled" || !t || !isLiveTicketStatus(t)) {
-          if (activeTicket?.ticket_id === tid) {
-            setActiveTicket(null);
-            if (setTicketQrData) setTicketQrData(null);
-            try { localStorage.removeItem("ai_queue_active_ticket"); } catch (e) {}
-          }
-          removeTicketFromFamilyTickets(tid);
-        } else if (t && isLiveTicketStatus(t)) {
-          if (activeTicket?.ticket_id === tid || activeTicket?.ticket_id === data?.original_ticket?.ticket_id) {
-            setActiveTicket((prev) => ({ ...prev, ...t }));
-            try { localStorage.setItem("ai_queue_active_ticket", JSON.stringify(t)); } catch (e) {}
-          }
-          // Update in familyTickets map as well
+      if (!tid) return;
+
+      const userEmail = (currentUser?.email || "").toLowerCase().trim();
+      const userName = (currentUser?.name || currentUser?.username || "").toLowerCase().trim();
+      const tEmail = (t?.user_email || "").toLowerCase().trim();
+      const tName = (t?.name || "").toLowerCase().trim();
+      const isMyTicket = Boolean(
+        (activeTicket?.ticket_id && tid === activeTicket.ticket_id) ||
+        (userEmail && tEmail && tEmail === userEmail) ||
+        (userName && tName && tName === userName) ||
+        (familyMembers && familyMembers.some((m) => m.name && m.name.toLowerCase().trim() === tName))
+      );
+
+      if (data?.type === "ticket_cancelled" || data?.status === "cancelled" || !t || !isLiveTicketStatus(t)) {
+        if (activeTicket?.ticket_id === tid) {
+          setActiveTicket(null);
+          if (setTicketQrData) setTicketQrData(null);
+          try { localStorage.removeItem("ai_queue_active_ticket"); } catch (e) {}
+        }
+        removeTicketFromFamilyTickets(tid);
+        if (isMyTicket) debounceFetchTicketHistory();
+      } else if (t && isLiveTicketStatus(t)) {
+        if (activeTicket?.ticket_id === tid || activeTicket?.ticket_id === data?.original_ticket?.ticket_id) {
+          setActiveTicket((prev) => ({ ...prev, ...t }));
+          try { localStorage.setItem("ai_queue_active_ticket", JSON.stringify(t)); } catch (e) {}
+        }
+        if (isMyTicket) {
+          // Update in familyTickets map
           setFamilyTickets((prev) => {
             const updated = { ...prev };
             let changed = false;
@@ -1804,42 +1938,45 @@ export default function PatientPage({
             });
             return changed ? updated : prev;
           });
+          debounceFetchTicketHistory();
         }
       }
     };
 
-    socket.on("family_members_updated", handleRealtimeSync);
-    socket.on("ticket_created", handleRealtimeSync);
-    socket.on("appointment_updated", handleRealtimeSync);
-    socket.on("ticket_cancelled", handleRealtimeSync);
-    socket.on("ticket_completed", handleRealtimeSync);
-    socket.on("ticket_updated", handleRealtimeSync);
-    socket.on("priority_changed", handleRealtimeSync);
-    socket.on("ticket_transferred", handleRealtimeSync);
-    socket.on("ticket_held", handleRealtimeSync);
-    socket.on("ticket_recalled", handleRealtimeSync);
-    socket.on("ticket_noshow", handleRealtimeSync);
-    socket.on("queue_updated", handleRealtimeSync);
-    socket.on("queue_update", handleRealtimeSync);
-    socket.on("now_serving", handleRealtimeSync);
+    socket.on("family_members_updated", debounceFetchFamily);
+    socket.on("appointment_updated", debounceFetchAppointments);
+    socket.on("queue_updated", handleQueueUpdated);
+    socket.on("queue_update", handleQueueUpdated);
+
+    socket.on("ticket_created", handleTicketEvent);
+    socket.on("ticket_cancelled", handleTicketEvent);
+    socket.on("ticket_completed", handleTicketEvent);
+    socket.on("ticket_updated", handleTicketEvent);
+    socket.on("priority_changed", handleTicketEvent);
+    socket.on("ticket_transferred", handleTicketEvent);
+    socket.on("ticket_held", handleTicketEvent);
+    socket.on("ticket_recalled", handleTicketEvent);
+    socket.on("ticket_noshow", handleTicketEvent);
+    socket.on("now_serving", handleTicketEvent);
 
     return () => {
-      socket.off("family_members_updated", handleRealtimeSync);
-      socket.off("ticket_created", handleRealtimeSync);
-      socket.off("appointment_updated", handleRealtimeSync);
-      socket.off("ticket_cancelled", handleRealtimeSync);
-      socket.off("ticket_completed", handleRealtimeSync);
-      socket.off("ticket_updated", handleRealtimeSync);
-      socket.off("priority_changed", handleRealtimeSync);
-      socket.off("ticket_transferred", handleRealtimeSync);
-      socket.off("ticket_held", handleRealtimeSync);
-      socket.off("ticket_recalled", handleRealtimeSync);
-      socket.off("ticket_noshow", handleRealtimeSync);
-      socket.off("queue_updated", handleRealtimeSync);
-      socket.off("queue_update", handleRealtimeSync);
-      socket.off("now_serving", handleRealtimeSync);
+      socket.off("family_members_updated", debounceFetchFamily);
+      socket.off("appointment_updated", debounceFetchAppointments);
+      socket.off("queue_updated", handleQueueUpdated);
+      socket.off("queue_update", handleQueueUpdated);
+
+      socket.off("ticket_created", handleTicketEvent);
+      socket.off("ticket_cancelled", handleTicketEvent);
+      socket.off("ticket_completed", handleTicketEvent);
+      socket.off("ticket_updated", handleTicketEvent);
+      socket.off("priority_changed", handleTicketEvent);
+      socket.off("ticket_transferred", handleTicketEvent);
+      socket.off("ticket_held", handleTicketEvent);
+      socket.off("ticket_recalled", handleTicketEvent);
+      socket.off("ticket_noshow", handleTicketEvent);
+      socket.off("now_serving", handleTicketEvent);
     };
-  }, [socketRef, activeTicket?.ticket_id, fetchUserAppointments, fetchUserTicketHistory, refreshData, removeTicketFromFamilyTickets]);
+  }, [socketRef, activeTicket?.ticket_id, currentUser, familyMembers, fetchUserAppointments, fetchUserTicketHistory, removeTicketFromFamilyTickets]);
 
   const handleSelectMember = (member) => {
     if (!member) return;
@@ -1952,6 +2089,7 @@ export default function PatientPage({
       }
     }
     setStatusMsg(`${t("profileSwitchedMsg", language)} ${member.name}`);
+    showToast(`${t("profileSwitchedMsg", language)} ${member.name}`, "info");
   };
 
   // Sync when activeFamilyMemberProp changes from Header or parent
@@ -1967,114 +2105,7 @@ export default function PatientPage({
     }
   }, [activeFamilyMemberProp]);
 
-  // Initial and reactive family members fetch
-  useEffect(() => {
-    fetchFamilyMembersList();
-  }, [fetchFamilyMembersList]);
 
-  // Multi-tab & real-time cross-window synchronization for family members and tickets
-  useEffect(() => {
-    let bc = null;
-    try {
-      if (typeof BroadcastChannel !== "undefined") {
-        bc = new BroadcastChannel("hospital_family_sync");
-        bc.onmessage = (event) => {
-          if (event.data?.type === "FAMILY_MEMBERS_UPDATED" && Array.isArray(event.data.members)) {
-            const self = {
-              id: "self",
-              name: currentUser?.username || "Self",
-              relation: "self",
-              age: currentUser?.age || 30,
-              gender: currentUser?.gender ? currentUser.gender.toLowerCase() : "male",
-            };
-            const fullList = [self, ...event.data.members.filter((m) => m && m.id !== "self")];
-            setLocalFamilyMembers(fullList);
-            if (setFamilyMembersProp) {
-              setFamilyMembersProp(event.data.members.filter((m) => m && m.id !== "self"));
-            }
-          } else if (event.data?.type === "FAMILY_TICKET_ADDED") {
-            const { profileKey, ticket, famMap } = event.data;
-            if (famMap) {
-              setFamilyTickets((prev) => ({ ...prev, ...famMap }));
-            } else if (ticket) {
-              setFamilyTickets((prev) => {
-                const updated = { ...prev };
-                if (profileKey) updated[profileKey] = ticket;
-                if (ticket.family_member_id) updated[ticket.family_member_id] = ticket;
-                if (ticket.name) {
-                  updated[`name_${ticket.name.toLowerCase().trim()}`] = ticket;
-                  updated[ticket.name.toLowerCase().trim()] = ticket;
-                }
-                return updated;
-              });
-            }
-            fetchUserTicketHistory();
-          } else {
-            fetchFamilyMembersList();
-          }
-        };
-      }
-    } catch (e) {}
-
-    const handleStorageChange = (e) => {
-      if (e.key && e.key.startsWith("family_members_") && e.newValue) {
-        try {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setLocalFamilyMembers(parsed);
-            if (setFamilyMembersProp) {
-              setFamilyMembersProp(parsed.filter((m) => m && m.id !== "self"));
-            }
-          }
-        } catch (err) {}
-      } else if (e.key && e.key.startsWith("family_tickets_") && e.newValue) {
-        try {
-          const parsed = JSON.parse(e.newValue);
-          if (parsed && typeof parsed === "object") {
-            setFamilyTickets((prev) => ({ ...prev, ...parsed }));
-          }
-        } catch (err) {}
-      }
-    };
-
-    const handleWindowFocus = () => {
-      fetchFamilyMembersList();
-      fetchUserTicketHistory();
-      fetchUserAppointments();
-    };
-
-    const handleFamilyUpdatedCustom = (e) => {
-      if (e?.detail && Array.isArray(e.detail)) {
-        setLocalFamilyMembers(e.detail);
-        if (setFamilyMembersProp) {
-          setFamilyMembersProp(e.detail.filter((m) => m && m.id !== "self"));
-        }
-      } else {
-        fetchFamilyMembersList();
-      }
-    };
-
-    const handleFamilyTicketsCustom = (e) => {
-      if (e?.detail && typeof e.detail === "object") {
-        setFamilyTickets((prev) => ({ ...prev, ...e.detail }));
-      }
-    };
-
-    window.addEventListener("storage", handleStorageChange);
-    window.addEventListener("focus", handleWindowFocus);
-    document.addEventListener("visibilitychange", handleWindowFocus);
-    window.addEventListener("family_members_updated", handleFamilyUpdatedCustom);
-    window.addEventListener("family_tickets_updated", handleFamilyTicketsCustom);
-
-    return () => {
-      if (bc) bc.close();
-      window.removeEventListener("storage", handleStorageChange);
-      window.removeEventListener("focus", handleWindowFocus);
-      document.removeEventListener("visibilitychange", handleWindowFocus);
-      window.removeEventListener("family_members_updated", handleFamilyUpdatedCustom);
-      window.removeEventListener("family_tickets_updated", handleFamilyTicketsCustom);
-    };
-  }, [currentUser, fetchFamilyMembersList, fetchUserTicketHistory, fetchUserAppointments, setFamilyMembersProp]);
 
   // Sync when App-level family members prop changes
   useEffect(() => {
@@ -2128,6 +2159,12 @@ export default function PatientPage({
 
     window.dispatchEvent(new CustomEvent("family_members_updated", { detail: updatedDependents }));
     if (onFamilyMembersChange) onFamilyMembersChange(updatedDependents);
+    showToast(
+      language === "hi"
+        ? `${initialMember.name} को पारिवारिक प्रोफ़ाइल में जोड़ा गया।`
+        : `Added ${initialMember.name} to family profiles.`,
+      "success"
+    );
   };
 
   const handleEditMember = async (updatedMember) => {
@@ -2136,6 +2173,10 @@ export default function PatientPage({
     const updatedDependents = currentDependents.map((m) => (m.id === updatedMember.id ? { ...m, ...updatedMember } : m));
     setFamilyMembers([selfObj, ...updatedDependents]);
     setEditingMember(null);
+    showToast(
+      language === "hi" ? "प्रोफ़ाइल सफलतापूर्वक अपडेट की गई।" : "Profile updated successfully.",
+      "success"
+    );
 
     // 2. Persist to backend database
     if (currentUser && currentUser.email) {
@@ -2175,6 +2216,11 @@ export default function PatientPage({
       setSelectedMemberId("self");
       setName(selfObj.name);
     }
+
+    showToast(
+      language === "hi" ? "पारिवारिक प्रोफ़ाइल हटा दी गई।" : "Family member profile removed.",
+      "info"
+    );
 
     // 2. Persist delete to backend database
     if (currentUser && currentUser.email) {
@@ -2226,23 +2272,23 @@ export default function PatientPage({
     if (isLiveTicket) {
       const activeT = activeTicket;
       const memName = selectedMember ? selectedMember.name : (name || "Patient");
-      setStatusMsg(
-        language === "hi"
-          ? `आपके पास पहले से ही ${memName} के लिए सक्रिय टोकन #${activeT.ticket_id} मौजूद है। अस्पताल नीति के अनुसार 1 मरीज़ के लिए 1 समय पर केवल 1 सक्रिय टोकन मान्य है। नया टोकन लेने के लिए कृपया मौजूदा टोकन पूरा होने की प्रतीक्षा करें या इसे रद्द करें।`
-          : `Active ticket #${activeT.ticket_id} is already in progress for ${memName}. Hospital policy permits only 1 active ticket per patient profile at a time. Please wait for your turn or cancel your current ticket to switch departments.`
-      );
+      const warnMsg = language === "hi"
+        ? `आपके पास पहले से ही ${memName} के लिए सक्रिय टोकन #${activeT.ticket_id} मौजूद है। अस्पताल नीति के अनुसार 1 मरीज़ के लिए 1 समय पर केवल 1 सक्रिय टोकन मान्य है। नया टोकन लेने के लिए कृपया मौजूदा टोकन पूरा होने की प्रतीक्षा करें या इसे रद्द करें।`
+        : `Active ticket #${activeT.ticket_id} is already in progress for ${memName}. Hospital policy permits only 1 active ticket per patient profile at a time. Please wait for your turn or cancel your current ticket to switch departments.`;
+      setStatusMsg(warnMsg);
+      showToast(warnMsg, "warn");
       return;
     }
 
     // OPD status gate: Walk-in registration only allowed when OPD is open (Emergency priority can bypass 24/7)
     const isEmergency = Number(priority) === 1;
     if (registrationStatus.isClosed && !isEmergency) {
-      setStatusMsg(
-        registrationStatus.reason ||
+      const closedMsg = registrationStatus.reason ||
         (language === "hi"
           ? "ओपीडी वर्तमान में बंद है। कतार प्रणाली केवल ओपीडी खुलने के समय काम करती है।"
-          : "OPD is currently closed. The walk-in queue system only operates when the OPD is open.")
-      );
+          : "OPD is currently closed. The walk-in queue system only operates when the OPD is open.");
+      setStatusMsg(closedMsg);
+      showToast(closedMsg, "warn");
       return;
     }
 
@@ -2299,7 +2345,9 @@ export default function PatientPage({
           return updated;
         });
 
-        setStatusMsg(`Ticket #${t.ticket_id} Issued for ${name}. AI Service Estimate: ${t.predicted_service_minutes} min.`);
+        const successText = `Ticket #${t.ticket_id} Issued for ${name}. AI Service Estimate: ${t.predicted_service_minutes} min.`;
+        setStatusMsg(successText);
+        showToast(successText, "success");
 
         fetch(`${API_BASE}/api/v1/plugin/ticket-qr/${t.ticket_id}`)
           .then((r) => r.json())
@@ -2315,8 +2363,6 @@ export default function PatientPage({
             bc.close();
           }
         } catch (e) {}
-
-        refreshData();
       } else {
         const err = await res.json();
         if (res.status === 409 && (err.ticket || err.existing_ticket)) {
@@ -2340,9 +2386,11 @@ export default function PatientPage({
         }
         const msg = typeof err.detail === "string" ? err.detail : Array.isArray(err.detail) ? err.detail.map((d) => d.msg || JSON.stringify(d)).join(", ") : (err.message || "Failed to issue ticket.");
         setStatusMsg(res.status === 409 ? `Notice: ${msg}` : `Error: ${msg}`);
+        showToast(msg, res.status === 409 ? "warn" : "error");
       }
     } catch (err) {
       setStatusMsg(`Join failed: ${err.message}`);
+      showToast(language === "hi" ? `टोकन जारी करने में विफलता: ${err.message}` : `Join queue failed: ${err.message}`, "error");
     }
   };
 
@@ -2355,30 +2403,30 @@ export default function PatientPage({
     if (isLiveTicket) {
       const activeT = activeTicket;
       const memName = selectedMember ? selectedMember.name : (name || "Patient");
-      setStatusMsg(
-        language === "hi"
-          ? `आपके पास पहले से ही ${memName} के लिए सक्रिय टोकन #${activeT.ticket_id} मौजूद है। अस्पताल नीति के अनुसार 1 मरीज़ के लिए 1 समय पर केवल 1 सक्रिय टोकन मान्य है। नया टोकन लेने या अपॉइंटमेंट बुक करने के लिए कृपया मौजूदा टोकन पूरा होने की प्रतीक्षा करें या इसे रद्द करें।`
-          : `Active ticket #${activeT.ticket_id} is already in progress for ${memName}. Hospital policy permits only 1 active ticket per patient profile at a time. Please wait for your turn or cancel your current ticket before booking a new appointment.`
-      );
+      const warnMsg = language === "hi"
+        ? `आपके पास पहले से ही ${memName} के लिए सक्रिय टोकन #${activeT.ticket_id} मौजूद है। अस्पताल नीति के अनुसार 1 मरीज़ के लिए 1 समय पर केवल 1 सक्रिय टोकन मान्य है। नया टोकन लेने या अपॉइंटमेंट बुक करने के लिए कृपया मौजूदा टोकन पूरा होने की प्रतीक्षा करें या इसे रद्द करें।`
+        : `Active ticket #${activeT.ticket_id} is already in progress for ${memName}. Hospital policy permits only 1 active ticket per patient profile at a time. Please wait for your turn or cancel your current ticket before booking a new appointment.`;
+      setStatusMsg(warnMsg);
+      showToast(warnMsg, "warn");
       return;
     }
 
     if (currentActiveScheduledApt) {
       const memName = selectedMember ? selectedMember.name : (name || "Patient");
-      setStatusMsg(
-        language === "hi"
-          ? `आपके पास पहले से ही ${memName} के लिए सक्रिय अपॉइंटमेंट (${currentActiveScheduledApt.appointment_id}) आरक्षित है। अस्पताल नीति के अनुसार 1 मरीज़ के लिए 1 समय पर केवल 1 अपॉइंटमेंट या टोकन मान्य है।`
-          : `An active appointment (${currentActiveScheduledApt.appointment_id}) is already scheduled for ${memName}. Hospital policy permits only 1 active appointment per patient profile at a time. Please complete or cancel your existing appointment before reserving another slot.`
-      );
+      const warnMsg = language === "hi"
+        ? `आपके पास पहले से ही ${memName} के लिए सक्रिय अपॉइंटमेंट (${currentActiveScheduledApt.appointment_id}) आरक्षित है। अस्पताल नीति के अनुसार 1 मरीज़ के लिए 1 समय पर केवल 1 अपॉइंटमेंट या टोकन मान्य है।`
+        : `An active appointment (${currentActiveScheduledApt.appointment_id}) is already scheduled for ${memName}. Hospital policy permits only 1 active appointment per patient profile at a time. Please complete or cancel your existing appointment before reserving another slot.`;
+      setStatusMsg(warnMsg);
+      showToast(warnMsg, "warn");
       return;
     }
 
     if (!aptTimeSlot) {
-      setStatusMsg(
-        language === "hi"
-          ? "कृपया पहले उपलब्ध समय स्लॉट में से एक स्लॉट चुनें।"
-          : "Please manually choose an available time slot before booking."
-      );
+      const warnMsg = language === "hi"
+        ? "कृपया पहले उपलब्ध समय स्लॉट में से एक स्लॉट चुनें।"
+        : "Please manually choose an available time slot before booking.";
+      setStatusMsg(warnMsg);
+      showToast(warnMsg, "warn");
       return;
     }
     setStatusMsg("Reserving hospital appointment slot...");
@@ -2410,7 +2458,9 @@ export default function PatientPage({
           department: data.appointment?.department || getDeptDisplayName(category),
         };
         setBookedAppointment(aptWithDept);
-        setStatusMsg(`Appointment Reserved. Code: ${data.appointment.appointment_id}`);
+        const successMsg = `Appointment Reserved. Code: ${data.appointment.appointment_id}`;
+        setStatusMsg(successMsg);
+        showToast(successMsg, "success");
         try {
           localStorage.setItem("last_patient_name", name);
         } catch (e) {}
@@ -2422,6 +2472,7 @@ export default function PatientPage({
       } else {
         const msg = data.detail || data.message || "Failed to reserve appointment.";
         setStatusMsg(res.status === 409 ? `Notice: ${msg}` : `Booking failed: ${msg}`);
+        showToast(msg, res.status === 409 ? "warn" : "error");
         if (data.appointment) {
           const aptWithDept = {
             ...data.appointment,
@@ -2439,6 +2490,7 @@ export default function PatientPage({
       }
     } catch (err) {
       setStatusMsg(`Booking failed: ${err.message}`);
+      showToast(language === "hi" ? `अपॉइंटमेंट बुकिंग विफल: ${err.message}` : `Booking failed: ${err.message}`, "error");
     }
   };
 
@@ -2489,22 +2541,22 @@ export default function PatientPage({
 
     // 1 Ticket Per Profile Policy guard for appointment check-in
     if (isLiveTicket && activeTicket.appointment_id !== targetId && activeTicket.ticket_id !== targetId) {
-      setStatusMsg(
-        language === "hi"
-          ? `आपके पास पहले से ही सक्रिय टोकन #${activeTicket.ticket_id} मौजूद है। कृपया इस अपॉइंटमेंट में चेक-इन करने से पहले पिछला टोकन पूरा होने की प्रतीक्षा करें या उसे रद्द करें।`
-          : `You already have an active ticket (#${activeTicket.ticket_id}) in progress. Please complete or cancel your existing ticket before checking into another appointment.`
-      );
+      const warnMsg = language === "hi"
+        ? `आपके पास पहले से ही सक्रिय टोकन #${activeTicket.ticket_id} मौजूद है। कृपया इस अपॉइंटमेंट में चेक-इन करने से पहले पिछला टोकन पूरा होने की प्रतीक्षा करें या उसे रद्द करें।`
+        : `You already have an active ticket (#${activeTicket.ticket_id}) in progress. Please complete or cancel your existing ticket before checking into another appointment.`;
+      setStatusMsg(warnMsg);
+      showToast(warnMsg, "warn");
       return;
     }
 
     // OPD status gate: Check-in only allowed when OPD is open
     if (registrationStatus.isClosed) {
-      setStatusMsg(
-        registrationStatus.reason ||
+      const closedMsg = registrationStatus.reason ||
         (language === "hi"
           ? "ओपीडी पंजीकरण वर्तमान में बंद है। लाइव कतार में चेक-इन केवल ओपीडी खुले होने पर ही संभव है।"
-          : "OPD is currently closed. Checking in and joining the live line is only available when the OPD is open.")
-      );
+          : "OPD is currently closed. Checking in and joining the live line is only available when the OPD is open.");
+      setStatusMsg(closedMsg);
+      showToast(closedMsg, "warn");
       return;
     }
 
@@ -2543,7 +2595,9 @@ export default function PatientPage({
           return updated;
         });
 
-        setStatusMsg(`Appointment Checked In. Merged into Priority Line as Token #${t.ticket_id}`);
+        const checkInMsg = `Appointment Checked In. Merged into Priority Line as Token #${t.ticket_id}`;
+        setStatusMsg(checkInMsg);
+        showToast(checkInMsg, "success");
 
         fetch(`${API_BASE}/api/v1/plugin/ticket-qr/${t.ticket_id}`)
           .then((r) => r.json())
@@ -2572,9 +2626,11 @@ export default function PatientPage({
       } else {
         const errorMsg = data.detail || data.message || "Failed to check in.";
         setStatusMsg(`Check-in error: ${errorMsg}`);
+        showToast(`Check-in error: ${errorMsg}`, "error");
       }
     } catch (err) {
       setStatusMsg(`Check-in error: ${err.message}`);
+      showToast(`Check-in error: ${err.message}`, "error");
     }
   };
 
@@ -2631,7 +2687,9 @@ export default function PatientPage({
       });
 
       setShowCancelModal(false);
-      setStatusMsg(`Ticket #${activeTicket.ticket_id} has been cancelled.`);
+      const cancelNotice = `Ticket #${activeTicket.ticket_id} has been cancelled.`;
+      setStatusMsg(cancelNotice);
+      showToast(cancelNotice, "info");
       setUserAppointments((prev) =>
         prev.map((a) =>
           a.ticket_id === activeTicket.ticket_id || a.appointment_id === activeTicket.appointment_id
@@ -2644,59 +2702,81 @@ export default function PatientPage({
       if (refreshData) refreshData();
     } catch (err) {
       setCancelError(err.message || "Could not cancel ticket.");
+      showToast(err.message || "Could not cancel ticket.", "error");
     } finally {
       setCancelLoading(false);
     }
   };
 
   // 4b. Cancel an Appointment directly from My Appointments
-  const handleCancelAppointment = async (appointmentId, ticketId = null) => {
-    if (!window.confirm(language === "hi" ? "क्या आप वाकई यह अपॉइंटमेंट रद्द करना चाहते हैं?" : "Are you sure you want to cancel this appointment?")) {
-      return;
-    }
-    try {
-      const res = await fetch(`${API_BASE}/api/v1/plugin/appointments/${encodeURIComponent(appointmentId)}/cancel`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(currentUser?.email ? { "X-User-Email": currentUser.email } : {}),
-        },
-        body: JSON.stringify({
-          appointment_id: appointmentId,
-          reason: "Patient cancelled from My Appointments",
-        }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setStatusMsg(`Appointment ${appointmentId} cancelled.`);
-        setUserAppointments((prev) =>
-          prev.map((a) => (a.appointment_id === appointmentId ? {
-            ...a,
-            status: "cancelled",
-            department_name: data.appointment?.department_name || a.department_name || getDeptDisplayName(a),
-            department: data.appointment?.department || a.department || getDeptDisplayName(a),
-          } : a))
-        );
-        setBookedAppointment((prev) => (prev?.appointment_id === appointmentId ? { ...prev, status: "cancelled" } : prev));
-        if (ticketId) {
-          removeTicketFromFamilyTickets(ticketId);
-          if (activeTicket?.ticket_id === ticketId) {
-            setActiveTicket(null);
-            if (setTicketQrData) setTicketQrData(null);
-            try {
-              localStorage.removeItem("ai_queue_active_ticket");
-            } catch (e) {}
+  const handleCancelAppointment = (appointmentId, ticketId = null) => {
+    if (!appointmentId) return;
+    showConfirm({
+      title: language === "hi" ? "अपॉइंटमेंट रद्द करें" : "Cancel Appointment",
+      message: language === "hi"
+        ? `क्या आप वाकई अपॉइंटमेंट #${appointmentId} रद्द करना चाहते हैं? यह कार्रवाई पूर्ववत नहीं की जा सकती।`
+        : `Are you sure you want to cancel appointment #${appointmentId}? This action cannot be undone.`,
+      confirmText: language === "hi" ? "हाँ, रद्द करें" : "Yes, Cancel Appointment",
+      cancelText: language === "hi" ? "वापस जाएं" : "Keep Appointment",
+      isDestructive: true,
+      onConfirm: async () => {
+        try {
+          const res = await fetch(`${API_BASE}/api/v1/plugin/appointments/${encodeURIComponent(appointmentId)}/cancel`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(currentUser?.email ? { "X-User-Email": currentUser.email } : {}),
+            },
+            body: JSON.stringify({
+              appointment_id: appointmentId,
+              reason: "Patient cancelled from My Appointments",
+            }),
+          });
+          const data = await res.json();
+          if (res.ok) {
+            showToast(
+              language === "hi"
+                ? `अपॉइंटमेंट #${appointmentId} सफलतापूर्वक रद्द कर दिया गया।`
+                : `Appointment #${appointmentId} cancelled successfully.`,
+              "success"
+            );
+            setStatusMsg(`Appointment ${appointmentId} cancelled.`);
+            setUserAppointments((prev) =>
+              prev.map((a) => (a.appointment_id === appointmentId ? {
+                ...a,
+                status: "cancelled",
+                department_name: data.appointment?.department_name || a.department_name || getDeptDisplayName(a),
+                department: data.appointment?.department || a.department || getDeptDisplayName(a),
+              } : a))
+            );
+            setBookedAppointment((prev) => (prev?.appointment_id === appointmentId ? { ...prev, status: "cancelled" } : prev));
+            if (ticketId) {
+              removeTicketFromFamilyTickets(ticketId);
+              if (activeTicket?.ticket_id === ticketId) {
+                setActiveTicket(null);
+                if (setTicketQrData) setTicketQrData(null);
+                try {
+                  localStorage.removeItem("ai_queue_active_ticket");
+                } catch (e) {}
+              }
+            }
+            fetchUserAppointments();
+            fetchUserTicketHistory();
+            if (refreshData) refreshData();
+          } else {
+            showToast(
+              data.message || data.detail || (language === "hi" ? "अपॉइंटमेंट रद्द करने में विफल।" : "Failed to cancel appointment."),
+              "error"
+            );
           }
+        } catch (e) {
+          showToast(
+            language === "hi" ? `त्रुटि: ${e.message}` : `Error cancelling appointment: ${e.message}`,
+            "error"
+          );
         }
-        fetchUserAppointments();
-        fetchUserTicketHistory();
-        if (refreshData) refreshData();
-      } else {
-        alert(data.message || data.detail || "Failed to cancel appointment.");
-      }
-    } catch (e) {
-      alert("Error cancelling appointment: " + e.message);
-    }
+      },
+    });
   };
 
   // 5. Adjust Queue / Skip Positions Backward (Fairness: 1-3 positions back)
@@ -2743,6 +2823,7 @@ export default function PatientPage({
       const successText = data.message || `Postponed by ${positionsToSkip} position(s).`;
       setAdjustSuccessMsg(successText);
       setStatusMsg(successText);
+      showToast(successText, "info");
 
       setTimeout(() => {
         setShowAdjustModal(false);
@@ -2753,6 +2834,7 @@ export default function PatientPage({
       if (refreshData) refreshData();
     } catch (err) {
       setAdjustError(err.message || "Could not adjust queue position.");
+      showToast(err.message || "Could not adjust queue position.", "error");
     } finally {
       setAdjustLoading(false);
     }
@@ -2775,6 +2857,7 @@ export default function PatientPage({
       .then((qr) => setTicketQrData(qr))
       .catch((e) => console.log("QR error:", e));
     setStatusMsg(`${t("profileSwitchedMsg", language)} ${tick.name}`);
+    showToast(`${t("profileSwitchedMsg", language)} ${tick.name}`, "info");
   };
   return (
     <div className="patient-portal-root" style={{ width: "100%", paddingBottom: "4px" }}>
@@ -3742,6 +3825,7 @@ export default function PatientPage({
               onSelectMember={handleSelectMember}
               onAddMember={() => handleTabChange("family")}
               onDeleteMember={handleDeleteMember}
+              showConfirm={showConfirm}
               language={language}
               familyTickets={familyTickets}
             />
@@ -3825,20 +3909,22 @@ export default function PatientPage({
               )}
 
               {statusMsg && (
-                <div
-                  style={{
-                    marginTop: "16px",
-                    padding: "12px",
-                    borderRadius: "10px",
-                    background: statusMsg.toLowerCase().includes("error") || statusMsg.toLowerCase().includes("failed") ? "#FEF2F2" : "#F0F9FF",
-                    border: statusMsg.toLowerCase().includes("error") || statusMsg.toLowerCase().includes("failed") ? "1px solid #FECACA" : "1px solid #BAE6FD",
-                    color: statusMsg.toLowerCase().includes("error") || statusMsg.toLowerCase().includes("failed") ? "#DC2626" : "#0284C7",
-                    fontSize: "13px",
-                    textAlign: "center",
-                    fontWeight: 600,
-                  }}
-                >
-                  {statusMsg}
+                <div style={{ marginTop: "16px" }}>
+                  <InAppWarningBanner
+                    type={
+                      statusMsg.toLowerCase().includes("error") || statusMsg.toLowerCase().includes("failed")
+                        ? "error"
+                        : statusMsg.toLowerCase().includes("notice") || statusMsg.toLowerCase().includes("warn") || statusMsg.toLowerCase().includes("बंद") || statusMsg.toLowerCase().includes("पहले से ही")
+                        ? "warn"
+                        : statusMsg.toLowerCase().includes("issued") || statusMsg.toLowerCase().includes("reserved") || statusMsg.toLowerCase().includes("checked in") || statusMsg.toLowerCase().includes("सफलतापूर्वक")
+                        ? "success"
+                        : "info"
+                    }
+                    message={statusMsg}
+                    onClose={() => setStatusMsg(null)}
+                    isDark={isDark}
+                    style={{ marginBottom: 0 }}
+                  />
                 </div>
               )}
             </div>
@@ -3925,6 +4011,8 @@ export default function PatientPage({
           registrationStatus={registrationStatus}
           handleAppointmentCheckIn={handleAppointmentCheckIn}
           handleCancelAppointment={handleCancelAppointment}
+          showConfirm={showConfirm}
+          showToast={showToast}
         />
       ) : activeTab === "history" ? (
         <VisitHistoryTab
@@ -3956,6 +4044,7 @@ export default function PatientPage({
           downloadPrescriptionPDF={downloadPrescriptionPDF}
           setStatusMsg={setStatusMsg}
           handleBookFollowUp={handleBookFollowUp}
+          showToast={showToast}
         />
       ) : activeTab === "family" ? (
         <FamilyManagementTab
@@ -3968,6 +4057,8 @@ export default function PatientPage({
           setEditingMember={setEditingMember}
           handleDeleteMember={handleDeleteMember}
           familyTickets={familyTickets}
+          showConfirm={showConfirm}
+          showToast={showToast}
         />
       ) : null}
 
@@ -4736,6 +4827,7 @@ export default function PatientPage({
                 onClick={() => {
                   downloadPrescriptionPDF(viewingPrescriptionData, language, hospitalBranding);
                   setStatusMsg(t("downloadRxPdfSuccess", language));
+                  showToast(t("downloadRxPdfSuccess", language), "success");
                 }}
                 style={{
                   padding: "9px 20px",
@@ -4764,7 +4856,11 @@ export default function PatientPage({
         </div>
       )}
 
-      {/* 6. Footer (Matching Image 2) */}
+      {/* 6. In-App Floating Toast & Modal Dialogs (replaces window.alert and window.confirm) */}
+      <InAppToast toast={inAppToast} onClose={() => setInAppToast(null)} isDark={isDark} />
+      <InAppConfirmModal dialog={confirmDialog} onClose={() => setConfirmDialog(null)} isDark={isDark} />
+
+      {/* 7. Footer (Matching Image 2) */}
       <Footer
         language={language}
         hospitalName={hospitalBranding?.hospital_name || hospitalBranding?.name || (currentUser?.hospital_code === tenantId ? currentUser?.hospital_name : null) || HOSPITAL_CONFIG.name}

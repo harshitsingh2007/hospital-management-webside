@@ -36,6 +36,7 @@ export default function MyAppointmentsTab({
   registrationStatus = { isClosed: false, reason: "" },
   handleAppointmentCheckIn,
   handleCancelAppointment,
+  showConfirm = null,
 }) {
   const [nowTime, setNowTime] = useState(() => new Date());
 
@@ -54,6 +55,7 @@ export default function MyAppointmentsTab({
           onSelectMember={handleSelectMember}
           onAddMember={() => handleTabChange("family")}
           onDeleteMember={handleDeleteMember}
+          showConfirm={showConfirm}
           language={language}
           familyTickets={familyTickets}
         />

@@ -42,10 +42,17 @@ async function joinQueueEndpoint(req, res, next) {
       user_email,
       age = 30,
       gender = "other",
-      medical_condition = "general_checkup",
+      medical_condition: rawMedicalCondition,
+      symptoms,
       pre_existing_condition = "none",
       family_member_id = null,
     } = req.body;
+
+    const medical_condition = (
+      rawMedicalCondition ||
+      (Array.isArray(symptoms) && symptoms.length > 0 ? symptoms.filter(Boolean).join(", ") : symptoms) ||
+      "general_checkup"
+    );
 
     const priority = urgencyToPriority(consumer_type, urgency, explicitPriority);
 
@@ -211,13 +218,12 @@ async function joinQueueEndpoint(req, res, next) {
     if (io) {
       await broadcastQueueUpdate(io, tenant_id);
       io.emit("ticket_created", { ticket, tenant_id });
-      io.emit("queue_updated", { tenant_id });
     }
 
     // Automatic Phone OTP Dispatch & Account Claiming for Walk-in Patients
     let otpInfo = null;
     const cleanPhoneDigits = String(cleanPhone || "").replace(/\D/g, "");
-    if (cleanPhoneDigits && cleanPhoneDigits.length >= 7) {
+    if (cleanPhoneDigits && cleanPhoneDigits.length >= 10) {
       const last10 = cleanPhoneDigits.slice(-10);
       const existingUser = await prisma.users.findFirst({
         where: {

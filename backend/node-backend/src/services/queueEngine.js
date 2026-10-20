@@ -223,25 +223,16 @@ class NodeQueueEngine {
       if (user) uid = user.id;
     }
 
-    if (!uid && cleanPhoneDigits.length >= 7) {
+    if (!uid && cleanPhoneDigits.length >= 10) {
       const last10 = cleanPhoneDigits.slice(-10);
       const userByPhone = await prisma.users.findFirst({
         where: {
           phone: { contains: last10 },
+          NOT: { email: { contains: "@hospital.local" } },
         },
         select: { id: true },
       });
       if (userByPhone) uid = userByPhone.id;
-    }
-
-    if (!uid && cleanName) {
-      const userByName = await prisma.users.findFirst({
-        where: {
-          OR: [{ username: { equals: cleanName, mode: "insensitive" } }, { email: { equals: cleanName, mode: "insensitive" } }],
-        },
-        select: { id: true },
-      });
-      if (userByName) uid = userByName.id;
     }
 
     if (uid) {
@@ -259,12 +250,31 @@ class NodeQueueEngine {
         }
       }
 
-      // 2. Primary patient record for user
-      const pat = await prisma.patients.findFirst({
-        where: { user_id: uid },
-        select: { id: true },
+      if (cleanName) {
+        // Check if there is an existing patient record for this user with this specific name
+        const patWithName = await prisma.patients.findFirst({
+          where: {
+            user_id: uid,
+            name: { equals: cleanName, mode: "insensitive" },
+          },
+          select: { id: true },
+        });
+        if (patWithName) return patWithName.id;
+      }
+
+      // 2. Primary patient record for user (only if name matches user or no name provided)
+      const primaryUser = await prisma.users.findUnique({
+        where: { id: uid },
+        select: { username: true, email: true },
       });
-      if (pat) return pat.id;
+      const isSelf = !cleanName || (primaryUser && primaryUser.username && primaryUser.username.toLowerCase().trim() === cleanName.toLowerCase().trim());
+      if (isSelf) {
+        const pat = await prisma.patients.findFirst({
+          where: { user_id: uid },
+          select: { id: true },
+        });
+        if (pat) return pat.id;
+      }
     }
 
     // Check existing patient by phone

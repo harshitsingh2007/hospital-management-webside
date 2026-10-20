@@ -39,6 +39,7 @@ export default function VisitHistoryTab({
   downloadPrescriptionPDF,
   setStatusMsg,
   handleBookFollowUp,
+  showToast = null,
 }) {
   return (
     <div style={standaloneCardStyle}>
@@ -511,6 +512,7 @@ export default function VisitHistoryTab({
                                   const parsed = parsePrescription(tk.prescription_notes, tk);
                                   downloadPrescriptionPDF(parsed, language, hospitalBranding);
                                   setStatusMsg(t("downloadRxPdfSuccess", language));
+                                  if (showToast) showToast(t("downloadRxPdfSuccess", language), "success");
                                 }}
                                 title={t("downloadClinicalRxPdf", language)}
                                 style={{
@@ -784,6 +786,7 @@ export default function VisitHistoryTab({
                                   const parsed = parsePrescription(effectiveRxNotes, apt);
                                   downloadPrescriptionPDF(parsed, language, hospitalBranding);
                                   setStatusMsg(t("downloadRxPdfSuccess", language));
+                                  if (showToast) showToast(t("downloadRxPdfSuccess", language), "success");
                                 }}
                                 title={t("downloadClinicalRxPdf", language)}
                                 style={{
