@@ -13,7 +13,7 @@ import { printTokenPass, printAppointmentRecord, printPrescriptionSlip, download
 import HeroBanner from "../components/patient/HeroBanner";
 import Footer from "../components/common/Footer";
 import FamilyMemberSwitcher, { AddFamilyMemberModal, EditFamilyMemberModal, getRelationLabel } from "../components/patient/FamilyMemberSwitcher";
-import { InAppToast, InAppConfirmModal, InAppWarningBanner } from "../components/common/InAppNotification";
+import { InAppToast, InAppConfirmModal } from "../components/common/InAppNotification";
 import HistorySummary from "../components/patient-history/HistorySummary";
 import { usePatientHistory } from "../hooks/usePatientHistory";
 import WalkinTab from "../components/patient/WalkinTab";
@@ -2088,8 +2088,6 @@ export default function PatientPage({
         }
       }
     }
-    setStatusMsg(`${t("profileSwitchedMsg", language)} ${member.name}`);
-    showToast(`${t("profileSwitchedMsg", language)} ${member.name}`, "info");
   };
 
   // Sync when activeFamilyMemberProp changes from Header or parent
@@ -2856,8 +2854,6 @@ export default function PatientPage({
       .then((r) => r.json())
       .then((qr) => setTicketQrData(qr))
       .catch((e) => console.log("QR error:", e));
-    setStatusMsg(`${t("profileSwitchedMsg", language)} ${tick.name}`);
-    showToast(`${t("profileSwitchedMsg", language)} ${tick.name}`, "info");
   };
   return (
     <div className="patient-portal-root" style={{ width: "100%", paddingBottom: "4px" }}>
@@ -3908,25 +3904,7 @@ export default function PatientPage({
                 />
               )}
 
-              {statusMsg && (
-                <div style={{ marginTop: "16px" }}>
-                  <InAppWarningBanner
-                    type={
-                      statusMsg.toLowerCase().includes("error") || statusMsg.toLowerCase().includes("failed")
-                        ? "error"
-                        : statusMsg.toLowerCase().includes("notice") || statusMsg.toLowerCase().includes("warn") || statusMsg.toLowerCase().includes("बंद") || statusMsg.toLowerCase().includes("पहले से ही")
-                        ? "warn"
-                        : statusMsg.toLowerCase().includes("issued") || statusMsg.toLowerCase().includes("reserved") || statusMsg.toLowerCase().includes("checked in") || statusMsg.toLowerCase().includes("सफलतापूर्वक")
-                        ? "success"
-                        : "info"
-                    }
-                    message={statusMsg}
-                    onClose={() => setStatusMsg(null)}
-                    isDark={isDark}
-                    style={{ marginBottom: 0 }}
-                  />
-                </div>
-              )}
+
             </div>
 
             {/* Digital Ticket Pass (only if live: waiting, serving, on_hold) */}

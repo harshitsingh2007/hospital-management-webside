@@ -15,6 +15,7 @@ import DoctorShiftSummaryModal from "../components/staff/DoctorShiftSummaryModal
 import Footer from "../components/common/Footer";
 import PatientHistoryTimeline from "../components/patient-history/PatientHistoryTimeline";
 import { usePatientHistory } from "../hooks/usePatientHistory";
+import { InAppToast, InAppConfirmModal } from "../components/common/InAppNotification";
 import {
   IconDoctor,
   IconHospital,
@@ -125,6 +126,35 @@ export default function DoctorPage({
   };
 
   const isDark = currentTheme === "dark";
+
+  // In-App Toast & Confirmation Modal States (replaces all window.alert and window.confirm)
+  const [inAppToast, setInAppToast] = useState(null); // { id, message, title, type: "success" | "error" | "warn" | "info" }
+  const toastTimerRef = useRef(null);
+  const [confirmDialog, setConfirmDialog] = useState(null); // { title, message, confirmText, cancelText, isDestructive, onConfirm }
+
+  const showToast = useCallback((msg, type = "success", durationMs = null) => {
+    if (!msg) return;
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    const messageText = typeof msg === "object" ? msg.message : msg;
+    const titleText = typeof msg === "object" ? msg.title : null;
+    const finalType = (typeof msg === "object" ? msg.type : type) || "success";
+    setInAppToast({ id: Date.now(), message: messageText, title: titleText, type: finalType });
+    const autoDuration = durationMs || (finalType === "error" || finalType === "warn" ? 6500 : 4500);
+    toastTimerRef.current = setTimeout(() => {
+      setInAppToast(null);
+    }, autoDuration);
+  }, []);
+
+  const showConfirm = useCallback(({ title, message, confirmText, cancelText, isDestructive, onConfirm }) => {
+    setConfirmDialog({
+      title,
+      message,
+      confirmText,
+      cancelText,
+      isDestructive: Boolean(isDestructive),
+      onConfirm,
+    });
+  }, []);
 
   const [activeTab, setActiveTab] = useState("ops"); // "ops" | "queue" | "apts"
   const [appointments, setAppointments] = useState([]);
@@ -331,6 +361,12 @@ export default function DoctorPage({
 
       if (finalStatus === "OFF_DUTY") {
         setShowShiftSummaryModal(true);
+      } else if (finalStatus === "ACTIVE") {
+        showToast(language === "hi" ? "आपकी स्थिति 'सक्रिय (Active)' पर सेट है — मरीज़ों को बुलाने हेतु तैयार।" : "Doctor status: Active — Ready to attend patients.", "success");
+      } else if (finalStatus === "ON_BREAK") {
+        showToast(language === "hi" ? "आपकी स्थिति 'अवकाश (On Break)' पर सेट है — मरीज़ रूटिंग रोक दी गई है।" : "Doctor status: On Break — Patient routing paused.", "info");
+      } else if (finalStatus === "EMERGENCY_ROUND") {
+        showToast(language === "hi" ? "स्थिति 'आपातकालीन राउंड' पर सेट है।" : "Doctor status: Emergency / ICU Round.", "warn");
       }
 
       let timestamp = dutyStatusChangedAt;
@@ -373,7 +409,7 @@ export default function DoctorPage({
         body: JSON.stringify(payload),
       }).catch(() => {});
     },
-    [currentUser, tenantId, effectiveHospitalCode, socketRef, userStorageKey, dutyStatusChangedAt, doctorDutyStatus]
+    [currentUser, tenantId, effectiveHospitalCode, socketRef, userStorageKey, dutyStatusChangedAt, doctorDutyStatus, language, showToast]
   );
 
   // Sync status from server on mount — only if server has a real stored record.
@@ -498,11 +534,12 @@ export default function DoctorPage({
       if (e.detail?.message) {
         setServeFeedbackMsg(e.detail.message);
         setTimeout(() => setServeFeedbackMsg(""), 6000);
+        showToast(e.detail.message, "error");
       }
     };
     window.addEventListener("queue_serve_error", handleServeErr);
     return () => window.removeEventListener("queue_serve_error", handleServeErr);
-  }, []);
+  }, [showToast]);
 
   const onCallNextPatient = () => {
     // 1. Guard against calling while on Break / Emergency / Off Duty
@@ -512,23 +549,25 @@ export default function DoctorPage({
         EMERGENCY_ROUND: language === "hi" ? "आपातकालीन राउंड" : "Emergency / ICU Round",
         OFF_DUTY: language === "hi" ? "ड्यूटी समाप्त" : "Off Duty (Shift Ended)",
       };
-      setServeFeedbackMsg(
+      const warnMsg =
         language === "hi"
           ? `आप वर्तमान में '${statusNames[doctorDutyStatus] || doctorDutyStatus}' पर हैं। कतार से मरीज़ों को बुलाने हेतु कृपया अपनी स्थिति 'सक्रिय (Active)' करें।`
-          : `You are currently on ${statusNames[doctorDutyStatus] || doctorDutyStatus}. Automatic patient routing is paused. Switch your status to 'Active' to call the next patient.`
-      );
+          : `You are currently on ${statusNames[doctorDutyStatus] || doctorDutyStatus}. Automatic patient routing is paused. Switch your status to 'Active' to call the next patient.`;
+      setServeFeedbackMsg(warnMsg);
       setTimeout(() => setServeFeedbackMsg(""), 7000);
+      showToast(warnMsg, "warn");
       return;
     }
 
     // 2. Strict clinical rule: 1 patient per doctor
     if (isDoctorBusy && myServingTicket) {
-      setServeFeedbackMsg(
+      const busyMsg =
         language === "hi"
           ? `डॉक्टर एक समय में केवल 1 मरीज़ को देख सकते हैं। आप वर्तमान में #${myServingTicket.ticket_id} (${myServingTicket.name}) का परामर्श कर रहे हैं। अगला टोकन बुलाने से पहले यह परामर्श पूर्ण (Complete) करें।`
-          : `A doctor can only serve one patient at a time. You are currently consulting with Patient #${myServingTicket.ticket_id} (${myServingTicket.name}). Please complete or transfer this consultation before calling the next patient.`
-      );
+          : `A doctor can only serve one patient at a time. You are currently consulting with Patient #${myServingTicket.ticket_id} (${myServingTicket.name}). Please complete or transfer this consultation before calling the next patient.`;
+      setServeFeedbackMsg(busyMsg);
       setTimeout(() => setServeFeedbackMsg(""), 6000);
+      showToast(busyMsg, "warn");
       return;
     }
     setServeFeedbackMsg("");
@@ -551,12 +590,13 @@ export default function DoctorPage({
         });
       }
 
-      setAnnounceFeedbackMsg(
+      const msg =
         language === "hi"
           ? `टोकन #${tid} (${ticket.name}) की कॉल संख्या ${currentCnt} प्रसारित की गई!`
-          : `Broadcasted Announcement #${currentCnt} for Token #${tid} (${ticket.name})!`
-      );
+          : `Broadcasted Announcement #${currentCnt} for Token #${tid} (${ticket.name})!`;
+      setAnnounceFeedbackMsg(msg);
       setTimeout(() => setAnnounceFeedbackMsg(""), 3500);
+      showToast(msg, "info");
     } catch (e) {
       console.log("Re-announce broadcast error:", e);
     }
@@ -575,14 +615,19 @@ export default function DoctorPage({
         });
         if (refreshData) refreshData();
       }
-      setAnnounceFeedbackMsg(
+      const msg =
         language === "hi"
           ? `⏸️ टोकन #${ticket.ticket_id} (${ticket.name}) को 10 मिनट के ग्रेस पीरियड पर रखा गया। डेस्क अगले मरीज़ हेतु खाली है!`
-          : `⏸️ Token #${ticket.ticket_id} (${ticket.name}) placed on 10-Minute Grace Period. Desk is now available for next patient!`
-      );
+          : `⏸️ Token #${ticket.ticket_id} (${ticket.name}) placed on 10-Minute Grace Period. Desk is now available for next patient!`;
+      setAnnounceFeedbackMsg(msg);
       setTimeout(() => setAnnounceFeedbackMsg(""), 6000);
+      showToast(msg, "warn");
     } catch (e) {
       console.log("Hold ticket error:", e);
+      showToast(
+        language === "hi" ? `ग्रेस पीरियड में रखने में त्रुटि: ${e.message || "विफल"}` : `Error holding ticket: ${e.message || "Failed"}`,
+        "error"
+      );
     }
   };
 
@@ -606,49 +651,99 @@ export default function DoctorPage({
         });
         if (refreshData) refreshData();
       }
-      setAnnounceFeedbackMsg(
+      const msg =
         language === "hi"
           ? `टोकन #${ticket.ticket_id} (${ticket.name}) को पुनः सक्रिय किया गया!`
-          : `Recalled #${ticket.ticket_id} (${ticket.name}) back to active queue!`
-      );
+          : `Recalled #${ticket.ticket_id} (${ticket.name}) back to active queue!`;
+      setAnnounceFeedbackMsg(msg);
       setTimeout(() => setAnnounceFeedbackMsg(""), 4500);
+      showToast(msg, "success");
     } catch (e) {
       console.log("Recall ticket error:", e);
+      showToast(
+        language === "hi" ? `पुनः सक्रिय करने में त्रुटि: ${e.message || "विफल"}` : `Error recalling ticket: ${e.message || "Failed"}`,
+        "error"
+      );
     }
   };
 
-  const handleFinalizeNoShow = async (ticket) => {
+  const handleFinalizeNoShow = (ticket) => {
     if (!ticket) return;
+    const isHi = language === "hi";
     const confirmMsg =
-      language === "hi"
-        ? `क्या आप टोकन #${ticket.ticket_id} (${ticket.name}) को 'अनुपस्थित (No-Show)' चिह्नित करना चाहते हैं?`
-        : `Mark Token #${ticket.ticket_id} (${ticket.name}) as No-Show (absent after grace window)?`;
-    if (!window.confirm(confirmMsg)) return;
+      isHi
+        ? `क्या आप टोकन #${ticket.ticket_id} (${ticket.name}) को 'अनुपस्थित (No-Show)' चिह्नित करना चाहते हैं? मरीज़ को सक्रिय कतार से हटा दिया जाएगा।`
+        : `Are you sure you want to mark Token #${ticket.ticket_id} (${ticket.name}) as No-Show? The patient will be removed from the active queue.`;
 
-    try {
-      if (handleMarkNoShow) {
-        await handleMarkNoShow(ticket.ticket_id, "Patient absent after repeated announcements & grace period");
-      } else {
-        await fetch(`${API_BASE}/api/v1/plugin/no-show`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            tenant_id: tenantId,
-            ticket_id: ticket.ticket_id,
-            reason: "Patient absent after repeated announcements & grace period",
-          }),
-        });
-        if (refreshData) refreshData();
-      }
-      setAnnounceFeedbackMsg(
-        language === "hi"
-          ? `टोकन #${ticket.ticket_id} को 'अनुपस्थित (No-Show)' दर्ज किया गया।`
-          : `Token #${ticket.ticket_id} marked as No-Show.`
-      );
-      setTimeout(() => setAnnounceFeedbackMsg(""), 4000);
-    } catch (e) {
-      console.log("Finalize no-show error:", e);
-    }
+    showConfirm({
+      title: isHi ? "अनुपस्थित (No-Show) चिह्नित करें" : "Mark as No-Show",
+      message: confirmMsg,
+      confirmText: isHi ? "हाँ, अनुपस्थित दर्ज करें" : "Mark as No-Show",
+      cancelText: isHi ? "रद्द करें" : "Cancel",
+      isDestructive: true,
+      onConfirm: async () => {
+        try {
+          if (handleMarkNoShow) {
+            await handleMarkNoShow(ticket.ticket_id, "Patient absent after repeated announcements & grace period");
+          } else {
+            await fetch(`${API_BASE}/api/v1/plugin/no-show`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                tenant_id: tenantId,
+                ticket_id: ticket.ticket_id,
+                reason: "Patient absent after repeated announcements & grace period",
+              }),
+            });
+            if (refreshData) refreshData();
+          }
+          const feedbackMsg =
+            isHi
+              ? `टोकन #${ticket.ticket_id} (${ticket.name}) को 'अनुपस्थित (No-Show)' दर्ज किया गया।`
+              : `Token #${ticket.ticket_id} (${ticket.name}) marked as No-Show.`;
+          setAnnounceFeedbackMsg(feedbackMsg);
+          setTimeout(() => setAnnounceFeedbackMsg(""), 4000);
+          showToast(feedbackMsg, "info");
+        } catch (e) {
+          console.log("Finalize no-show error:", e);
+          showToast(
+            isHi ? `त्रुटि: ${e.message || "कार्रवाई विफल"}` : `Error marking No-Show: ${e.message || "Failed"}`,
+            "error"
+          );
+        }
+      },
+    });
+  };
+
+  const handleConfirmFinishConsult = (ticket) => {
+    if (!ticket) return;
+    const isHi = language === "hi";
+    showConfirm({
+      title: isHi ? "परामर्श पूर्ण करें" : "Complete Consultation",
+      message: isHi
+        ? `क्या आप टोकन #${ticket.ticket_id} (${ticket.name}) का परामर्श पूर्ण करना चाहते हैं?`
+        : `Are you sure you want to finish consultation for Token #${ticket.ticket_id} (${ticket.name})?`,
+      confirmText: isHi ? "हाँ, परामर्श पूर्ण करें" : "Complete Consult",
+      cancelText: isHi ? "रद्द करें" : "Cancel",
+      isDestructive: false,
+      onConfirm: async () => {
+        try {
+          if (handleCompleteTicket) {
+            await handleCompleteTicket(ticket.ticket_id);
+          }
+          const msg = isHi
+            ? `✓ टोकन #${ticket.ticket_id} (${ticket.name}) का परामर्श पूर्ण हुआ!`
+            : `✓ Consultation completed for Token #${ticket.ticket_id} (${ticket.name})!`;
+          showToast(msg, "success");
+          if (refreshData) refreshData();
+        } catch (e) {
+          showToast(
+            isHi ? `त्रुटि: ${e.message || "कार्रवाई विफल"}` : `Error completing consultation: ${e.message || "Failed"}`,
+            "error"
+          );
+        }
+      },
+    });
   };
 
   const handleOpenTransferModal = (ticket) => {
@@ -855,11 +950,12 @@ export default function DoctorPage({
           });
           const data = await res.json();
           if (res.ok && data.success) {
-            setRxStatusMsg(
+            const successMsg =
               language === "hi"
                 ? `✓ पर्ची सहेजी गई एवं मरीज़ #${data.new_ticket?.ticket_id || prescriptionTicket.ticket_id} (${getCategoryLabel(rxRoutingDept, language)}) में स्थानांतरित!`
-                : `✓ Transferred to ${getCategoryLabel(rxRoutingDept, language)} as Token #${data.new_ticket?.ticket_id || prescriptionTicket.ticket_id} with Rx!`
-            );
+                : `✓ Transferred to ${getCategoryLabel(rxRoutingDept, language)} as Token #${data.new_ticket?.ticket_id || prescriptionTicket.ticket_id} with Rx!`;
+            setRxStatusMsg(successMsg);
+            showToast(successMsg, "success");
             if (refreshData) refreshData();
             fetchTenantAppointments();
             setTimeout(() => {
@@ -869,7 +965,9 @@ export default function DoctorPage({
               setRxStatusMsg("");
             }, 1200);
           } else {
-            setRxStatusMsg(`Transfer error: ${data.detail || data.message || "Failed to transfer ticket"}`);
+            const errMsg = `Transfer error: ${data.detail || data.message || "Failed to transfer ticket"}`;
+            setRxStatusMsg(errMsg);
+            showToast(errMsg, "error");
             setRxSaving(false);
           }
         } else {
@@ -877,11 +975,12 @@ export default function DoctorPage({
           if (handleCompleteTicket) {
             await handleCompleteTicket(prescriptionTicket.ticket_id, payload);
           }
-          setRxStatusMsg(
+          const compMsg =
             language === "hi"
               ? "✓ परामर्श पूर्ण हुआ एवं ई-प्रिस्क्रिप्शन मरीज़ पोर्टल पर प्रेषित!"
-              : "✓ Consultation Completed & E-Prescription Sent to Patient Portal!"
-          );
+              : "✓ Consultation Completed & E-Prescription Sent to Patient Portal!";
+          setRxStatusMsg(compMsg);
+          showToast(compMsg, "success");
           setTimeout(() => {
             setShowPrescriptionModal(false);
             setPrescriptionTicket(null);
@@ -908,11 +1007,12 @@ export default function DoctorPage({
           } catch (_) {}
           setRxAutoSaveStatus("saved");
           setRxLastSavedAt(new Date());
-          setRxStatusMsg(
+          const draftMsg =
             language === "hi"
               ? "✓ ई-प्रिस्क्रिप्शन ड्राफ्ट सफलतापूर्वक सहेजा गया!"
-              : "✓ E-Prescription draft saved & updated on Patient Portal!"
-          );
+              : "✓ E-Prescription draft saved & updated on Patient Portal!";
+          setRxStatusMsg(draftMsg);
+          showToast(draftMsg, "success");
           if (refreshData) refreshData();
           setTimeout(() => {
             setShowPrescriptionModal(false);
@@ -921,12 +1021,16 @@ export default function DoctorPage({
             setRxStatusMsg("");
           }, 1200);
         } else {
-          setRxStatusMsg(data.message || "Failed to save prescription.");
+          const errMsg = data.message || "Failed to save prescription.";
+          setRxStatusMsg(errMsg);
+          showToast(errMsg, "error");
           setRxSaving(false);
         }
       }
     } catch (err) {
-      setRxStatusMsg("Error: " + err.message);
+      const errMsg = "Error: " + err.message;
+      setRxStatusMsg(errMsg);
+      showToast(errMsg, "error");
       setRxSaving(false);
     }
   };
@@ -2430,7 +2534,7 @@ export default function DoctorPage({
 
                           <button
                             type="button"
-                            onClick={() => handleCompleteTicket(ticket.ticket_id)}
+                            onClick={() => handleConfirmFinishConsult(ticket)}
                             style={finishBtnStyle}
                             title={language === "hi" ? "परामर्श पूर्ण करें" : "Mark Consultation Complete"}
                           >
@@ -3786,6 +3890,10 @@ export default function DoctorPage({
         hospitalName={localBranding?.hospital_name || currentUser?.hospital_name || "City General Hospital"}
         currentUser={currentUser}
       />
+
+      {/* 7. IN-APP TOAST AND CONFIRMATION MODALS */}
+      <InAppToast toast={inAppToast} onClose={() => setInAppToast(null)} isDark={isDark} />
+      <InAppConfirmModal dialog={confirmDialog} onClose={() => setConfirmDialog(null)} isDark={isDark} />
     </div>
   );
 }
