@@ -12,8 +12,10 @@ import { API_BASE } from "../config/hospitalConfig";
 import { t, getCategoryLabel, getStatusLabel, formatSymptomLabel, formatRiskLabel } from "../utils/i18n";
 import AdminHeroBanner from "../components/staff/AdminHeroBanner";
 import DoctorShiftSummaryModal from "../components/staff/DoctorShiftSummaryModal";
+import ClinicalPrescriptionWorkstation from "../components/staff/ClinicalPrescriptionWorkstation";
 import Footer from "../components/common/Footer";
 import PatientHistoryTimeline from "../components/patient-history/PatientHistoryTimeline";
+import { printPrescriptionSlip, downloadPrescriptionPDF } from "../utils/printPassHelper";
 import { usePatientHistory } from "../hooks/usePatientHistory";
 import { InAppToast, InAppConfirmModal } from "../components/common/InAppNotification";
 import {
@@ -138,8 +140,10 @@ export default function DoctorPage({
     const messageText = typeof msg === "object" ? msg.message : msg;
     const titleText = typeof msg === "object" ? msg.title : null;
     const finalType = (typeof msg === "object" ? msg.type : type) || "success";
-    setInAppToast({ id: Date.now(), message: messageText, title: titleText, type: finalType });
-    const autoDuration = durationMs || (finalType === "error" || finalType === "warn" ? 6500 : 4500);
+    const actionText = typeof msg === "object" ? msg.actionText : null;
+    const onAction = typeof msg === "object" ? msg.onAction : null;
+    setInAppToast({ id: Date.now(), message: messageText, title: titleText, type: finalType, actionText, onAction });
+    const autoDuration = durationMs || (actionText ? 9000 : (finalType === "error" || finalType === "warn" ? 6500 : 4500));
     toastTimerRef.current = setTimeout(() => {
       setInAppToast(null);
     }, autoDuration);
@@ -178,8 +182,9 @@ export default function DoctorPage({
     return () => clearInterval(timer);
   }, []);
 
-  // Doctor Prescription Modal State
+  // Doctor Prescription Modal & Full-Page Workstation State
   const [showPrescriptionModal, setShowPrescriptionModal] = useState(false);
+  const [rxViewMode, setRxViewMode] = useState("page"); // "page" | "modal"
   const [prescriptionTicket, setPrescriptionTicket] = useState(null);
   const [rxDiagnosis, setRxDiagnosis] = useState("");
   const [rxCustomFinding, setRxCustomFinding] = useState("");
@@ -187,6 +192,7 @@ export default function DoctorPage({
     { name: "", dosage: "500mg", frequency: "1-0-1", duration: "5 days", instructions: "After food" },
   ]);
   const [rxLabTests, setRxLabTests] = useState("");
+  const [rxCustomLabTest, setRxCustomLabTest] = useState("");
   const [rxAdvice, setRxAdvice] = useState("");
   const [rxFollowUp, setRxFollowUp] = useState("");
   const [rxRoutingDept, setRxRoutingDept] = useState("pharmacy");
@@ -251,19 +257,41 @@ export default function DoctorPage({
   const canViewDbInspector =
     userRole !== "doctor" &&
     ["receptionist", "staff", "super_admin", "superadmin", "admin"].includes(userRole);
-  const primaryServing = servingTickets.length > 0 ? servingTickets[0] : null;
+  // Clinical Consultation Tickets only (excluding pharmacy dispensing tickets)
+  const clinicalServingTickets = (servingTickets || []).filter(
+    (t) => (t.service_category || "").toLowerCase() !== "pharmacy"
+  );
+  const clinicalQueueSnapshot = (queueSnapshot || []).filter(
+    (t) => (t.service_category || "").toLowerCase() !== "pharmacy"
+  );
+  const clinicalHeldTickets = (heldTickets || []).filter(
+    (t) => (t.service_category || "").toLowerCase() !== "pharmacy"
+  );
+  const pharmacyWaitingCount = (queueSnapshot || []).filter(
+    (t) => (t.service_category || "").toLowerCase() === "pharmacy"
+  ).length;
+
+  const primaryServing = clinicalServingTickets.length > 0 ? clinicalServingTickets[0] : null;
 
   // STRICT CLINICAL RULE: A doctor can only serve one patient at a time
   const doctorId = currentUser?.id;
   const doctorEmail = currentUser?.email;
   const doctorName = currentUser?.name;
 
-  const myServingTicket = servingTickets.find(
+  const myServingTicket = clinicalServingTickets.find(
     (t) =>
       (t.served_by_doctor_id && doctorId && String(t.served_by_doctor_id) === String(doctorId)) ||
       (t.served_by_doctor_email && doctorEmail && String(t.served_by_doctor_email).toLowerCase() === String(doctorEmail).toLowerCase()) ||
       (t.served_by_doctor_name && doctorName && String(t.served_by_doctor_name).trim().toLowerCase() === String(doctorName).trim().toLowerCase())
-  ) || (servingTickets.length > 0 ? servingTickets[0] : null);
+  ) || (clinicalServingTickets.length > 0 ? clinicalServingTickets[0] : null);
+
+  // Auto-clear pharmacy tickets from Doctor consultation pad
+  useEffect(() => {
+    if (prescriptionTicket && (prescriptionTicket.service_category || "").toLowerCase() === "pharmacy") {
+      setShowPrescriptionModal(false);
+      setPrescriptionTicket(null);
+    }
+  }, [prescriptionTicket]);
 
   const isDoctorBusy = Boolean(myServingTicket);
   const [serveFeedbackMsg, setServeFeedbackMsg] = useState("");
@@ -280,17 +308,19 @@ export default function DoctorPage({
     totalVisits: servingPatientTotalVisits,
     loading: servingHistoryLoading,
   } = usePatientHistory({
-    ticketId: myServingTicket?.ticket_id,
+    ticketId: prescriptionTicket?.ticket_id || myServingTicket?.ticket_id,
     hospitalId: tenantId,
     socketRef,
-    autoFetch: Boolean(myServingTicket),
+    autoFetch: Boolean(prescriptionTicket || myServingTicket),
   });
 
   const [rxPreFillWarning, setRxPreFillWarning] = useState("");
 
   const handleUsePreviousPrescription = (prevRx) => {
-    if (!myServingTicket || !prevRx) return;
-    setPrescriptionTicket(myServingTicket);
+    const targetTicket = prescriptionTicket || myServingTicket;
+    if (!targetTicket || !prevRx) return;
+    setPrescriptionTicket(targetTicket);
+    setRxViewMode("page");
     isInitialLoadRef.current = true;
     setRxAutoSaveStatus("idle");
     setRxLastSavedAt(null);
@@ -752,6 +782,7 @@ export default function DoctorPage({
 
   const handleOpenPrescriptionModal = (ticket) => {
     setPrescriptionTicket(ticket);
+    setRxViewMode("page");
     setRxStatusMsg("");
     setRxSaving(false);
     setRxPreFillWarning("");
@@ -811,6 +842,7 @@ export default function DoctorPage({
           : "none")
       );
       setRxTransferNotes(effectiveData.transfer_notes || "");
+      setRxCustomLabTest("");
       if (localDraft) {
         setRxAutoSaveStatus("saved");
         setRxLastSavedAt(new Date());
@@ -825,6 +857,7 @@ export default function DoctorPage({
         { name: "", dosage: "500mg", frequency: "1-0-1", duration: "5 days", instructions: "After food" },
       ]);
       setRxLabTests("");
+      setRxCustomLabTest("");
       setRxAdvice(typeof ticket.prescription_notes === "string" ? ticket.prescription_notes : "");
       setRxFollowUp("After 5 days or if needed");
       setRxRoutingDept("pharmacy");
@@ -875,13 +908,30 @@ export default function DoctorPage({
       finalDiagnosis = current.join(", ");
     }
 
+    let finalLabTests = rxLabTests;
+    if (rxCustomLabTest && rxCustomLabTest.trim()) {
+      const pendingLabParts = rxCustomLabTest
+        .split(",")
+        .map((p) => p.trim())
+        .filter(Boolean);
+      const currentLabs = finalLabTests
+        ? finalLabTests.split(",").map((s) => s.trim()).filter(Boolean)
+        : [];
+      pendingLabParts.forEach((p) => {
+        if (!currentLabs.some((c) => c.toLowerCase() === p.toLowerCase())) {
+          currentLabs.push(p);
+        }
+      });
+      finalLabTests = currentLabs.join(", ");
+    }
+
     return {
       doctor_name: resolvedDocName,
       doctor_department: prescriptionTicket?.service_category || currentUser?.department || "General Consultation",
       doctor_employee_id: currentUser?.employee_id || "",
       diagnosis: finalDiagnosis || "Consultation & Clinical Assessment",
       medicines: rxMedicines.filter((m) => m.name && m.name.trim() !== ""),
-      lab_tests: rxLabTests,
+      lab_tests: finalLabTests,
       advice: rxAdvice,
       follow_up: rxFollowUp,
       target_department: rxRoutingDept && rxRoutingDept !== "none" ? rxRoutingDept : null,
@@ -910,7 +960,75 @@ export default function DoctorPage({
         } catch (_) {}
       }
     }
+    setRxCustomLabTest("");
     setShowPrescriptionModal(false);
+  };
+
+  const handlePrintCurrentModalRx = (asPdf = false) => {
+    if (!prescriptionTicket) return;
+    const payload = buildPrescriptionPayload();
+    const rxData = {
+      ...payload,
+      patient_name: prescriptionTicket.name,
+      age: prescriptionTicket.age || 30,
+      gender: prescriptionTicket.gender || "male",
+      phone: prescriptionTicket.phone || "",
+      ticket_id: prescriptionTicket.ticket_id,
+      appointment_id: prescriptionTicket.appointment_id || "",
+      service_category: prescriptionTicket.service_category,
+      hospital_name: localBranding?.hospital_name || currentUser?.hospital_name || "City General Hospital",
+      prescribed_at: payload.prescribed_at || new Date().toISOString(),
+    };
+
+    if (asPdf) {
+      downloadPrescriptionPDF(rxData, language, localBranding);
+      showToast(language === "hi" ? "दवा पर्ची पीडीएफ डाउनलोड हो रही है..." : "Downloading prescription PDF...", "info");
+    } else {
+      printPrescriptionSlip(rxData, language, localBranding);
+    }
+  };
+
+  const handlePrintTicketPrescription = (ticket, asPdf = false) => {
+    if (!ticket) return;
+    let parsedNotes = null;
+    if (ticket.prescription_notes) {
+      if (typeof ticket.prescription_notes === "object") {
+        parsedNotes = ticket.prescription_notes;
+      } else if (typeof ticket.prescription_notes === "string") {
+        try {
+          let str = ticket.prescription_notes.trim();
+          while ((str.startsWith('"') && str.endsWith('"')) || (str.startsWith("'") && str.endsWith("'"))) {
+            str = str.slice(1, -1).trim();
+          }
+          parsedNotes = JSON.parse(str);
+        } catch (e) {
+          parsedNotes = { advice: ticket.prescription_notes };
+        }
+      }
+    }
+
+    const rxData = {
+      ...(parsedNotes || {}),
+      patient_name: ticket.name || parsedNotes?.patient_name || "Patient",
+      age: ticket.age || parsedNotes?.age || 30,
+      gender: ticket.gender || parsedNotes?.gender || "male",
+      phone: ticket.phone || parsedNotes?.phone || "",
+      ticket_id: ticket.ticket_id,
+      appointment_id: ticket.appointment_id || "",
+      service_category: ticket.service_category,
+      doctor_name: parsedNotes?.doctor_name || currentUser?.name || currentUser?.username || "Dr. Staff Desk",
+      doctor_department: parsedNotes?.doctor_department || ticket.service_category || currentUser?.department,
+      doctor_employee_id: parsedNotes?.doctor_employee_id || currentUser?.employee_id || currentUser?.employee_code || "",
+      hospital_name: localBranding?.hospital_name || currentUser?.hospital_name || "City General Hospital",
+      prescribed_at: parsedNotes?.prescribed_at || new Date().toISOString(),
+    };
+
+    if (asPdf) {
+      downloadPrescriptionPDF(rxData, language, localBranding);
+      showToast(language === "hi" ? "दवा पर्ची पीडीएफ डाउनलोड हो रही है..." : "Downloading prescription PDF...", "info");
+    } else {
+      printPrescriptionSlip(rxData, language, localBranding);
+    }
   };
 
   const handleSavePrescription = async (andComplete = false) => {
@@ -950,12 +1068,20 @@ export default function DoctorPage({
           });
           const data = await res.json();
           if (res.ok && data.success) {
+            const newTid = data.new_ticket?.ticket_id || prescriptionTicket.ticket_id;
+            const isToPharma = (rxRoutingDept || "").toLowerCase() === "pharmacy";
             const successMsg =
               language === "hi"
-                ? `✓ पर्ची सहेजी गई एवं मरीज़ #${data.new_ticket?.ticket_id || prescriptionTicket.ticket_id} (${getCategoryLabel(rxRoutingDept, language)}) में स्थानांतरित!`
-                : `✓ Transferred to ${getCategoryLabel(rxRoutingDept, language)} as Token #${data.new_ticket?.ticket_id || prescriptionTicket.ticket_id} with Rx!`;
+                ? `✓ परामर्श पूर्ण हुआ! टोकन #${newTid} को ${getCategoryLabel(rxRoutingDept, language)} में ई-प्रिस्क्रिप्शन सहित स्थानांतरित किया गया।`
+                : `✓ Consultation Complete! Token #${newTid} routed to ${getCategoryLabel(rxRoutingDept, language)} with prescription.`;
             setRxStatusMsg(successMsg);
-            showToast(successMsg, "success");
+            showToast({
+              title: isToPharma ? (language === "hi" ? "फार्मेसी में प्रेषित ✓" : "Patient Routed to Pharmacy ✓") : null,
+              message: successMsg,
+              type: "success",
+              actionText: isToPharma ? (language === "hi" ? "फार्मेसी स्टेशन खोलें ➔" : "Open Pharmacy Station ➔") : null,
+              onAction: isToPharma ? () => navigateTo("pharmacy") : null,
+            }, "success", 9000);
             if (refreshData) refreshData();
             fetchTenantAppointments();
             setTimeout(() => {
@@ -963,7 +1089,7 @@ export default function DoctorPage({
               setPrescriptionTicket(null);
               setRxSaving(false);
               setRxStatusMsg("");
-            }, 1200);
+            }, 600);
           } else {
             const errMsg = `Transfer error: ${data.detail || data.message || "Failed to transfer ticket"}`;
             setRxStatusMsg(errMsg);
@@ -1090,6 +1216,7 @@ export default function DoctorPage({
     rxCustomFinding,
     rxMedicines,
     rxLabTests,
+    rxCustomLabTest,
     rxAdvice,
     rxFollowUp,
     rxRoutingDept,
@@ -1122,8 +1249,8 @@ export default function DoctorPage({
     return () => clearInterval(interval);
   }, [fetchTenantAppointments, refreshData]);
 
-  // Filtered queue items based on search input
-  const filteredQueue = queueSnapshot.filter((item) => {
+  // Filtered queue items based on search input (excluding pharmacy dispensing tickets)
+  const filteredQueue = clinicalQueueSnapshot.filter((item) => {
     if (!searchFilter.trim()) return true;
     const query = searchFilter.toLowerCase();
     return (
@@ -1639,7 +1766,59 @@ export default function DoctorPage({
         }
       `}</style>
 
-      {/* 1. EXECUTIVE ADMIN HERO SECTION (100% Live Telemetry) */}
+      {/* 1. DEDICATED FULL-PAGE CLINICAL WORKSTATION (OPTION 1) OR QUEUE DASHBOARD */}
+      {showPrescriptionModal && prescriptionTicket && rxViewMode === "page" ? (
+        <ClinicalPrescriptionWorkstation
+          ticket={prescriptionTicket}
+          currentUser={currentUser}
+          language={language}
+          isDark={isDark}
+          localBranding={localBranding}
+          hospitalDepartments={hospitalDepartments}
+          rxViewMode="page"
+          onToggleViewMode={() => setRxViewMode("modal")}
+          onClose={handleClosePrescriptionModal}
+          onSave={handleSavePrescription}
+          onPrint={handlePrintCurrentModalRx}
+          rxDiagnosis={rxDiagnosis}
+          setRxDiagnosis={setRxDiagnosis}
+          rxCustomFinding={rxCustomFinding}
+          setRxCustomFinding={setRxCustomFinding}
+          rxMedicines={rxMedicines}
+          setRxMedicines={setRxMedicines}
+          handleAddMedicineRow={handleAddMedicineRow}
+          handleRemoveMedicineRow={handleRemoveMedicineRow}
+          handleMedicineChange={handleMedicineChange}
+          rxLabTests={rxLabTests}
+          setRxLabTests={setRxLabTests}
+          rxCustomLabTest={rxCustomLabTest}
+          setRxCustomLabTest={setRxCustomLabTest}
+          rxAdvice={rxAdvice}
+          setRxAdvice={setRxAdvice}
+          rxFollowUp={rxFollowUp}
+          setRxFollowUp={setRxFollowUp}
+          rxRoutingDept={rxRoutingDept}
+          setRxRoutingDept={setRxRoutingDept}
+          rxTransferNotes={rxTransferNotes}
+          setRxTransferNotes={setRxTransferNotes}
+          rxSaving={rxSaving}
+          rxStatusMsg={rxStatusMsg}
+          rxAutoSaveStatus={rxAutoSaveStatus}
+          rxLastSavedAt={rxLastSavedAt}
+          rxPreFillWarning={rxPreFillWarning}
+          patient={servingPatient}
+          summary={servingPatientSummary}
+          visits={servingPatientVisits}
+          prescriptions={servingPatientPrescriptions}
+          reports={servingPatientReports}
+          isReturningPatient={isServingPatientReturning}
+          totalVisits={servingPatientTotalVisits}
+          historyLoading={servingHistoryLoading}
+          onUsePreviousPrescription={handleUsePreviousPrescription}
+        />
+      ) : (
+        <>
+          {/* 1. EXECUTIVE ADMIN HERO SECTION (100% Live Telemetry) */}
       <AdminHeroBanner
         language={language}
         adminDept={adminDept}
@@ -1648,11 +1827,11 @@ export default function DoctorPage({
         currentUser={currentUser}
         analytics={analytics}
         isDark={isDark}
-        waitingCount={queueSnapshot.length}
-        servingCount={servingTickets.length}
-        heldCount={heldTickets.length}
+        waitingCount={clinicalQueueSnapshot.length}
+        servingCount={clinicalServingTickets.length}
+        heldCount={clinicalHeldTickets.length}
         servingTicket={primaryServing}
-        nextTicket={queueSnapshot.length > 0 ? queueSnapshot[0] : null}
+        nextTicket={clinicalQueueSnapshot.length > 0 ? clinicalQueueSnapshot[0] : null}
         appointmentsCount={scheduledBookedSlots.length}
         handleCounterChange={canModifyDesks ? handleCounterChange : null}
         handleServeNext={onCallNextPatient}
@@ -1965,9 +2144,9 @@ export default function DoctorPage({
                       color: activeTab === "ops" ? "#0F172A" : "#0284C7",
                     }}
                   >
-                    {servingTickets.length}
+                    {clinicalServingTickets.length}
                   </span>
-                  {heldTickets.length > 0 && (
+                  {clinicalHeldTickets.length > 0 && (
                     <span
                       className="tab-count-badge"
                       style={{
@@ -1977,9 +2156,9 @@ export default function DoctorPage({
                         alignItems: "center",
                         gap: "3px",
                       }}
-                      title={`${heldTickets.length} Patients on Hold / Grace`}
+                      title={`${clinicalHeldTickets.length} Patients on Hold / Grace`}
                     >
-                      {heldTickets.length} <IconPause size={9} color={activeTab === "ops" ? "#78350F" : "#92400E"} />
+                      {clinicalHeldTickets.length} <IconPause size={9} color={activeTab === "ops" ? "#78350F" : "#92400E"} />
                     </span>
                   )}
                 </div>
@@ -2016,7 +2195,7 @@ export default function DoctorPage({
                     color: activeTab === "queue" ? "#0F172A" : "#0284C7",
                   }}
                 >
-                  {queueSnapshot.length}
+                  {clinicalQueueSnapshot.length}
                 </span>
               </div>
               <span className="tab-sub-text" style={{ color: activeTab === "queue" ? "#BAE6FD" : "#64748B" }}>
@@ -2298,6 +2477,63 @@ export default function DoctorPage({
                 </div>
               )}
 
+              {/* Pharmacy Handoff Quick Banner */}
+              {pharmacyWaitingCount > 0 && (
+                <div
+                  style={{
+                    marginBottom: "16px",
+                    padding: "12px 16px",
+                    borderRadius: "14px",
+                    background: isDark ? "rgba(5, 150, 105, 0.18)" : "#ECFDF5",
+                    border: isDark ? "1.5px solid #059669" : "1.5px solid #A7F3D0",
+                    color: isDark ? "#6EE7B7" : "#065F46",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "12px",
+                    flexWrap: "wrap",
+                    boxShadow: "0 2px 8px rgba(5, 150, 105, 0.1)",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <span style={{ fontSize: "20px" }}>💊</span>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: "13px" }}>
+                        {language === "hi"
+                          ? `फार्मेसी स्टेशन: ${pharmacyWaitingCount} दवा पर्चियां वितरण हेतु कतार में हैं`
+                          : `Pharmacy Station: ${pharmacyWaitingCount} prescription(s) waiting for medicine dispensing`}
+                      </div>
+                      <div style={{ fontSize: "11px", opacity: 0.85, marginTop: "1px" }}>
+                        {language === "hi"
+                          ? "परामर्श के बाद मरीज़ काउंटर पर दवा लेने पहुंच रहे हैं।"
+                          : "Transferred consultation patients are in line at the Pharmacy Counter."}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => navigateTo("pharmacy")}
+                    style={{
+                      padding: "7px 15px",
+                      borderRadius: "10px",
+                      border: "none",
+                      background: "linear-gradient(135deg, #059669 0%, #047857 100%)",
+                      color: "#FFFFFF",
+                      fontSize: "12px",
+                      fontWeight: 800,
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      boxShadow: "0 2px 8px rgba(5, 150, 105, 0.3)",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    <span>{language === "hi" ? "फार्मेसी स्टेशन खोलें ➔" : "Open Pharmacy Station ➔"}</span>
+                  </button>
+                </div>
+              )}
+
               {/* Now Serving List */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", flexWrap: "wrap", gap: "8px" }}>
                 <span style={{ fontSize: "12px", fontWeight: 800, color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>
@@ -2312,7 +2548,7 @@ export default function DoctorPage({
                 </div>
               </div>
 
-              {servingTickets.length === 0 ? (
+              {clinicalServingTickets.length === 0 ? (
                 <div
                   className={`staff-empty-box ${isDark ? "dark-mode-box" : ""}`}
                   style={{
@@ -2334,7 +2570,7 @@ export default function DoctorPage({
                 </div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-                  {servingTickets.map((ticket) => (
+                  {clinicalServingTickets.map((ticket) => (
                     <div
                       key={ticket.ticket_id}
                       style={{
@@ -2532,6 +2768,57 @@ export default function DoctorPage({
                             </span>
                           </button>
 
+                          {ticket.prescription_notes && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handlePrintTicketPrescription(ticket, false)}
+                                style={{
+                                  padding: "8px 14px",
+                                  borderRadius: "10px",
+                                  border: isDark ? "1.5px solid #0284C7" : "1.5px solid #BAE6FD",
+                                  background: isDark ? "rgba(2, 132, 199, 0.2)" : "#F0F9FF",
+                                  color: isDark ? "#38BDF8" : "#0284C7",
+                                  fontWeight: 800,
+                                  fontSize: "12px",
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "6px",
+                                  cursor: "pointer",
+                                  transition: "all 0.15s ease",
+                                  boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+                                }}
+                                title={language === "hi" ? "मुद्रित दवा पर्ची प्रिंट करें" : "Print Official Branded Rx Slip"}
+                              >
+                                <span style={{ fontSize: "14px" }}>🖨️</span>
+                                <span>{language === "hi" ? "पर्ची प्रिंट" : "Print Rx"}</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handlePrintTicketPrescription(ticket, true)}
+                                style={{
+                                  padding: "8px 11px",
+                                  borderRadius: "10px",
+                                  border: isDark ? "1.5px solid #334155" : "1.5px solid #E2E8F0",
+                                  background: isDark ? "#1E293B" : "#F8FAFC",
+                                  color: isDark ? "#CBD5E1" : "#475569",
+                                  fontWeight: 800,
+                                  fontSize: "12px",
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "5px",
+                                  cursor: "pointer",
+                                  transition: "all 0.15s ease",
+                                }}
+                                title={language === "hi" ? "दवा पर्ची पीडीएफ डाउनलोड करें" : "Download Rx PDF Document"}
+                              >
+                                <span>📥</span>
+                                <span>PDF</span>
+                              </button>
+                            </>
+                          )}
+
                           <button
                             type="button"
                             onClick={() => handleConfirmFinishConsult(ticket)}
@@ -2580,16 +2867,16 @@ export default function DoctorPage({
                       fontWeight: 800,
                       padding: "3px 10px",
                       borderRadius: "9999px",
-                      background: heldTickets.length > 0 ? "#FEF3C7" : "#F1F5F9",
-                      color: heldTickets.length > 0 ? "#B45309" : "#64748B",
-                      border: `1px solid ${heldTickets.length > 0 ? "#FDE68A" : "#CBD5E1"}`,
+                      background: clinicalHeldTickets.length > 0 ? "#FEF3C7" : "#F1F5F9",
+                      color: clinicalHeldTickets.length > 0 ? "#B45309" : "#64748B",
+                      border: `1px solid ${clinicalHeldTickets.length > 0 ? "#FDE68A" : "#CBD5E1"}`,
                     }}
                   >
-                    {heldTickets.length} {language === "hi" ? "होल्ड पर" : "On Hold"}
+                    {clinicalHeldTickets.length} {language === "hi" ? "होल्ड पर" : "On Hold"}
                   </span>
                 </div>
 
-                {heldTickets.length === 0 ? (
+                {clinicalHeldTickets.length === 0 ? (
                   <div
                     className={`staff-empty-box ${isDark ? "dark-mode-box" : ""}`}
                     style={{
@@ -2613,7 +2900,7 @@ export default function DoctorPage({
                   </div>
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                    {heldTickets.map((ht) => {
+                    {clinicalHeldTickets.map((ht) => {
                       const holdStart = ht.hold_start_time || ht.join_timestamp || nowSec;
                       const holdUntil = ht.hold_until || (holdStart + 600);
                       const remainingSecs = Math.max(0, Math.floor(holdUntil - nowSec));
@@ -3237,638 +3524,59 @@ export default function DoctorPage({
 
 
 
-      {/* 4b. DOCTOR E-PRESCRIPTION (Rx) CLINICAL MODAL */}
-      {showPrescriptionModal && prescriptionTicket && (
-        <div style={modalOverlayStyle} onClick={handleClosePrescriptionModal}>
-          <div
-            style={{
-              ...modalContentStyle,
-              maxWidth: "720px",
-              maxHeight: "90vh",
-              overflowY: "auto",
-              padding: "24px 28px",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Modal Header with Rx Seal */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "18px", borderBottom: "1.5px solid #F1F5F9", paddingBottom: "14px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                <div style={{ width: "42px", height: "42px", borderRadius: "12px", background: "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)", color: "#FFFFFF", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "22px", fontWeight: 900, boxShadow: "0 4px 12px rgba(2, 132, 199, 0.25)" }}>
-                  ℞
-                </div>
-                <div>
-                  <h3 style={{ margin: 0, fontSize: "19px", color: "#0F172A", fontWeight: 800 }}>
-                    {language === "hi" ? "चिकित्सकीय दवा पर्ची (ई-प्रिस्क्रिप्शन)" : "Doctor Clinical E-Prescription (Rx)"}
-                  </h3>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "3px", flexWrap: "wrap" }}>
-                    <span style={{ fontSize: "12.5px", fontWeight: 800, color: "#0284C7" }}>
-                      Token #{prescriptionTicket.ticket_id}
-                    </span>
-                    <span style={{ color: "#94A3B8" }}>•</span>
-                    <span style={{ fontSize: "12.5px", fontWeight: 700, color: "#334155" }}>
-                      {prescriptionTicket.name} ({prescriptionTicket.age || 30} yrs, {prescriptionTicket.gender || "Patient"})
-                    </span>
-                    <span style={{ color: "#94A3B8" }}>•</span>
-                    <span style={{ fontSize: "11px", fontWeight: 700, color: "#0369A1", background: "#E0F2FE", padding: "1px 6px", borderRadius: "4px" }}>
-                      {getCategoryLabel(prescriptionTicket.service_category, language)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={handleClosePrescriptionModal}
-                style={{ background: "none", border: "none", fontSize: "20px", color: "#94A3B8", cursor: "pointer", padding: "4px" }}
-              >
-                ✕
-              </button>
-            </div>
+        </>
+      )}
 
-            {/* Doctor Attribution Info */}
-            <div style={{ background: isDark ? "#1E293B" : "#F8FAFC", padding: "10px 14px", borderRadius: "10px", border: isDark ? "1px solid #334155" : "1px solid #E2E8F0", marginBottom: "16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: isDark ? "#F8FAFC" : "#334155" }}>
-                <IconDoctor size={14} color="#0284C7" />
-                <strong>{currentUser?.name || currentUser?.username || "Attending Consultant"}</strong>
-                <span style={{ color: isDark ? "#94A3B8" : "#64748B" }}>
-                  ({currentUser?.department ? getCategoryLabel(currentUser.department, language) : getCategoryLabel(prescriptionTicket.service_category, language)})
-                </span>
-              </div>
-              <span style={{ fontSize: "11px", color: isDark ? "#94A3B8" : "#64748B", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                <IconCalendar size={12} color="#94A3B8" /> {new Date().toLocaleDateString()} • {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-              </span>
-            </div>
-
-            {/* Form Fields */}
-            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              {/* Safety Warning Banner for Pre-filled Historical Rx */}
-              {rxPreFillWarning && (
-                <div style={{ background: "#FFFBEB", border: "1.5px solid #FCD34D", color: "#B45309", padding: "10px 14px", borderRadius: "10px", fontSize: "12px", fontWeight: 700, display: "flex", alignItems: "center", gap: "8px", boxShadow: "0 2px 6px rgba(245, 158, 11, 0.1)" }}>
-                  <IconAlertTriangle size={16} color="#B45309" />
-                  <div style={{ flex: 1 }}>{rxPreFillWarning}</div>
-                </div>
-              )}
-
-              {/* 1. Provisional Diagnosis & Multiple Findings */}
-              {(() => {
-                const currentFindings = rxDiagnosis
-                  ? rxDiagnosis
-                      .split(",")
-                      .map((s) => s.trim())
-                      .filter(Boolean)
-                  : [];
-
-                const handleToggleFinding = (item) => {
-                  const exists = currentFindings.some((f) => f.toLowerCase() === item.toLowerCase());
-                  let next;
-                  if (exists) {
-                    next = currentFindings.filter((f) => f.toLowerCase() !== item.toLowerCase());
-                  } else {
-                    next = [...currentFindings, item];
-                  }
-                  setRxDiagnosis(next.join(", "));
-                };
-
-                const handleRemoveFinding = (item) => {
-                  const next = currentFindings.filter((f) => f.toLowerCase() !== item.toLowerCase());
-                  setRxDiagnosis(next.join(", "));
-                };
-
-                const handleAddCustomFinding = () => {
-                  const raw = (rxCustomFinding || "").trim();
-                  if (!raw) return;
-                  const parts = raw.split(",").map((p) => p.trim()).filter(Boolean);
-                  if (parts.length === 0) return;
-                  const merged = [...currentFindings];
-                  parts.forEach((p) => {
-                    if (!merged.some((m) => m.toLowerCase() === p.toLowerCase())) {
-                      merged.push(p);
-                    }
-                  });
-                  setRxDiagnosis(merged.join(", "));
-                  setRxCustomFinding("");
-                };
-
-                const handleClearAllFindings = () => {
-                  setRxDiagnosis("");
-                  setRxCustomFinding("");
-                };
-
-                return (
-                  <div>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                      <div style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
-                        <label style={{ fontSize: "12.5px", fontWeight: 800, color: isDark ? "#F8FAFC" : "#0F172A", display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                          <IconStethoscope size={15} color="#0284C7" />
-                          {language === "hi" ? "रोग निदान व निष्कर्ष (Clinical Findings)" : "Clinical Diagnosis & Findings"}
-                        </label>
-                        {currentFindings.length > 0 && (
-                          <span
-                            style={{
-                              fontSize: "11px",
-                              fontWeight: 700,
-                              background: isDark ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE",
-                              color: isDark ? "#38BDF8" : "#0284C7",
-                              padding: "2px 8px",
-                              borderRadius: "999px",
-                            }}
-                          >
-                            {currentFindings.length} {language === "hi" ? "जोड़े गए" : "added"}
-                          </span>
-                        )}
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                        {currentFindings.length > 0 && (
-                          <button
-                            type="button"
-                            onClick={handleClearAllFindings}
-                            style={{
-                              background: "none",
-                              border: "none",
-                              fontSize: "11px",
-                              color: "#EF4444",
-                              fontWeight: 700,
-                              cursor: "pointer",
-                              padding: "2px 6px",
-                              textDecoration: "underline",
-                            }}
-                          >
-                            {language === "hi" ? "सभी हटाएं" : "Clear All"}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Active Selected Findings Chips */}
-                    {currentFindings.length > 0 && (
-                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "10px", padding: "8px 10px", borderRadius: "10px", background: isDark ? "#1E293B" : "#F8FAFC", border: isDark ? "1px solid #334155" : "1px solid #E2E8F0" }}>
-                        {currentFindings.map((finding, fIdx) => (
-                          <span
-                            key={fIdx}
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: "6px",
-                              padding: "5px 10px",
-                              borderRadius: "8px",
-                              background: isDark ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE",
-                              border: isDark ? "1px solid rgba(56, 189, 248, 0.5)" : "1px solid #BAE6FD",
-                              color: isDark ? "#38BDF8" : "#0369A1",
-                              fontSize: "12px",
-                              fontWeight: 700,
-                              boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
-                            }}
-                          >
-                            <span>🩺 {finding}</span>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveFinding(finding)}
-                              style={{
-                                background: "none",
-                                border: "none",
-                                color: isDark ? "#38BDF8" : "#0369A1",
-                                cursor: "pointer",
-                                padding: 0,
-                                fontSize: "13px",
-                                lineHeight: 1,
-                                display: "inline-flex",
-                                alignItems: "center",
-                                fontWeight: 800,
-                              }}
-                              title="Remove finding"
-                            >
-                              ✕
-                            </button>
-                          </span>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Dedicated Hand-written Input with Add Finding Button */}
-                    <div style={{ display: "flex", gap: "8px", alignItems: "stretch" }}>
-                      <input
-                        type="text"
-                        placeholder={
-                          language === "hi"
-                            ? "हाथ से नया निदान लिखें (उदा. डायरिया, उल्टी) और Enter दबाएँ..."
-                            : "Write finding by hand (e.g. Diarrhea, Vomiting) & press Enter or click Add..."
-                        }
-                        value={rxCustomFinding}
-                        onChange={(e) => setRxCustomFinding(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === ",") {
-                            e.preventDefault();
-                            handleAddCustomFinding();
-                          }
-                        }}
-                        style={{
-                          flex: 1,
-                          padding: "10px 14px",
-                          borderRadius: "10px",
-                          border: isDark ? "1.5px solid #334155" : "1.5px solid #CBD5E1",
-                          fontSize: "13px",
-                          outline: "none",
-                          boxSizing: "border-box",
-                          background: isDark ? "#0F172A" : "#FFFFFF",
-                          color: isDark ? "#F8FAFC" : "#0F172A",
-                        }}
-                      />
-                      <button
-                        type="button"
-                        onClick={handleAddCustomFinding}
-                        disabled={!rxCustomFinding.trim()}
-                        style={{
-                          padding: "10px 16px",
-                          borderRadius: "10px",
-                          background: rxCustomFinding.trim() ? "#0284C7" : (isDark ? "#334155" : "#E2E8F0"),
-                          color: rxCustomFinding.trim() ? "#FFFFFF" : (isDark ? "#64748B" : "#94A3B8"),
-                          border: "none",
-                          fontWeight: 700,
-                          fontSize: "12.5px",
-                          cursor: rxCustomFinding.trim() ? "pointer" : "not-allowed",
-                          whiteSpace: "nowrap",
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "6px",
-                          transition: "all 0.15s ease",
-                          boxShadow: rxCustomFinding.trim() ? "0 2px 6px rgba(2, 132, 199, 0.3)" : "none",
-                        }}
-                      >
-                        <span style={{ fontSize: "14px", fontWeight: 900 }}>+</span>
-                        <span>{language === "hi" ? "निदान जोड़ें" : "Add Finding"}</span>
-                      </button>
-                    </div>
-
-                    {/* Quick Diagnosis Suggestions with Multi-Select Toggle */}
-                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "4px" }}>
-                      {[
-                        "Viral Fever / Flu",
-                        "Acute Pharyngitis",
-                        "Hypertension",
-                        "GERD / Gastritis",
-                        "Type 2 Diabetes",
-                        "Bronchitis / Cough",
-                        "Migraine / Headache",
-                        "Routine Checkup",
-                      ].map((quick) => {
-                        const isSelected = currentFindings.some((f) => f.toLowerCase() === quick.toLowerCase());
-                        return (
-                          <button
-                            key={quick}
-                            type="button"
-                            onClick={() => handleToggleFinding(quick)}
-                            style={{
-                              fontSize: "11.5px",
-                              padding: "4px 10px",
-                              borderRadius: "8px",
-                              fontWeight: isSelected ? 800 : 600,
-                              background: isSelected
-                                ? (isDark ? "rgba(2, 132, 199, 0.3)" : "#0284C7")
-                                : (isDark ? "#1E293B" : "#F1F5F9"),
-                              border: isSelected
-                                ? (isDark ? "1.5px solid #38BDF8" : "1.5px solid #0284C7")
-                                : (isDark ? "1px solid #334155" : "1px solid #CBD5E1"),
-                              color: isSelected
-                                ? "#FFFFFF"
-                                : (isDark ? "#CBD5E1" : "#475569"),
-                              cursor: "pointer",
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: "5px",
-                              transition: "all 0.15s ease",
-                            }}
-                            title={isSelected ? "Click to remove finding" : "Click to add finding"}
-                          >
-                            <span>{isSelected ? "✓" : "+"}</span>
-                            <span>{quick}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* 2. Prescribed Medications Table */}
-              <div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                  <label style={{ fontSize: "12.5px", fontWeight: 800, color: "#0F172A", display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                    <IconPill size={15} color="#0284C7" />
-                    {language === "hi" ? "दवाएं एवं खुराक (Prescribed Medications)" : "Prescribed Medicines & Dosage"}
-                  </label>
-                  <button
-                    type="button"
-                    onClick={handleAddMedicineRow}
-                    style={{ fontSize: "11.5px", fontWeight: 800, color: "#0284C7", background: "#F0F9FF", border: "1px solid #BAE6FD", padding: "4px 10px", borderRadius: "8px", cursor: "pointer" }}
-                  >
-                    + {language === "hi" ? "दवा जोड़ें" : "Add Medicine"}
-                  </button>
-                </div>
-
-                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                  {rxMedicines.map((med, idx) => (
-                    <div
-                      key={idx}
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "1.8fr 1fr 1.2fr 1fr 1.2fr auto",
-                        gap: "8px",
-                        alignItems: "center",
-                        padding: "10px",
-                        background: isDark ? "#1E293B" : "#F8FAFC",
-                        borderRadius: "10px",
-                        border: isDark ? "1px solid #334155" : "1px solid #E2E8F0",
-                      }}
-                    >
-                      <div>
-                        <span style={{ fontSize: "10px", color: "#64748B", display: "block", fontWeight: 700 }}>Medicine Name</span>
-                        <input
-                          type="text"
-                          placeholder="e.g. Paracetamol"
-                          value={med.name}
-                          onChange={(e) => handleMedicineChange(idx, "name", e.target.value)}
-                          style={{ width: "100%", padding: "7px 10px", borderRadius: "8px", border: "1px solid #CBD5E1", fontSize: "12.5px", boxSizing: "border-box" }}
-                        />
-                      </div>
-                      <div>
-                        <span style={{ fontSize: "10px", color: "#64748B", display: "block", fontWeight: 700 }}>Dosage</span>
-                        <input
-                          type="text"
-                          placeholder="500mg"
-                          value={med.dosage}
-                          onChange={(e) => handleMedicineChange(idx, "dosage", e.target.value)}
-                          style={{ width: "100%", padding: "7px 10px", borderRadius: "8px", border: "1px solid #CBD5E1", fontSize: "12.5px", boxSizing: "border-box" }}
-                        />
-                      </div>
-                      <div>
-                        <span style={{ fontSize: "10px", color: "#64748B", display: "block", fontWeight: 700 }}>Frequency</span>
-                        <select
-                          value={med.frequency}
-                          onChange={(e) => handleMedicineChange(idx, "frequency", e.target.value)}
-                          style={{ width: "100%", padding: "7px 8px", borderRadius: "8px", border: "1px solid #CBD5E1", fontSize: "12px", background: "#FFF", boxSizing: "border-box" }}
-                        >
-                          <option value="1-0-1">1-0-1 (Twice daily)</option>
-                          <option value="1-0-0">1-0-0 (Morning)</option>
-                          <option value="0-0-1">0-0-1 (Night)</option>
-                          <option value="1-1-1">1-1-1 (Thrice daily)</option>
-                          <option value="SOS">SOS (As needed)</option>
-                          <option value="Once weekly">Once weekly</option>
-                        </select>
-                      </div>
-                      <div>
-                        <span style={{ fontSize: "10px", color: "#64748B", display: "block", fontWeight: 700 }}>Duration</span>
-                        <input
-                          type="text"
-                          placeholder="5 days"
-                          value={med.duration}
-                          onChange={(e) => handleMedicineChange(idx, "duration", e.target.value)}
-                          style={{ width: "100%", padding: "7px 10px", borderRadius: "8px", border: "1px solid #CBD5E1", fontSize: "12.5px", boxSizing: "border-box" }}
-                        />
-                      </div>
-                      <div>
-                        <span style={{ fontSize: "10px", color: "#64748B", display: "block", fontWeight: 700 }}>Instructions</span>
-                        <select
-                          value={med.instructions}
-                          onChange={(e) => handleMedicineChange(idx, "instructions", e.target.value)}
-                          style={{ width: "100%", padding: "7px 8px", borderRadius: "8px", border: "1px solid #CBD5E1", fontSize: "12px", background: "#FFF", boxSizing: "border-box" }}
-                        >
-                          <option value="After food">After food</option>
-                          <option value="Before food">Before food</option>
-                          <option value="Empty stomach">Empty stomach</option>
-                          <option value="Bedtime">Bedtime</option>
-                        </select>
-                      </div>
-                      <div style={{ paddingTop: "14px" }}>
-                        {rxMedicines.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveMedicineRow(idx)}
-                            style={{ background: "#FEE2E2", border: "none", color: "#DC2626", width: "28px", height: "28px", borderRadius: "6px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
-                            title="Remove Medicine"
-                          >
-                            ✕
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* 3. Lab Tests & Diagnostics */}
-              <div>
-                <label style={{ display: "block", fontSize: "12.5px", fontWeight: 800, color: "#0F172A", marginBottom: "6px" }}>
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                    <IconLab size={15} color="#0284C7" />
-                    {language === "hi" ? "जांच निर्देश / टेस्ट (Lab Investigations)" : "Diagnostic Tests & Lab Orders (Optional)"}
-                  </span>
-                </label>
-                <input
-                  type="text"
-                  placeholder={language === "hi" ? "उदा. सीबीसी, लिपिड प्रोफाइल, सीने का एक्स-रे, यूरिन रूटीन..." : "e.g. CBC, Serum Creatinine, Fasting Lipid Panel, Chest X-Ray PA View..."}
-                  value={rxLabTests}
-                  onChange={(e) => setRxLabTests(e.target.value)}
-                  style={{ width: "100%", padding: "9px 12px", borderRadius: "10px", border: "1px solid #CBD5E1", fontSize: "13px", outline: "none", boxSizing: "border-box" }}
-                />
-              </div>
-
-              {/* 4. Clinical Advice / Instructions */}
-              <div>
-                <label style={{ display: "block", fontSize: "12.5px", fontWeight: 800, color: "#0F172A", marginBottom: "6px" }}>
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                    <IconClipboard size={15} color="#0284C7" />
-                    {language === "hi" ? "चिकित्सकीय सलाह एवं परहेज (Diet & Lifestyle Advice)" : "Doctor Advice & Dietary Guidelines"}
-                  </span>
-                </label>
-                <textarea
-                  rows={2}
-                  placeholder={language === "hi" ? "उदा. पर्याप्त गर्म पानी पिएं, नमक कम खाएं, भारी काम से बचें..." : "e.g. Hydrate well, low-sodium diet, warm saline gargle 3 times daily, avoid heavy exertion..."}
-                  value={rxAdvice}
-                  onChange={(e) => setRxAdvice(e.target.value)}
-                  style={{ width: "100%", padding: "9px 12px", borderRadius: "10px", border: "1px solid #CBD5E1", fontSize: "13px", outline: "none", resize: "vertical", boxSizing: "border-box" }}
-                />
-              </div>
-
-              {/* 5. Follow-Up Schedule */}
-              <div>
-                <label style={{ display: "block", fontSize: "12.5px", fontWeight: 800, color: "#0F172A", marginBottom: "6px" }}>
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                    <IconCalendar size={15} color="#0284C7" />
-                    {language === "hi" ? "पुनः परामर्श / फॉलो-अप (Follow-Up Advice)" : "Follow-Up Consultation"}
-                  </span>
-                </label>
-                <input
-                  type="text"
-                  placeholder={language === "hi" ? "उदा. 5 दिन बाद जांच रिपोर्ट के साथ आएं" : "e.g. Review after 5 days with lab reports, or SOS if fever spikes"}
-                  value={rxFollowUp}
-                  onChange={(e) => setRxFollowUp(e.target.value)}
-                  style={{ width: "100%", padding: "9px 12px", borderRadius: "10px", border: "1px solid #CBD5E1", fontSize: "13px", outline: "none", boxSizing: "border-box" }}
-                />
-              </div>
-
-              {/* 6. Patient Next Destination / Care Routing */}
-              <div style={{
-                background: isDark ? "#1E293B" : "#F8FAFC",
-                border: isDark ? "1.5px solid #334155" : "1.5px solid #E2E8F0",
-                borderRadius: "12px",
-                padding: "14px 16px",
-              }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px", flexWrap: "wrap", gap: "6px" }}>
-                  <label style={{ fontSize: "12.5px", fontWeight: 800, color: isDark ? "#F8FAFC" : "#0F172A", display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                    <IconHospital size={15} color="#0284C7" />
-                    {language === "hi" ? "मरीज़ का अगला गंतव्य / विभाग रेफरल" : "Next Destination / Care Routing"}
-                  </label>
-                  <span style={{ fontSize: "11px", color: isDark ? "#94A3B8" : "#64748B", fontWeight: 600 }}>
-                    {language === "hi" ? "परामर्श उपरांत मरीज़ हेतु विभाग चुनें" : "Select target department for patient routing"}
-                  </span>
-                </div>
-
-                <div>
-                  <select
-                    value={rxRoutingDept}
-                    onChange={(e) => setRxRoutingDept(e.target.value)}
-                    style={{
-                      width: "100%",
-                      padding: "10px 14px",
-                      borderRadius: "10px",
-                      border: "1.5px solid #CBD5E1",
-                      fontSize: "13px",
-                      fontWeight: 700,
-                      outline: "none",
-                      background: isDark ? "#0F172A" : "#FFFFFF",
-                      color: isDark ? "#F8FAFC" : "#0F172A",
-                      boxSizing: "border-box",
-                      cursor: "pointer",
-                    }}
-                  >
-                    <option value="none">
-                      🏥 {language === "hi" ? "सीधे छुट्टी / परामर्श पूर्ण (Direct Discharge)" : "Direct Discharge / None (Complete Consultation)"}
-                    </option>
-                    <option value="pharmacy">
-                      💊 {language === "hi" ? "फार्मेसी (दवा वितरण काउंटर)" : "Pharmacy (Medication Dispensing)"}
-                    </option>
-                    <option value="pathology">
-                      🧪 {language === "hi" ? "पैथोलॉजी लैब (रक्त व नमूना जांच)" : "Pathology Lab (Blood & Specimen Lab)"}
-                    </option>
-                    <option value="radiology">
-                      🩻 {language === "hi" ? "रेडियोलॉजी (एक्स-रे, सीटी, एमआरआई)" : "Radiology (X-Ray & MRI Imaging)"}
-                    </option>
-                    {hospitalDepartments && hospitalDepartments.length > 0 ? (
-                      hospitalDepartments
-                        .filter((d) => !["pharmacy", "pathology", "radiology"].includes(d.dept_code))
-                        .map((d) => (
-                          <option key={d.dept_code} value={d.dept_code}>
-                            🩺 {d.name || getCategoryLabel(d.dept_code, language)}
-                          </option>
-                        ))
-                    ) : (
-                      <>
-                        <option value="cardiology">🩺 Cardiology OPD</option>
-                        <option value="orthopedics">🩺 Orthopedics / Fracture Clinic</option>
-                        <option value="pulmonology">🩺 Pulmonology & Respiratory</option>
-                        <option value="pediatrics">🩺 Pediatrics OPD</option>
-                        <option value="gynecology">🩺 Gynecology & Obstetrics</option>
-                        <option value="dermatology">🩺 Dermatology Clinic</option>
-                        <option value="consultation">🩺 General Consultation Follow-Up</option>
-                      </>
-                    )}
-                  </select>
-                </div>
-
-                {/* Handover / Transfer Prescription & Description */}
-                {rxRoutingDept && rxRoutingDept !== "none" && (
-                  <div style={{ marginTop: "12px" }}>
-                    <label style={{ display: "block", fontSize: "12px", fontWeight: 700, color: isDark ? "#E2E8F0" : "#334155", marginBottom: "6px" }}>
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                        <IconClipboard size={14} color="#0284C7" />
-                        {language === "hi"
-                          ? `हस्तांतरित विभाग हेतु निर्देश / पर्ची विवरण (${getCategoryLabel(rxRoutingDept, language)}):`
-                          : `Prescription / Description for Transferred Department (${getCategoryLabel(rxRoutingDept, language)}):`}
-                      </span>
-                    </label>
-                    <textarea
-                      rows={3}
-                      placeholder={
-                        language === "hi"
-                          ? "हस्तांतरित विभाग के कर्मचारियों हेतु निर्देश, दवा वितरण नोट्स या आवश्यक जांच विवरण लिखें..."
-                          : "Enter clinical instructions, medicine dispensing notes, or specific testing requirements for the receiving department..."
-                      }
-                      value={rxTransferNotes}
-                      onChange={(e) => setRxTransferNotes(e.target.value)}
-                      style={{
-                        width: "100%",
-                        padding: "10px 12px",
-                        borderRadius: "10px",
-                        border: "1.5px solid #CBD5E1",
-                        fontSize: "12.5px",
-                        outline: "none",
-                        resize: "vertical",
-                        boxSizing: "border-box",
-                        background: isDark ? "#0F172A" : "#FFFFFF",
-                        color: isDark ? "#F8FAFC" : "#0F172A",
-                      }}
-                    />
-                  </div>
-                )}
-              </div>
-
-              {/* Status feedback message */}
-              {rxStatusMsg && (
-                <div style={{ padding: "10px 14px", borderRadius: "8px", background: rxStatusMsg.includes("✓") ? "#F0FDF4" : "#F0F9FF", border: rxStatusMsg.includes("✓") ? "1px solid #86EFAC" : "1px solid #BAE6FD", color: rxStatusMsg.includes("✓") ? "#166534" : "#0369A1", fontSize: "12.5px", fontWeight: 700, textAlign: "center" }}>
-                  {rxStatusMsg}
-                </div>
-              )}
-
-              {/* Action Buttons */}
-              <div style={{ display: "flex", gap: "10px", marginTop: "10px", flexWrap: "wrap", alignItems: "center" }}>
-                <button
-                  type="button"
-                  onClick={handleClosePrescriptionModal}
-                  style={{ flex: 1, minWidth: "120px", padding: "11px 16px", borderRadius: "10px", border: isDark ? "1px solid #334155" : "1px solid #CBD5E1", background: isDark ? "#1E293B" : "#F8FAFC", color: isDark ? "#94A3B8" : "#64748B", fontWeight: 700, fontSize: "13px", cursor: "pointer" }}
-                >
-                  {t("cancelBtn", language)}
-                </button>
-
-                <button
-                  type="button"
-                  disabled={rxSaving}
-                  onClick={() => handleSavePrescription(true)}
-                  style={{
-                    flex: 2,
-                    padding: "11px 18px",
-                    borderRadius: "10px",
-                    border: "none",
-                    background: rxRoutingDept && rxRoutingDept !== "none"
-                      ? "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)"
-                      : "linear-gradient(135deg, #059669 0%, #047857 100%)",
-                    color: "#FFFFFF",
-                    fontWeight: 900,
-                    fontSize: "13px",
-                    cursor: rxSaving ? "wait" : "pointer",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: "7px",
-                    boxShadow: rxRoutingDept && rxRoutingDept !== "none"
-                      ? "0 4px 14px rgba(2, 132, 199, 0.3)"
-                      : "0 4px 14px rgba(5, 150, 105, 0.3)",
-                    transition: "all 0.2s ease",
-                  }}
-                >
-                  <span>✓</span>
-                  <span>
-                    {rxRoutingDept && rxRoutingDept !== "none"
-                      ? (language === "hi"
-                          ? `सहेजें एवं ${getCategoryLabel(rxRoutingDept, language)} में भेजें ➔`
-                          : `Save Rx & Route to ${getCategoryLabel(rxRoutingDept, language)} ➔`)
-                      : (language === "hi"
-                          ? "सहेजें एवं परामर्श पूर्ण करें"
-                          : "Save Rx & Complete Visit")}
-                  </span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+      {/* 4b. DOCTOR E-PRESCRIPTION (Rx) CLINICAL FLOATING MODAL (When rxViewMode === 'modal') */}
+      {showPrescriptionModal && prescriptionTicket && rxViewMode === "modal" && (
+        <ClinicalPrescriptionWorkstation
+          ticket={prescriptionTicket}
+          currentUser={currentUser}
+          language={language}
+          isDark={isDark}
+          localBranding={localBranding}
+          hospitalDepartments={hospitalDepartments}
+          rxViewMode="modal"
+          onToggleViewMode={() => setRxViewMode("page")}
+          onClose={handleClosePrescriptionModal}
+          onSave={handleSavePrescription}
+          onPrint={handlePrintCurrentModalRx}
+          rxDiagnosis={rxDiagnosis}
+          setRxDiagnosis={setRxDiagnosis}
+          rxCustomFinding={rxCustomFinding}
+          setRxCustomFinding={setRxCustomFinding}
+          rxMedicines={rxMedicines}
+          setRxMedicines={setRxMedicines}
+          handleAddMedicineRow={handleAddMedicineRow}
+          handleRemoveMedicineRow={handleRemoveMedicineRow}
+          handleMedicineChange={handleMedicineChange}
+          rxLabTests={rxLabTests}
+          setRxLabTests={setRxLabTests}
+          rxCustomLabTest={rxCustomLabTest}
+          setRxCustomLabTest={setRxCustomLabTest}
+          rxAdvice={rxAdvice}
+          setRxAdvice={setRxAdvice}
+          rxFollowUp={rxFollowUp}
+          setRxFollowUp={setRxFollowUp}
+          rxRoutingDept={rxRoutingDept}
+          setRxRoutingDept={setRxRoutingDept}
+          rxTransferNotes={rxTransferNotes}
+          setRxTransferNotes={setRxTransferNotes}
+          rxSaving={rxSaving}
+          rxStatusMsg={rxStatusMsg}
+          rxAutoSaveStatus={rxAutoSaveStatus}
+          rxLastSavedAt={rxLastSavedAt}
+          rxPreFillWarning={rxPreFillWarning}
+          patient={servingPatient}
+          summary={servingPatientSummary}
+          visits={servingPatientVisits}
+          prescriptions={servingPatientPrescriptions}
+          reports={servingPatientReports}
+          isReturningPatient={isServingPatientReturning}
+          totalVisits={servingPatientTotalVisits}
+          historyLoading={servingHistoryLoading}
+          onUsePreviousPrescription={handleUsePreviousPrescription}
+        />
       )}
 
       {/* 5. DOCTOR END-OF-DAY SHIFT SUMMARY & ANALYTICS MODAL */}

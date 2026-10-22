@@ -93,20 +93,22 @@ export default function PatientHistoryTimeline({
           borderBottom: isOpen ? "1px solid var(--patient-card-border, #E2E8F0)" : "none",
           borderRadius: isOpen ? "14px 14px 0 0" : "14px",
           userSelect: "none",
+          gap: "12px",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px", minWidth: 0, flex: 1 }}>
           <div style={{
-            width: "32px",
-            height: "32px",
-            borderRadius: "8px",
-            background: "var(--patient-tag-bg, #E0F2FE)",
+            width: "36px",
+            height: "36px",
+            borderRadius: "10px",
+            background: "linear-gradient(135deg, rgba(2, 132, 199, 0.12) 0%, rgba(2, 132, 199, 0.22) 100%)",
+            border: "1px solid rgba(56, 189, 248, 0.3)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             flexShrink: 0,
           }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0284C7" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0284C7" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
               <polyline points="14 2 14 8 20 8" />
               <line x1="16" y1="13" x2="8" y2="13" />
@@ -114,39 +116,55 @@ export default function PatientHistoryTimeline({
               <line x1="10" y1="9" x2="8" y2="9" />
             </svg>
           </div>
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <span style={{ fontWeight: 800, fontSize: "14px", color: "var(--patient-text-main, #0F172A)" }}>
-                {isHi ? "📋 मरीज़ मेडिकल इतिहास एवं पूर्व रिपोर्ट" : "📋 Patient Medical History & Past Reports"}
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+              <span style={{ fontWeight: 800, fontSize: "14px", color: "var(--patient-text-main, #0F172A)", letterSpacing: "-0.2px" }}>
+                {isHi ? "मरीज़ मेडिकल इतिहास एवं पूर्व रिकॉर्ड" : "Patient Medical History & Records"}
               </span>
               {totalVisits > 1 && (
                 <span style={{
-                  background: "var(--patient-tag-bg, #E0F2FE)",
-                  color: "var(--patient-tag-color, #0284C7)",
+                  background: "rgba(2, 132, 199, 0.12)",
+                  color: "#0284C7",
                   fontSize: "11px",
                   fontWeight: 800,
-                  padding: "2px 8px",
+                  padding: "2px 9px",
                   borderRadius: "9999px",
-                  border: "1px solid var(--patient-tag-border, #BAE6FD)",
+                  border: "1px solid rgba(56, 189, 248, 0.35)",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  whiteSpace: "nowrap",
+                  flexShrink: 0,
                 }}>
-                  {isHi ? `🔄 ${totalVisits} विज़िट्स` : `🔄 ${totalVisits} Past Visits`}
+                  <span style={{ fontSize: "11px" }}>🔄</span>
+                  <span>{isHi ? `${totalVisits} विज़िट्स` : `${totalVisits} Past Visits`}</span>
                 </span>
               )}
             </div>
-            <div style={{ fontSize: "11px", color: "var(--patient-text-sub, #64748B)" }}>
+            <div style={{ fontSize: "11px", color: "var(--patient-text-sub, #64748B)", marginTop: "2px", lineHeight: 1.3 }}>
               {isHi
-                ? "पूर्व परामर्श, दवाइयां, नैदानिक जांच और फॉलो-अप रिकॉर्ड"
-                : "Chronological clinical encounters, diagnoses, e-prescriptions & test reports"}
+                ? "पूर्व परामर्श, प्रिस्क्रिप्शन एवं नैदानिक रिपोर्ट"
+                : "Past clinical visits, e-prescriptions & diagnostic reports"}
             </div>
           </div>
         </div>
 
         {collapsible && (
-          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "5px",
+            padding: "4px 10px",
+            borderRadius: "8px",
+            background: isOpen ? "rgba(2, 132, 199, 0.1)" : "transparent",
+            border: isOpen ? "1px solid rgba(2, 132, 199, 0.2)" : "1px solid transparent",
+            flexShrink: 0,
+            transition: "all 0.15s ease",
+          }}>
             <span style={{ fontSize: "12px", color: "#0284C7", fontWeight: 700 }}>
               {isOpen ? (isHi ? "छिपाएं" : "Collapse") : (isHi ? "देखें" : "Expand")}
             </span>
-            <span style={{ fontSize: "12px", color: "var(--patient-text-sub, #64748B)" }}>{isOpen ? "▲" : "▼"}</span>
+            <span style={{ fontSize: "10px", color: "#0284C7" }}>{isOpen ? "▲" : "▼"}</span>
           </div>
         )}
       </div>

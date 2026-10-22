@@ -1369,3 +1369,125 @@ export function printPrescriptionSlip(rawRxData, lang = "en", branding = null) {
 
   triggerIframePrint(html);
 }
+
+/**
+ * Generates an official pharmacy medication packet / envelope label slip.
+ * Printable sticker label format for walk-in and dispensed medicine pouches.
+ */
+export function printDispensingLabelSlip(dispenseData = {}, language = "en", hospitalBranding = null) {
+  const isHi = language === "hi";
+  const hospName = hospitalBranding?.hospital_name || hospitalBranding?.name || dispenseData.hospital_name || "City General Hospital";
+  const brandColor = hospitalBranding?.primary_color || "#0284C7";
+  const tokenNumber = dispenseData.ticket_id || dispenseData.token_id || "T-001";
+  const patientName = dispenseData.patient_name || dispenseData.name || "Patient";
+  const age = dispenseData.age || 30;
+  const gender = dispenseData.gender || "Other";
+  const doctorName = dispenseData.doctor_name || "Attending Physician";
+  const pharmacistName = dispenseData.pharmacist_name || "Licensed Pharmacist";
+  const counterNumber = dispenseData.counter || "Counter 1";
+  const medicines = Array.isArray(dispenseData.medicines) ? dispenseData.medicines : [];
+  const now = new Date();
+  const dateStr = now.toLocaleDateString(isHi ? "hi-IN" : "en-US", { year: "numeric", month: "short", day: "numeric" });
+  const timeStr = now.toLocaleTimeString(isHi ? "hi-IN" : "en-US", { hour: "2-digit", minute: "2-digit" });
+
+  const medRows = medicines.map((med, idx) => {
+    const qty = med.quantity || (med.dosage && med.duration ? `${med.frequency || "1-0-1"} (${med.duration || "5d"})` : "1 Pack");
+    const inst = med.instructions || (isHi ? "भोजन के बाद लें" : "After food");
+    return `
+      <tr style="border-bottom: 1px dashed #cbd5e1;">
+        <td style="padding: 6px 8px; font-weight: 800; font-size: 12px; color: #0f172a;">
+          ${idx + 1}. ${med.name || "Medicine"} ${med.dosage ? `<span style="font-size: 11px; color: #0284c7;">(${med.dosage})</span>` : ""}
+          <div style="font-size: 10px; color: #475569; font-weight: 600; margin-top: 2px;">
+            ${med.frequency || "1-0-1"} • ${inst}
+          </div>
+        </td>
+        <td style="padding: 6px 8px; font-size: 11px; text-align: center; font-weight: 700; color: #334155;">
+          ${med.duration || "5 days"}
+        </td>
+        <td style="padding: 6px 8px; font-size: 11.5px; text-align: right; font-weight: 800; color: #059669;">
+          ${med.calculated_qty || qty || "As Advised"}
+        </td>
+      </tr>
+    `;
+  }).join("");
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Rx Dispense Label - #${tokenNumber}</title>
+  <style>
+    @page { size: 100mm 150mm; margin: 4mm; }
+    body {
+      font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+      margin: 0; padding: 12px; color: #0f172a; background: #ffffff;
+      max-width: 96mm; font-size: 11.5px; line-height: 1.35;
+    }
+    .header { text-align: center; border-bottom: 2px solid ${brandColor}; padding-bottom: 8px; margin-bottom: 8px; }
+    .badge { display: inline-block; background: #e0f2fe; color: #0369a1; padding: 2px 8px; border-radius: 4px; font-size: 9.5px; font-weight: 800; text-transform: uppercase; margin-top: 3px; }
+    .patient-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+    .med-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+    .med-table th { background: #f1f5f9; padding: 5px 8px; text-align: left; font-size: 10.5px; color: #475569; font-weight: 800; text-transform: uppercase; border-bottom: 1px solid #cbd5e1; }
+    .caution { background: #fffbeb; border: 1px solid #fef3c7; border-radius: 6px; padding: 6px 8px; font-size: 9.5px; color: #92400e; margin-bottom: 10px; line-height: 1.3; }
+    .footer { display: flex; justify-content: space-between; align-items: flex-end; border-top: 1px solid #e2e8f0; padding-top: 8px; font-size: 9.5px; color: #64748b; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div style="font-size: 14.5px; font-weight: 900; color: #0f172a; text-transform: uppercase; letter-spacing: -0.2px;">
+      ${hospName}
+    </div>
+    <div style="font-size: 10.5px; font-weight: 700; color: ${brandColor}; margin-top: 1px;">
+      ${isHi ? "अस्पताल फार्मेसी एवं दवा वितरण केंद्र" : "CENTRAL CLINICAL PHARMACY & DISPENSARY"}
+    </div>
+    <span class="badge">${isHi ? "दवा वितरण पैकेट लेबल" : "MEDICINE ENVELOPE LABEL"} • ${counterNumber}</span>
+  </div>
+
+  <div class="patient-box">
+    <div>
+      <div style="font-size: 13.5px; font-weight: 900; color: #0f172a;">${patientName}</div>
+      <div style="font-size: 10.5px; color: #64748b; margin-top: 1px;">
+        ${age}y / ${gender} • Dr. ${doctorName.replace(/^Dr\.?\s*/i, "")}
+      </div>
+    </div>
+    <div style="text-align: right;">
+      <div style="font-size: 15px; font-weight: 900; color: ${brandColor}; font-family: monospace;">#${tokenNumber}</div>
+      <div style="font-size: 9.5px; color: #64748b;">${dateStr} ${timeStr}</div>
+    </div>
+  </div>
+
+  <table class="med-table">
+    <thead>
+      <tr>
+        <th>${isHi ? "दवा / निर्देश" : "Medicine / Directions"}</th>
+        <th style="text-align: center;">${isHi ? "अवधि" : "Dur."}</th>
+        <th style="text-align: right;">${isHi ? "मात्रा" : "Qty"}</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${medRows || `<tr><td colspan="3" style="text-align: center; padding: 12px; color: #94a3b8;">${isHi ? "कोई दवा विवरण नहीं" : "No specific medicines listed"}</td></tr>`}
+    </tbody>
+  </table>
+
+  <div class="caution">
+    ⚠️ <strong>${isHi ? "सावधानी / महत्वपूर्ण निर्देश" : "Advisory & Storage Directions"}:</strong><br/>
+    • ${isHi ? "दवाओं को बच्चों की पहुंच से दूर रखें और ठंडी सूखी जगह पर रखें।" : "Keep all medicines out of reach of children. Store below 25°C."}<br/>
+    • ${isHi ? "डॉक्टर द्वारा निर्धारित पूरी अवधि का कोर्स समाप्त करें।" : "Complete the full prescribed course. Do not stop midway."}
+  </div>
+
+  <div class="footer">
+    <div>
+      <div><strong>${isHi ? "वितरितकर्ता" : "Dispensed By"}:</strong> ${pharmacistName}</div>
+      <div>${isHi ? "प्रमाणीकरण" : "Verification"}: ✓ Registered Pharmacist</div>
+    </div>
+    <div style="text-align: right;">
+      <div style="font-weight: 800; color: #059669;">✓ DISPENSED & VERIFIED</div>
+      <div style="font-size: 8.5px; color: #94a3b8;">Hospital Pharmacy System</div>
+    </div>
+  </div>
+</body>
+</html>`;
+
+  triggerIframePrint(html);
+}
+

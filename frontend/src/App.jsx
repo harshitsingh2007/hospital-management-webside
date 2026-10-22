@@ -25,6 +25,7 @@ import MLAdminPage from "./pages/MLAdminPage";
 import DatabaseInspectorPage from "./pages/DatabaseInspectorPage";
 import KioskPage from "./pages/KioskPage";
 import SuperAdminPage from "./pages/SuperAdminPage";
+import PharmacyPage from "./pages/PharmacyPage";
 
 import { announceTicketVoice } from "./utils/voiceSynthesizer";
 import { updateBrowserTabBrand } from "./utils/dynamicFavicon";
@@ -38,9 +39,11 @@ export function getInitialPage(user) {
     } catch (e) {}
   }
   const userRole = effectiveUser ? (effectiveUser.role || "").toLowerCase() : "";
+  const userDept = (effectiveUser?.department || effectiveUser?.primary_department || "").toLowerCase().trim();
   const isSuperAdminUser = userRole === "super_admin" || userRole === "superadmin" || effectiveUser?.email === "superadmin@hospital.com" || effectiveUser?.is_superadmin;
-  const isDoctorUser = userRole === "doctor" || userRole === "physician";
-  const isStaffUser = ["staff", "receptionist", "nurse"].includes(userRole);
+  const isPharmacistUser = ["pharmacist", "pharmacy"].includes(userRole) || (["staff", "admin"].includes(userRole) && userDept === "pharmacy");
+  const isDoctorUser = (userRole === "doctor" || userRole === "physician") && !isPharmacistUser;
+  const isStaffUser = ["staff", "receptionist", "nurse"].includes(userRole) && !isPharmacistUser;
   const path = window.location.pathname.toLowerCase();
   if (path.startsWith("/kiosk") || path.includes("kiosk") || path.includes("tv")) return "kiosk";
 
@@ -50,6 +53,7 @@ export function getInitialPage(user) {
     const p = pageParam.toLowerCase();
     if (p === "kiosk" || p === "tv") return "kiosk";
     if (["superadmin", "super_admin", "super-admin", "owner"].includes(p)) return "superadmin";
+    if (["pharmacy", "pharma", "dispense", "dispensary"].includes(p)) return "pharmacy";
     if (["doctor"].includes(p)) {
       if (isStaffUser && !isDoctorUser) return "staff";
       return "doctor";
@@ -63,6 +67,7 @@ export function getInitialPage(user) {
     // Tab aliases for the patient portal should route to patient page
     if (["patient", "history", "appointment_history", "past_appointments", "my_apts", "appointments", "my_appointments", "book", "family"].includes(p)) {
       if (isSuperAdminUser) return "superadmin";
+      if (isPharmacistUser) return "pharmacy";
       if (isDoctorUser) return "doctor";
       if (isStaffUser) return "staff";
       return "patient";
@@ -71,6 +76,7 @@ export function getInitialPage(user) {
   }
 
   if (path.includes("superadmin") || path.includes("super_admin") || path.includes("super-admin")) return "superadmin";
+  if (path.includes("pharmacy") || path.includes("pharma")) return "pharmacy";
   if (path.includes("doctor")) {
     if (isStaffUser && !isDoctorUser) return "staff";
     return "doctor";
@@ -83,12 +89,14 @@ export function getInitialPage(user) {
   if (path.includes("db") || path.includes("database")) return "db";
   if (path.includes("patient") || path.includes("history") || path.includes("appointment")) {
     if (isSuperAdminUser) return "superadmin";
+    if (isPharmacistUser) return "pharmacy";
     if (isDoctorUser) return "doctor";
     if (isStaffUser) return "staff";
     return "patient";
   }
 
   if (isSuperAdminUser) return "superadmin";
+  if (isPharmacistUser) return "pharmacy";
   if (isDoctorUser) return "doctor";
   if (isStaffUser) return "staff";
 
@@ -184,7 +192,7 @@ export default function App() {
     try {
       localStorage.setItem("ai_queue_theme", theme);
       document.documentElement.setAttribute("data-theme", theme);
-      if (theme === "dark" && (activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "doctor" || activePage === "admin")) {
+      if (theme === "dark" && (activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "doctor" || activePage === "pharmacy" || activePage === "admin")) {
         document.body.classList.add("theme-dark");
         document.body.style.backgroundColor = "#090D16";
         document.body.style.color = "#F1F5F9";
@@ -330,6 +338,8 @@ export default function App() {
     const lower = (page || "").toLowerCase();
     if (["superadmin", "super_admin", "super-admin", "owner"].includes(lower)) {
       targetPage = "superadmin";
+    } else if (["pharmacy", "pharma", "dispense", "dispensary"].includes(lower)) {
+      targetPage = "pharmacy";
     } else if (["doctor", "doc"].includes(lower)) {
       targetPage = "doctor";
     } else if (["staff", "reception", "desk"].includes(lower)) {
@@ -403,17 +413,20 @@ export default function App() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, [currentUser]);
 
-  // Auto-redirect privileged roles away from incorrect pages
+  // Auto-redirect privileged roles away from patient portal on initial load
   useEffect(() => {
     if (currentUser) {
       const r = (currentUser.role || "").toLowerCase();
+      const userDept = (currentUser.department || currentUser.primary_department || "").toLowerCase().trim();
+      const isPharmacist = ["pharmacist", "pharmacy"].includes(r) || userDept === "pharmacy";
+
       if ((r === "super_admin" || r === "superadmin") && activePage === "patient") {
         navigateTo("superadmin");
-      } else if ((r === "doctor" || r === "physician") && (activePage === "patient" || activePage === "staff")) {
-        // Logged-in doctor should immediately be on doctor consultation desk
+      } else if (r === "pharmacist" && activePage === "patient") {
+        navigateTo("pharmacy");
+      } else if ((r === "doctor" || r === "physician") && activePage === "patient") {
         navigateTo("doctor");
-      } else if (["staff", "receptionist", "nurse"].includes(r) && (activePage === "patient" || activePage === "doctor")) {
-        // Logged-in staff/receptionist should immediately be on staff reception desk
+      } else if (["staff", "receptionist", "nurse"].includes(r) && activePage === "patient") {
         navigateTo("staff");
       } else if (["admin"].includes(r) && activePage === "patient") {
         navigateTo("doctor");
@@ -951,9 +964,12 @@ export default function App() {
       currentUser.is_superadmin === true
     )
   );
-  const isStaffOrAdmin = currentUser && ["admin", "doctor", "staff", "receptionist"].includes((currentUser.role || "").toLowerCase());
+  const isStaffOrAdmin = currentUser && ["admin", "doctor", "staff", "receptionist", "pharmacist"].includes((currentUser.role || "").toLowerCase());
   const isAdmin = isStaffOrAdmin;
   const userRole = (currentUser?.role || "").toLowerCase();
+  const userDept = (currentUser?.department || currentUser?.primary_department || "").toLowerCase().trim();
+  const isPharmacist = ["pharmacist", "pharmacy"].includes(userRole) || userDept === "pharmacy";
+  const isPharmacistAccess = Boolean(currentUser) && (isSuperAdmin || isPharmacist);
   const isPatientOrGuest = !currentUser || userRole === "user" || userRole === "patient";
   const isDoctorAccess = Boolean(currentUser) && (
     ["doctor", "physician", "admin"].includes(userRole) || isSuperAdmin
@@ -964,7 +980,7 @@ export default function App() {
   const canAccessDbInspector =
     Boolean(currentUser) &&
     userRole !== "doctor" &&
-    ["receptionist", "staff", "super_admin", "superadmin", "admin"].includes(userRole);
+    ["receptionist", "staff", "super_admin", "superadmin", "admin", "pharmacist"].includes(userRole);
   const adminDepartment = currentUser && currentUser.department ? currentUser.department.toLowerCase() : "all";
   const adminDeptRef = useRef(adminDepartment);
   const activePageRef = useRef(activePage);
@@ -998,13 +1014,13 @@ export default function App() {
       const hld = data.held || [];
 
       if (data.snapshot) {
-        setQueueSnapshot(dept && dept !== "all" ? snap.filter(t => (t.service_category || "").toLowerCase() === dept) : snap);
+        setQueueSnapshot(snap);
       }
       if (data.serving) {
-        setServingTickets(dept && dept !== "all" ? srv.filter(t => (t.service_category || "").toLowerCase() === dept) : srv);
+        setServingTickets(srv);
       }
       if (data.held) {
-        setHeldTickets(dept && dept !== "all" ? hld.filter(t => (t.service_category || "").toLowerCase() === dept) : hld);
+        setHeldTickets(hld);
       }
       if (data.analytics) setAnalytics(data.analytics);
 
@@ -1322,14 +1338,12 @@ export default function App() {
   const refreshData = useCallback(() => {
     if (isRefreshingRef.current) return;
     isRefreshingRef.current = true;
-    const deptQuery = adminDepartment && adminDepartment !== "all" ? `?department=${encodeURIComponent(adminDepartment)}` : "";
-
-    const p1 = fetch(`${API_BASE}/api/v1/plugin/analytics/${tenantId}${deptQuery}`)
+    const p1 = fetch(`${API_BASE}/api/v1/plugin/analytics/${tenantId}`)
       .then((r) => r.json())
       .then((d) => setAnalytics(d))
       .catch((e) => console.log("Analytics error:", e));
 
-    const p2 = fetch(`${API_BASE}/api/v1/plugin/queue/${tenantId}${deptQuery}`)
+    const p2 = fetch(`${API_BASE}/api/v1/plugin/queue/${tenantId}`)
       .then((r) => r.json())
       .then((d) => {
         const snap = d.snapshot || [];
@@ -1499,9 +1513,21 @@ export default function App() {
   };
 
   // Staff Desk Actions
-  const handleServeNext = async () => {
+  const handleServeNext = async (customDept = null) => {
     if (socketRef.current) {
-      const dept = adminDepartment && adminDepartment !== "all" ? adminDepartment : undefined;
+      let dept = customDept;
+      if (!dept) {
+        if (activePage === "pharmacy") {
+          dept = "pharmacy";
+        } else if (activePage === "doctor") {
+          // Clinical Doctor Consultation Desk should NEVER pull pharmacy tickets!
+          dept = (adminDepartment && adminDepartment !== "all" && adminDepartment !== "pharmacy")
+            ? adminDepartment
+            : "consultation";
+        } else {
+          dept = adminDepartment && adminDepartment !== "all" ? adminDepartment : undefined;
+        }
+      }
       socketRef.current.emit("serve_next", {
         tenant_id: tenantId,
         department: dept,
@@ -1708,8 +1734,8 @@ export default function App() {
 
   return (
     <div
-      className={`app-main-layout-wrapper ${(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "doctor" || activePage === "admin") && theme === "dark" ? "dark-theme" : ""} ${activePage === "superadmin" ? "superadmin-page-layout" : ""}`}
-      style={(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "doctor" || activePage === "admin") && theme === "dark" ? darkAppBgStyle : appBgStyle}
+      className={`app-main-layout-wrapper ${(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "doctor" || activePage === "pharmacy" || activePage === "admin") && theme === "dark" ? "dark-theme" : ""} ${activePage === "superadmin" ? "superadmin-page-layout" : ""}`}
+      style={(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "doctor" || activePage === "pharmacy" || activePage === "admin") && theme === "dark" ? darkAppBgStyle : appBgStyle}
     >
       {inactivityNotice && (
         <div
@@ -1796,7 +1822,7 @@ export default function App() {
         <EmergencyBroadcastBanner
           broadcasts={activeBroadcasts}
           currentHospitalCode={currentHospitalTenant}
-          surface={activePage === "superadmin" ? "superadmin" : activePage === "doctor" ? "doctor_desk" : activePage === "staff" ? "staff_desk" : "patient_portal"}
+          surface={activePage === "superadmin" ? "superadmin" : activePage === "pharmacy" ? "pharmacy_desk" : activePage === "doctor" ? "doctor_desk" : activePage === "staff" ? "staff_desk" : "patient_portal"}
           language={language}
           isStaffOrAdmin={Boolean(currentUser && ["admin", "doctor", "staff", "receptionist", "super_admin", "superadmin"].includes((currentUser.role || "").toLowerCase()))}
           navigateTo={navigateTo}
@@ -1960,6 +1986,38 @@ export default function App() {
                   theme={theme}
                   setTheme={setTheme}
                 />
+              )
+            )}
+
+            {activePage === "pharmacy" && (
+              !isPharmacistAccess ? (
+                <AccessDeniedGuard
+                  requiredRole="pharmacist"
+                  pageName="Pharmacy & Medication Dispensing Portal"
+                  currentUser={currentUser}
+                  onLoginSuccess={handleLoginSuccess}
+                  navigateTo={navigateTo}
+                  language={language}
+                />
+              ) : (
+                <ErrorBoundary fallbackTitle="Pharmacy Dispensing Portal Error">
+                  <PharmacyPage
+                    tenantId={tenantId}
+                    currentUser={currentUser}
+                    analytics={analytics}
+                    queueSnapshot={queueSnapshot}
+                    servingTickets={servingTickets}
+                    heldTickets={heldTickets}
+                    refreshData={refreshData}
+                    language={language}
+                    setLanguage={setLanguage}
+                    socketRef={socketRef}
+                    navigateTo={navigateTo}
+                    hospitalBranding={hospitalBranding}
+                    theme={theme}
+                    setTheme={setTheme}
+                  />
+                </ErrorBoundary>
               )
             )}
 

@@ -10,19 +10,36 @@ import { API_BASE } from "../../config/hospitalConfig";
 import { t } from "../../utils/i18n";
 
 export default function AccessDeniedGuard({ requiredRole, pageName, currentUser, onLoginSuccess, navigateTo, language = "en" }) {
+  const [showPharmaAuth, setShowPharmaAuth] = useState(false);
   const isSuperAdminTarget = requiredRole === "super_admin" || requiredRole === "superadmin";
   const isDoctorTarget = requiredRole === "doctor" || requiredRole === "physician";
   const isStaffTarget = requiredRole === "admin" || requiredRole === "staff";
-  const isTargetingAdmin = isSuperAdminTarget || isStaffTarget || isDoctorTarget;
+  const isPharmacistTarget = requiredRole === "pharmacist" || requiredRole === "pharmacy";
+  const isTargetingAdmin = isSuperAdminTarget || isStaffTarget || isDoctorTarget || isPharmacistTarget;
+
+  const userRole = (currentUser?.role || "").toLowerCase();
+  const userDept = (currentUser?.department || currentUser?.primary_department || "").toLowerCase().trim();
+  const isUserPharmacist = ["pharmacist", "pharmacy"].includes(userRole) || (["staff", "admin"].includes(userRole) && userDept === "pharmacy");
+  const isLoggedMismatch = currentUser && isPharmacistTarget && !isUserPharmacist && userRole !== "super_admin" && userRole !== "superadmin";
 
   return (
-    <div style={{ maxWidth: "550px", margin: "40px auto", textAlign: "center" }}>
+    <div style={{ maxWidth: "560px", margin: "40px auto", textAlign: "center" }}>
       <div style={standaloneCardStyle}>
-        <div style={shieldIconCircleStyle}>
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#0284C7" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-          </svg>
+        <div style={{
+          ...shieldIconCircleStyle,
+          background: isPharmacistTarget ? "#ECFDF5" : "#F0F9FF",
+        }}>
+          {isPharmacistTarget ? (
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10.5 20.5l10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7Z" />
+              <path d="m8.5 8.5 7 7" />
+            </svg>
+          ) : (
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#0284C7" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+          )}
         </div>
 
         <h2 style={{ margin: "0 0 10px 0", color: "#0F172A", fontSize: "22px", fontWeight: 800 }}>
@@ -30,12 +47,25 @@ export default function AccessDeniedGuard({ requiredRole, pageName, currentUser,
             ? (language === "hi" ? "सुपर एडमिन प्रमाणीकरण आवश्यक" : "Super Admin Access Required")
             : (isDoctorTarget
               ? (language === "hi" ? "डॉक्टर प्रमाणीकरण आवश्यक" : "Doctor Authentication Required")
-              : (isStaffTarget
-                ? (language === "hi" ? "रिसेप्शन पोर्टल प्रमाणीकरण आवश्यक" : "Reception Portal Access Required")
-                : (language === "hi" ? "प्रतिबंधित पहुंच" : "Restricted Access")))}
+              : (isPharmacistTarget
+                ? (language === "hi" ? "फार्मेसी पोर्टल: केवल अधिकृत स्टाफ" : "Pharmacy Portal: Restricted Access")
+                : (isStaffTarget
+                  ? (language === "hi" ? "रिसेप्शन पोर्टल प्रमाणीकरण आवश्यक" : "Reception Portal Access Required")
+                  : (language === "hi" ? "प्रतिबंधित पहुंच" : "Restricted Access"))))}
         </h2>
+
         <p style={{ color: "#475569", fontSize: "14px", lineHeight: "1.6", marginBottom: "20px" }}>
-          {isTargetingAdmin ? (
+          {isPharmacistTarget ? (
+            isLoggedMismatch ? (
+              language === "hi"
+                ? <>आप वर्तमान में <strong>{currentUser.username}</strong> ({userRole.toUpperCase()}) के रूप में साइन इन हैं। <strong>{pageName}</strong> केवल फार्मेसी विभाग के अधिकृत फार्मासिस्टों के लिए आरक्षित है।</>
+                : <>You are signed in as <strong>{currentUser.username}</strong> ({userRole.toUpperCase()}). The <strong>{pageName}</strong> is strictly restricted to staff assigned to the <strong>Pharmacy</strong> department.</>
+            ) : (
+              language === "hi"
+                ? <><strong>{pageName}</strong> तक पहुंचने के लिए कृपया फार्मेसी स्टाफ क्रेडेंशियल्स से साइन इन करें।</>
+                : <>The <strong>{pageName}</strong> requires verified pharmacy dispensing permissions. Please authenticate below.</>
+            )
+          ) : isTargetingAdmin ? (
             <>
               {language === "hi"
                 ? <><strong>{pageName}</strong> तक पहुंचने के लिए कृपया अधिकृत क्रेडेंशियल्स से साइन इन करें।</>
@@ -51,27 +81,91 @@ export default function AccessDeniedGuard({ requiredRole, pageName, currentUser,
         </p>
 
         {currentUser && (
-          <div style={{ padding: "14px", borderRadius: "12px", background: "#F0F9FF", border: "1px solid #BAE6FD", marginBottom: "20px", textAlign: "left" }}>
-            <p style={{ margin: 0, color: "#0369A1", fontSize: "12.5px", fontWeight: 600 }}>
-              {language === "hi" ? "वर्तमान उपयोगकर्ता" : "Current Account"}: <strong style={{ color: "#0F172A" }}>{currentUser.username} ({currentUser.email})</strong>
+          <div style={{
+            padding: "14px 16px",
+            borderRadius: "12px",
+            background: isLoggedMismatch ? "#FEF2F2" : "#F0F9FF",
+            border: isLoggedMismatch ? "1.5px solid #FECACA" : "1px solid #BAE6FD",
+            marginBottom: "20px",
+            textAlign: "left"
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <p style={{ margin: 0, color: isLoggedMismatch ? "#991B1B" : "#0369A1", fontSize: "12.5px", fontWeight: 700 }}>
+                {language === "hi" ? "वर्तमान खाता" : "Current Account"}: <strong style={{ color: "#0F172A" }}>{currentUser.username}</strong>
+              </p>
+              {isLoggedMismatch && (
+                <span style={{ fontSize: "10px", fontWeight: 900, background: "#EF4444", color: "#FFFFFF", padding: "2px 8px", borderRadius: "6px" }}>
+                  {language === "hi" ? "अनधिकृत विभाग" : "NOT PHARMACY STAFF"}
+                </span>
+              )}
+            </div>
+            <p style={{ margin: "4px 0 0 0", color: "#64748B", fontSize: "11.5px" }}>
+              {language === "hi" ? "ईमेल" : "Email"}: <span style={{ color: "#0F172A", fontWeight: 600 }}>{currentUser.email}</span>
             </p>
             <p style={{ margin: "4px 0 0 0", color: "#64748B", fontSize: "11.5px" }}>
-              {language === "hi" ? "भूमिका" : "Active Role"}: <span style={{ color: "#0284C7", fontWeight: 800, textTransform: "uppercase" }}>{currentUser.role}</span>
+              {language === "hi" ? "भूमिका / विभाग" : "Role / Department"}: <span style={{ color: "#0284C7", fontWeight: 800, textTransform: "uppercase" }}>{currentUser.role}</span>
+              {" • "}
+              <span style={{ color: userDept === "pharmacy" ? "#059669" : "#D97706", fontWeight: 800 }}>
+                {currentUser.department ? currentUser.department.toUpperCase() : "GENERAL / OPD"}
+              </span>
             </p>
           </div>
         )}
 
-        {isTargetingAdmin ? (
+        {isLoggedMismatch && !showPharmaAuth ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            <button
+              onClick={() => {
+                if (userRole === "doctor" || userRole === "physician") {
+                  navigateTo("doctor");
+                } else if (["staff", "receptionist", "nurse"].includes(userRole)) {
+                  navigateTo("staff");
+                } else if (userRole === "super_admin" || userRole === "superadmin") {
+                  navigateTo("superadmin");
+                } else {
+                  navigateTo("patient", "walkin");
+                }
+              }}
+              style={primaryBtnStyle}
+            >
+              {(() => {
+                if (userRole === "doctor" || userRole === "physician") {
+                  return language === "hi" ? "← अपने डॉक्टर परामर्श डेस्क पर वापस जाएं" : "← Return to Doctor Consultation Desk";
+                }
+                if (["staff", "receptionist", "nurse"].includes(userRole)) {
+                  return language === "hi" ? "← अपने रिसेप्शन डेस्क पर वापस जाएं" : "← Return to Reception Desk";
+                }
+                return language === "hi" ? "← अपने अधिकृत पोर्टल पर वापस जाएं" : "← Return to My Portal";
+              })()}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowPharmaAuth(true)}
+              style={{
+                background: "transparent",
+                border: "1.5px dashed #059669",
+                color: "#059669",
+                borderRadius: "12px",
+                padding: "10px 14px",
+                fontSize: "12.5px",
+                fontWeight: 800,
+                cursor: "pointer",
+              }}
+            >
+              {language === "hi" ? "🔑 फार्मेसी स्टाफ खाते से साइन इन करें" : "🔑 Switch to Pharmacy Staff Account"}
+            </button>
+          </div>
+        ) : isTargetingAdmin ? (
           <AuthModalInline onLoginSuccess={onLoginSuccess} defaultRole={requiredRole} language={language} />
         ) : (
           <button
             onClick={() => {
-              const r = (currentUser?.role || "").toLowerCase();
-              if (r === "super_admin" || r === "superadmin") {
+              if (userRole === "super_admin" || userRole === "superadmin") {
                 navigateTo("superadmin");
-              } else if (r === "doctor" || r === "physician") {
+              } else if (userRole === "doctor" || userRole === "physician") {
                 navigateTo("doctor");
-              } else if (["staff", "receptionist", "nurse"].includes(r)) {
+              } else if (["staff", "receptionist", "nurse"].includes(userRole)) {
                 navigateTo("staff");
               } else {
                 navigateTo("patient", "walkin");
@@ -80,14 +174,13 @@ export default function AccessDeniedGuard({ requiredRole, pageName, currentUser,
             style={primaryBtnStyle}
           >
             {(() => {
-              const r = (currentUser?.role || "").toLowerCase();
-              if (r === "super_admin" || r === "superadmin") {
+              if (userRole === "super_admin" || userRole === "superadmin") {
                 return language === "hi" ? "सुपर एडमिन पोर्टल पर जाएं" : "Go to Super Admin Portal";
               }
-              if (r === "doctor" || r === "physician") {
+              if (userRole === "doctor" || userRole === "physician") {
                 return language === "hi" ? "डॉक्टर परामर्श डेस्क पर जाएं" : "Go to Doctor Consult Desk";
               }
-              if (["staff", "receptionist", "nurse"].includes(r)) {
+              if (["staff", "receptionist", "nurse"].includes(userRole)) {
                 return language === "hi" ? "रिसेप्शन पोर्टल पर जाएं" : "Go to Reception Portal";
               }
               return language === "hi" ? "रोगी पोर्टल पर वापस जाएं" : "Return to Patient Portal";
@@ -100,8 +193,14 @@ export default function AccessDeniedGuard({ requiredRole, pageName, currentUser,
 }
 
 function AuthModalInline({ onLoginSuccess, defaultRole, language = "en" }) {
-  const [identifier, setIdentifier] = useState(defaultRole === "super_admin" || defaultRole === "superadmin" ? "superadmin@hospital.com" : "");
-  const [password, setPassword] = useState(defaultRole === "super_admin" || defaultRole === "superadmin" ? "admin123" : "");
+  const isSuper = defaultRole === "super_admin" || defaultRole === "superadmin";
+  const isPharma = defaultRole === "pharmacist" || defaultRole === "pharmacy";
+  const [identifier, setIdentifier] = useState(
+    isSuper ? "superadmin@hospital.com" : isPharma ? "pharmacist@hospital.com" : ""
+  );
+  const [password, setPassword] = useState(
+    isSuper || isPharma ? "admin123" : ""
+  );
   const [errorMsg, setErrorMsg] = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -119,13 +218,22 @@ function AuthModalInline({ onLoginSuccess, defaultRole, language = "en" }) {
       const data = await res.json();
       setLoading(false);
       if (res.ok && data.status === "success") {
-        if (!["admin", "doctor", "staff", "super_admin", "superadmin", "receptionist"].includes(data.user.role)) {
+        const uRole = (data.user.role || "").toLowerCase();
+        const uDept = (data.user.department || data.user.primary_department || "").toLowerCase().trim();
+
+        if (isPharma) {
+          const isPharmaStaff = ["pharmacist", "pharmacy"].includes(uRole) || (["staff", "admin"].includes(uRole) && uDept === "pharmacy") || ["super_admin", "superadmin"].includes(uRole);
+          if (!isPharmaStaff) {
+            setErrorMsg(language === "hi" ? "पहुंच अस्वीकृत: यह खाता फार्मेसी विभाग से संबद्ध नहीं है।" : "Access Denied: This account is not assigned to the Pharmacy Department.");
+            return;
+          }
+        } else if (!["admin", "doctor", "staff", "super_admin", "superadmin", "receptionist", "pharmacist"].includes(uRole)) {
           setErrorMsg("Login failed: Account does not have administrative permissions.");
           return;
         }
         onLoginSuccess(data.user);
       } else {
-        setErrorMsg(data.detail || "Invalid credentials.");
+        setErrorMsg(data.message || data.detail || "Invalid credentials.");
       }
     } catch (err) {
       setLoading(false);
@@ -137,7 +245,9 @@ function AuthModalInline({ onLoginSuccess, defaultRole, language = "en" }) {
     <div style={{ textAlign: "left", background: "#F8FAFC", padding: "20px", borderRadius: "14px", border: "1px solid #E2E8F0" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
         <h4 style={{ margin: 0, color: "#0F172A", fontSize: "14px", fontWeight: 800 }}>
-          {language === "hi" ? "एडमिन साइन इन" : "Administrative Sign In"}:
+          {isPharma
+            ? (language === "hi" ? "फार्मेसी स्टाफ साइन इन" : "Pharmacy Staff Sign In")
+            : (language === "hi" ? "एडमिन साइन इन" : "Administrative Sign In")}:
         </h4>
         <button
           type="button"

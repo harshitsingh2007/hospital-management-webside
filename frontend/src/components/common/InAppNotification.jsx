@@ -134,6 +134,34 @@ export function InAppToast({ toast, onClose, isDark = false }) {
             </div>
           )}
           <div style={{ fontSize: "13px" }}>{toast.message}</div>
+          {toast.actionText && toast.onAction && (
+            <div style={{ marginTop: "8px" }}>
+              <button
+                type="button"
+                onClick={() => {
+                  toast.onAction();
+                  if (onClose) onClose();
+                }}
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: "8px",
+                  border: "none",
+                  background: isDark ? "#0284C7" : "#0284C7",
+                  color: "#FFFFFF",
+                  fontSize: "12px",
+                  fontWeight: 800,
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  boxShadow: "0 2px 6px rgba(2, 132, 199, 0.35)",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                <span>{toast.actionText}</span>
+              </button>
+            </div>
+          )}
         </div>
 
         <button
