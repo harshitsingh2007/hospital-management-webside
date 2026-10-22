@@ -1,8 +1,8 @@
 /**
  * StaffPortalPage.jsx
  * -------------------
- * Dedicated Front-Desk & OPD Reception Staff Portal.
- * Purely operational workspace for Hospital Staff, Receptionists, and Triage Nurses.
+ * Dedicated Front-Desk & OPD Reception Portal.
+ * Purely operational workspace for Front-Desk Staff, Receptionists, and Triage Nurses.
  * Completely distinct from the Clinical Doctor Consultation Workspace.
  * 
  * Features:
@@ -237,7 +237,7 @@ export default function StaffPortalPage({
         setLocalHeldTickets(Array.isArray(data.held) ? data.held : []);
       }
     } catch (e) {
-      console.error("Error fetching live queue data in Staff Portal:", e);
+      console.error("Error fetching live queue data in Reception Portal:", e);
     }
   }, [effectiveHospitalCode]);
 
@@ -1832,7 +1832,7 @@ export default function StaffPortalPage({
               <span>{hospitalBranding?.hospital_name || HOSPITAL_CONFIG.name} • {isHi ? "ओपीडी रिसेप्शन डेस्क" : "OPD Reception & Front Desk"}</span>
             </div>
             <h1 style={{ margin: "0 0 6px 0", fontSize: "28px", fontWeight: 800, letterSpacing: "-0.5px", color: "#FFFFFF" }}>
-              {isHi ? "स्टाफ रिसेप्शन एवं कतार टर्मिनल" : "Reception & Queue Orchestration Terminal"}
+              {isHi ? "रिसेप्शन पोर्टल एवं कतार प्रबंधन" : "Reception Portal & Queue Orchestration"}
             </h1>
             <p style={{ margin: 0, color: "#94A3B8", fontSize: "14px", maxWidth: "620px", lineHeight: 1.55 }}>
               {isHi
@@ -1999,7 +1999,7 @@ export default function StaffPortalPage({
           </div>
           <div>
             <div style={{ fontSize: "13.5px", fontWeight: 800, color: isDark ? "#F8FAFC" : "#0F172A", display: "flex", alignItems: "center", gap: "6px" }}>
-              <span>{currentUser?.name || currentUser?.username || (isHi ? "स्टाफ रिसेप्शनिस्ट" : "Receptionist Desk")}</span>
+              <span>{currentUser?.name || currentUser?.username || (isHi ? "रिसेप्शन डेस्क" : "Reception Desk")}</span>
               <span style={{ fontSize: "10px", fontWeight: 700, padding: "1px 6px", borderRadius: "4px", background: isDark ? "#334155" : "#E2E8F0", color: isDark ? "#94A3B8" : "#64748B" }}>
                 {currentUser?.employee_code || "RECEPTION-BAY-1"}
               </span>

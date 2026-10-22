@@ -11,6 +11,7 @@ const {
   getKioskQueueEndpoint,
   getHospitalKiosksEndpoint,
   upsertKioskEndpoint,
+  deleteKioskEndpoint,
 } = require("../controllers/kiosk.controller");
 const { optionalAuth } = require("../middleware/auth");
 
@@ -24,5 +25,6 @@ router.get("/kiosk/:hospital_code/:kiosk_code/queue", optionalAuth, getKioskQueu
 // Hospital Kiosk Administration
 router.get("/hospitals/:hospital_code/kiosks", optionalAuth, getHospitalKiosksEndpoint);
 router.post("/hospitals/:hospital_code/kiosks", optionalAuth, upsertKioskEndpoint);
+router.delete("/hospitals/:hospital_code/kiosks/:kiosk_code", optionalAuth, deleteKioskEndpoint);
 
 module.exports = router;

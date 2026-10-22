@@ -41,6 +41,8 @@ export default function DesksManagementTab({
     formatRelativeLogin,
     language = "en",
     isHi = false,
+    notify,
+    showConfirm,
 }) {
     const q = deskSearchQuery.trim().toLowerCase();
     const rawGroups = hospitalDesksData.departments || [];
@@ -109,7 +111,8 @@ export default function DesksManagementTab({
                     type="button"
                     onClick={() => {
                         if (hospitalDepts.length === 0) {
-                            alert(isHi ? "डेस्क जोड़ने से पहले कृपया कम से कम एक विभाग बनाएं।" : "Please create at least one clinical department in the Departments tab before adding a desk.");
+                            const msg = isHi ? "डेस्क जोड़ने से पहले कृपया कम से कम एक विभाग बनाएं।" : "Please create at least one clinical department in the Departments tab before adding a desk.";
+                            if (notify) notify(msg, "warn");
                             return;
                         }
                         if (onOpenAddDesk) onOpenAddDesk();
@@ -411,7 +414,18 @@ export default function DesksManagementTab({
                                                                             const confirmMsg = isHi
                                                                                 ? `क्या आप वाकई '${desk.desk_name}' से '${staffName}' को हटाना (अनअसाइन) चाहते हैं?`
                                                                                 : `Unassign '${staffName}' from '${desk.desk_name}'?`;
-                                                                            if (window.confirm(confirmMsg)) {
+                                                                            if (showConfirm) {
+                                                                                showConfirm({
+                                                                                    title: isHi ? "डेस्क अनअसाइन करें" : "Unassign Desk",
+                                                                                    message: confirmMsg,
+                                                                                    confirmText: isHi ? "हाँ, अनअसाइन करें" : "Unassign",
+                                                                                    cancelText: isHi ? "रद्द करें" : "Cancel",
+                                                                                    isDestructive: true,
+                                                                                    onConfirm: () => {
+                                                                                        if (onUnassignDesk) onUnassignDesk(desk);
+                                                                                    },
+                                                                                });
+                                                                            } else {
                                                                                 if (onUnassignDesk) onUnassignDesk(desk);
                                                                             }
                                                                         }}

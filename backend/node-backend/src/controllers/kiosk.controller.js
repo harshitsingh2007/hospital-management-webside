@@ -402,10 +402,60 @@ async function upsertKioskEndpoint(req, res, next) {
   }
 }
 
+/**
+ * Delete a Kiosk definition.
+ * DELETE /api/v1/hospitals/:hospital_code/kiosks/:kiosk_code
+ */
+async function deleteKioskEndpoint(req, res, next) {
+  try {
+    const hospitalCode = String(req.params.hospital_code || "").trim();
+    const kioskCode = String(req.params.kiosk_code || "").trim();
+
+    const hospital = await prisma.hospitals.findUnique({
+      where: { hospital_code: hospitalCode },
+      select: { id: true },
+    });
+
+    if (!hospital) {
+      return res.status(404).json({
+        status: "error",
+        message: `Hospital '${hospitalCode}' not found.`,
+      });
+    }
+
+    const kiosk = await prisma.kiosks.findFirst({
+      where: {
+        hospital_id: hospital.id,
+        kiosk_code: { equals: kioskCode, mode: "insensitive" },
+      },
+    });
+
+    if (!kiosk) {
+      return res.status(404).json({
+        status: "error",
+        message: `Kiosk '${kioskCode}' not found.`,
+      });
+    }
+
+    await prisma.kiosks.delete({
+      where: { id: kiosk.id },
+    });
+
+    return res.status(200).json({
+      status: "success",
+      message: `Kiosk terminal '${kioskCode}' deleted successfully.`,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   getKioskEndpoint,
   kioskHeartbeatEndpoint,
   getKioskQueueEndpoint,
   getHospitalKiosksEndpoint,
   upsertKioskEndpoint,
+  deleteKioskEndpoint,
 };
+

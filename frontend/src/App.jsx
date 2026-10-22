@@ -15,6 +15,8 @@ import AuthModal from "./components/common/AuthModal";
 import AccessDeniedGuard from "./components/common/AccessDeniedGuard";
 import MandatoryAuthScreen from "./components/common/MandatoryAuthScreen";
 import ErrorBoundary from "./components/common/ErrorBoundary";
+import EmergencyBroadcastBanner from "./components/common/EmergencyBroadcastBanner";
+import { useIdleTimeout } from "./hooks/useIdleTimeout";
 
 import PatientPage from "./pages/PatientPage";
 import DoctorPage from "./pages/DoctorPage";
@@ -246,6 +248,25 @@ export default function App() {
     }
   }, [hospitalBranding]);
 
+  // Real-Time Network-Wide Emergency Broadcasts & Announcements State
+  const [activeBroadcasts, setActiveBroadcasts] = useState([]);
+
+  const fetchActiveBroadcasts = useCallback((hCode) => {
+    const code = hCode || currentHospitalTenant || "all";
+    fetch(`${API_BASE}/api/v1/broadcasts/active?hospital_code=${encodeURIComponent(code)}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.status === "success" && Array.isArray(d.broadcasts)) {
+          setActiveBroadcasts(d.broadcasts);
+        }
+      })
+      .catch((e) => console.log("Broadcasts fetch error in App:", e));
+  }, [currentHospitalTenant]);
+
+  useEffect(() => {
+    fetchActiveBroadcasts(currentHospitalTenant);
+  }, [currentHospitalTenant, fetchActiveBroadcasts]);
+
   // Dynamic Browser Tab Favicon and Title Scoped Exclusively to Hospital-Affiliated Patients and Staff
   useEffect(() => {
     const role = (currentUser?.role || "").toLowerCase();
@@ -429,12 +450,15 @@ export default function App() {
 
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState("login");
+  const [inactivityNotice, setInactivityNotice] = useState(null);
 
   const handleLoginSuccess = (userData) => {
     setCurrentUser(userData);
     setShowAuthModal(false);
+    setInactivityNotice(null);
     try {
       localStorage.setItem("ai_queue_user", JSON.stringify(userData));
+      localStorage.setItem("ai_queue_last_active", String(Date.now()));
     } catch (e) {}
 
     if (userData.hospital_code && userData.hospital_code !== "all") {
@@ -487,9 +511,36 @@ export default function App() {
       localStorage.removeItem("ai_queue_user");
       localStorage.removeItem("ai_queue_token");
       localStorage.removeItem("ai_queue_current_hospital");
+      localStorage.removeItem("ai_queue_last_active");
     } catch (e) {}
     navigateTo("patient", "walkin");
   };
+
+  // Inactivity Auto-Logout (15 minutes for staff roles, excluded on kiosks/TV displays)
+  const isKioskOrDisplay = activePage === "kiosk";
+  const staffRoles = ["admin", "doctor", "nurse", "staff", "receptionist", "super_admin", "superadmin", "physician"];
+  const isStaffUser = Boolean(
+    currentUser && staffRoles.includes((currentUser.role || "").trim().toLowerCase())
+  );
+
+  const handleIdleTimeout = useCallback(() => {
+    handleLogout();
+    setInactivityNotice("You were logged out due to inactivity.");
+    navigateTo("login");
+  }, []);
+
+  useIdleTimeout({
+    timeoutMinutes: 15,
+    onTimeout: handleIdleTimeout,
+    isEnabled: isStaffUser && !isKioskOrDisplay,
+  });
+
+  useEffect(() => {
+    if (inactivityNotice) {
+      const timer = setTimeout(() => setInactivityNotice(null), 8000);
+      return () => clearTimeout(timer);
+    }
+  }, [inactivityNotice]);
 
   // Fetch family members from backend
   const fetchFamilyMembers = useCallback((user) => {
@@ -1135,6 +1186,27 @@ export default function App() {
       }
     });
 
+    // Emergency Broadcasts Live WebSocket Listeners
+    socket.on("emergency_broadcast", (broadcast) => {
+      if (broadcast && broadcast.id) {
+        setActiveBroadcasts((prev) => {
+          const exists = prev.some((b) => b.id === broadcast.id);
+          if (exists) {
+            return prev.map((b) => (b.id === broadcast.id ? broadcast : b));
+          }
+          return [broadcast, ...prev];
+        });
+        window.dispatchEvent(new CustomEvent("broadcast_updated_live", { detail: broadcast }));
+      }
+    });
+
+    socket.on("dismiss_broadcast", (data) => {
+      if (data && data.id) {
+        setActiveBroadcasts((prev) => prev.filter((b) => b.id !== data.id));
+        window.dispatchEvent(new CustomEvent("broadcast_updated_live", { detail: data }));
+      }
+    });
+
     socket.on("ticket_transferred", (data) => {
       if (data && data.new_ticket) {
         const origId = data.original_ticket?.ticket_id;
@@ -1528,16 +1600,26 @@ export default function App() {
   if (activePage === "kiosk") {
     return (
       <ErrorBoundary fallbackTitle="Hospital Kiosk Display Error">
-        <KioskPage
-          tenantId={tenantId}
-          analytics={analytics}
-          servingTickets={servingTickets}
-          queueSnapshot={queueSnapshot}
-          kioskQrData={kioskQrData}
-          language={language}
-          setLanguage={setLanguage}
-          navigateTo={navigateTo}
-        />
+        <div style={{ minHeight: "100vh", width: "100vw", background: "#F8FAFC", display: "flex", flexDirection: "column", margin: 0, padding: 0 }}>
+          <EmergencyBroadcastBanner
+            broadcasts={activeBroadcasts}
+            currentHospitalCode={currentHospitalTenant}
+            surface="kiosk_display"
+            language={language}
+            isStaffOrAdmin={false}
+            navigateTo={navigateTo}
+          />
+          <KioskPage
+            tenantId={tenantId}
+            analytics={analytics}
+            servingTickets={servingTickets}
+            queueSnapshot={queueSnapshot}
+            kioskQrData={kioskQrData}
+            language={language}
+            setLanguage={setLanguage}
+            navigateTo={navigateTo}
+          />
+        </div>
       </ErrorBoundary>
     );
   }
@@ -1554,6 +1636,54 @@ export default function App() {
     return (
       <ErrorBoundary fallbackTitle="Hospital Login Portal Error">
         <div style={{ minHeight: "100vh", width: "100vw", overflowX: "hidden", margin: 0, padding: 0 }}>
+          {inactivityNotice && (
+            <div
+              style={{
+                position: "fixed",
+                top: "20px",
+                left: "50%",
+                transform: "translateX(-50%)",
+                background: "#0F172A",
+                color: "#FFFFFF",
+                padding: "12px 22px",
+                borderRadius: "12px",
+                boxShadow: "0 10px 30px rgba(0, 0, 0, 0.35)",
+                zIndex: 999999,
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+                fontSize: "13px",
+                fontWeight: 700,
+                border: "1px solid rgba(255, 255, 255, 0.2)",
+              }}
+            >
+              <span>ℹ️</span>
+              <span>{inactivityNotice}</span>
+              <button
+                type="button"
+                onClick={() => setInactivityNotice(null)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "#94A3B8",
+                  cursor: "pointer",
+                  marginLeft: "8px",
+                  fontSize: "14px",
+                  fontWeight: "bold",
+                }}
+              >
+                ✕
+              </button>
+            </div>
+          )}
+          <EmergencyBroadcastBanner
+            broadcasts={activeBroadcasts}
+            currentHospitalCode={currentHospitalTenant}
+            surface="patient_portal"
+            language={language}
+            isStaffOrAdmin={false}
+            navigateTo={navigateTo}
+          />
           <MandatoryAuthScreen
             initialMode={initialAuthMode}
             onLoginSuccess={(user) => {
@@ -1578,9 +1708,49 @@ export default function App() {
 
   return (
     <div
-      className={`app-main-layout-wrapper ${(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "doctor" || activePage === "admin") && theme === "dark" ? "dark-theme" : ""}`}
+      className={`app-main-layout-wrapper ${(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "doctor" || activePage === "admin") && theme === "dark" ? "dark-theme" : ""} ${activePage === "superadmin" ? "superadmin-page-layout" : ""}`}
       style={(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "doctor" || activePage === "admin") && theme === "dark" ? darkAppBgStyle : appBgStyle}
     >
+      {inactivityNotice && (
+        <div
+          style={{
+            position: "fixed",
+            top: "20px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            background: "#0F172A",
+            color: "#FFFFFF",
+            padding: "12px 22px",
+            borderRadius: "12px",
+            boxShadow: "0 10px 30px rgba(0, 0, 0, 0.35)",
+            zIndex: 999999,
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            fontSize: "13px",
+            fontWeight: 700,
+            border: "1px solid rgba(255, 255, 255, 0.2)",
+          }}
+        >
+          <span>ℹ️</span>
+          <span>{inactivityNotice}</span>
+          <button
+            type="button"
+            onClick={() => setInactivityNotice(null)}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "#94A3B8",
+              cursor: "pointer",
+              marginLeft: "8px",
+              fontSize: "14px",
+              fontWeight: "bold",
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
       <style>{`
         .app-main-layout-wrapper {
           min-height: 100vh;
@@ -1590,6 +1760,16 @@ export default function App() {
           box-sizing: border-box;
           padding: 18px 24px 8px 24px;
           transition: background-color 0.25s ease, color 0.25s ease;
+        }
+        @media (min-width: 1025px) {
+          .app-main-layout-wrapper.superadmin-page-layout {
+            padding-left: 88px;
+            padding-right: 24px;
+          }
+          .app-main-layout-wrapper.superadmin-page-layout .app-main-layout-inner.superadmin-wide {
+            max-width: 100%;
+            margin: 0;
+          }
         }
         @media (max-width: 1024px) {
           .app-main-layout-wrapper {
@@ -1612,6 +1792,16 @@ export default function App() {
         }
       `}</style>
       <div className={`app-main-layout-inner ${activePage === "superadmin" ? "superadmin-wide" : ""}`}>
+        {/* Real-Time Animated Emergency Marquee & Broadcast Ribbon */}
+        <EmergencyBroadcastBanner
+          broadcasts={activeBroadcasts}
+          currentHospitalCode={currentHospitalTenant}
+          surface={activePage === "superadmin" ? "superadmin" : activePage === "doctor" ? "doctor_desk" : activePage === "staff" ? "staff_desk" : "patient_portal"}
+          language={language}
+          isStaffOrAdmin={Boolean(currentUser && ["admin", "doctor", "staff", "receptionist", "super_admin", "superadmin"].includes((currentUser.role || "").toLowerCase()))}
+          navigateTo={navigateTo}
+        />
+
         {/* Top Navigation Header Bar */}
         <Header
           currentUser={currentUser}
@@ -1704,6 +1894,7 @@ export default function App() {
                     onUpdateHospitalBranding={setHospitalBranding}
                     theme={theme}
                     setTheme={setTheme}
+                    socketConnected={socketConnected}
                   />
                 </ErrorBoundary>
               )
@@ -1748,7 +1939,7 @@ export default function App() {
               !isStaffAccess ? (
                 <AccessDeniedGuard
                   requiredRole="staff"
-                  pageName="Staff Reception & Queue Terminal"
+                  pageName="Reception Portal"
                   currentUser={currentUser}
                   onLoginSuccess={handleLoginSuccess}
                   navigateTo={navigateTo}

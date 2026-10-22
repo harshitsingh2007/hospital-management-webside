@@ -416,7 +416,8 @@ export default function BrandingPatientHistorySubTab({
         }
 
         if (filteredVisits.length === 0) {
-            alert(isHi ? "डाउनलोड करने के लिए कोई रिकॉर्ड उपलब्ध नहीं है।" : "No patient visit records available to download.");
+            const msg = isHi ? "डाउनलोड करने के लिए कोई रिकॉर्ड उपलब्ध नहीं है।" : "No patient visit records available to download.";
+            if (notify) notify(msg, "warn");
             return;
         }
 

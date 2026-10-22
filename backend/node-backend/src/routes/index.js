@@ -16,6 +16,7 @@ const qrRoutes = require("./qr.routes");
 const healthRoutes = require("./health.routes");
 const doctorRoutes = require("./doctor.routes");
 const kioskRoutes = require("./kiosk.routes");
+const broadcastRoutes = require("./broadcast.routes");
 const patientHistoryRoutes = require("./patientHistory.routes");
 const { getUserHistory, lookupPatientAccount, addFamilyMemberFromStaff } = require("../controllers/auth.controller");
 const { optionalAuth } = require("../middleware/auth");
@@ -64,5 +65,8 @@ router.use("/api/v1", doctorRoutes);
 
 // Kiosk & Terminal endpoints (/api/v1/kiosk/*, /api/v1/hospitals/:code/kiosks)
 router.use("/api/v1", kioskRoutes);
+
+// Emergency Broadcast & Announcement Center (/api/v1/broadcasts/*, /api/v1/superadmin/broadcasts/*)
+router.use("/api/v1", broadcastRoutes);
 
 module.exports = router;

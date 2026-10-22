@@ -12,7 +12,7 @@ module.exports = {
   PORT: parseInt(process.env.PORT || "8000", 10),
   DATABASE_URL: process.env.DATABASE_URL || "",
   JWT_SECRET: process.env.JWT_SECRET || "",
-  JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || "7d",
+  JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || "15m",
   HOSPITAL_TIMEZONE: process.env.HOSPITAL_TIMEZONE || "Asia/Kolkata",
   FRONTEND_URL: process.env.FRONTEND_URL || "http://localhost:5173",
   AI_SERVICE_URL: process.env.AI_SERVICE_URL || "http://localhost:8001",

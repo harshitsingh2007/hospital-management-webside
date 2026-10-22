@@ -41,6 +41,7 @@ app.use(
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    exposedHeaders: ["X-Refreshed-Token", "x-refreshed-token"],
     allowedHeaders: [
       "Content-Type",
       "Authorization",

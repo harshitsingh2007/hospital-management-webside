@@ -20,6 +20,7 @@ export default function VisitedPatientsSection({
     isHi = false,
     theme = "dark",
     handleDownloadVisitHistory,
+    notify,
 }) {
     const isDark = theme === "dark";
     const currentHosp = selectedHospital || null;
@@ -115,7 +116,8 @@ export default function VisitedPatientsSection({
     // Format CSV helper with UTF-8 BOM
     const triggerCsvDownload = (records, filenamePrefix) => {
         if (!records || records.length === 0) {
-            alert(isHi ? "डाउनलोड करने के लिए कोई विज़िट रिकॉर्ड उपलब्ध नहीं है।" : "No patient visit records available to download.");
+            const msg = isHi ? "डाउनलोड करने के लिए कोई विज़िट रिकॉर्ड उपलब्ध नहीं है।" : "No patient visit records available to download.";
+            if (notify) notify(msg, "warn");
             return;
         }
 

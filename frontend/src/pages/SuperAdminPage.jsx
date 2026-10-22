@@ -5,6 +5,7 @@ import { t, getCategoryLabel } from "../utils/i18n";
 import { generateOperatingHoursText } from "../utils/operatingHoursHelper";
 import Footer from "../components/common/Footer";
 import "../components/superadmin/SuperAdmin.css";
+import { InAppToast, InAppConfirmModal } from "../components/common/InAppNotification";
 
 // Modular SuperAdmin Components
 import {
@@ -27,8 +28,11 @@ import {
     IconFileText,
     IconExternalLink,
     IconSave,
+    IconMonitor,
+    IconMenu,
 } from "../components/superadmin/SuperAdminIcons";
 
+import SuperAdminSidebar from "../components/superadmin/SuperAdminSidebar";
 import SuperAdminHospitalIllustration from "../components/superadmin/SuperAdminIllustration";
 
 import {
@@ -47,6 +51,8 @@ import {
     DepartmentsTab,
     BrandingStudioTab,
     PatientVisitsTab,
+    KiosksManagementTab,
+    BroadcastCenterTab,
 } from "../components/superadmin/tabs";
 
 import {
@@ -71,8 +77,39 @@ export default function SuperAdminPage({
     onUpdateHospitalBranding = null,
     theme = "light",
     setTheme = null,
+    socketConnected: propSocketConnected = null,
 }) {
     const isHi = language === "hi";
+    const isDark = theme === "dark";
+
+    // In-App Toast & Confirmation Modal States (replaces all browser alert() and confirm())
+    const [inAppToast, setInAppToast] = useState(null); // { id, message, title, type: "success" | "error" | "warn" | "info" }
+    const toastTimerRef = useRef(null);
+    const [confirmDialog, setConfirmDialog] = useState(null); // { title, message, confirmText, cancelText, isDestructive, onConfirm }
+
+    const showToast = useCallback((msg, type = "success", durationMs = null) => {
+        if (!msg) return;
+        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+        const messageText = typeof msg === "object" ? msg.message : msg;
+        const titleText = typeof msg === "object" ? msg.title : null;
+        const finalType = (typeof msg === "object" ? msg.type : type) || "success";
+        setInAppToast({ id: Date.now(), message: messageText, title: titleText, type: finalType });
+        const autoDuration = durationMs || (finalType === "error" || finalType === "warn" ? 6500 : 4500);
+        toastTimerRef.current = setTimeout(() => {
+            setInAppToast(null);
+        }, autoDuration);
+    }, []);
+
+    const showConfirm = useCallback(({ title, message, confirmText, cancelText, isDestructive, onConfirm }) => {
+        setConfirmDialog({
+            title,
+            message,
+            confirmText,
+            cancelText,
+            isDestructive: Boolean(isDestructive),
+            onConfirm,
+        });
+    }, []);
 
     // Global State (Live Telemetry)
     const [overview, setOverview] = useState({
@@ -90,38 +127,37 @@ export default function SuperAdminPage({
     const [searchQuery, setSearchQuery] = useState("");
     const [feedbackMsg, setFeedbackMsg] = useState("");
 
-    // Navigation Tabs: "overview" | "hospitals" | "employees" | "desks" | "depts" | "visits" | "branding"
+    // Navigation Tabs: "overview" | "hospitals" | "employees" | "desks" | "depts" | "visits" | "branding" | "kiosks" | "broadcasts"
     const [activeTab, setActiveTab] = useState("overview");
+    const [activeBroadcastsCount, setActiveBroadcastsCount] = useState(0);
 
-    // Slider Bar State & Scrolling Logic
-    const tabsBarRef = useRef(null);
-    const [canScrollLeft, setCanScrollLeft] = useState(false);
-    const [canScrollRight, setCanScrollRight] = useState(true);
-
-    const updateScrollBounds = useCallback(() => {
-        const el = tabsBarRef.current;
-        if (!el) return;
-        const { scrollLeft, scrollWidth, clientWidth } = el;
-        setCanScrollLeft(scrollLeft > 6);
-        setCanScrollRight(scrollLeft + clientWidth < scrollWidth - 6);
-    }, []);
-
-
-    useEffect(() => {
-        const el = tabsBarRef.current;
-        if (!el) return;
-        const activeEl = el.querySelector(`.tab-button-modern.active`);
-        if (activeEl) {
-            activeEl.scrollIntoView({ behavior: "smooth", inline: "nearest", block: "nearest" });
+    // Sidebar & Real-time Connectivity States
+    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+        try {
+            return localStorage.getItem("ai_queue_superadmin_sidebar_collapsed") === "true";
+        } catch (e) {
+            return false;
         }
-        updateScrollBounds();
-    }, [activeTab, updateScrollBounds]);
+    });
+    const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+    const [socketConnected, setSocketConnected] = useState(Boolean(propSocketConnected));
 
     useEffect(() => {
-        updateScrollBounds();
-        window.addEventListener("resize", updateScrollBounds);
-        return () => window.removeEventListener("resize", updateScrollBounds);
-    }, [updateScrollBounds]);
+        if (propSocketConnected !== null) {
+            setSocketConnected(Boolean(propSocketConnected));
+        }
+    }, [propSocketConnected]);
+
+    // Escape Key Listener to dismiss mobile drawer
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.key === "Escape" && mobileDrawerOpen) {
+                setMobileDrawerOpen(false);
+            }
+        };
+        window.addEventListener("keydown", handleKeyDown);
+        return () => window.removeEventListener("keydown", handleKeyDown);
+    }, [mobileDrawerOpen]);
 
     // Deep-Dive Selected Hospital Mode
     const [selectedHospital, setSelectedHospital] = useState(null);
@@ -143,7 +179,7 @@ export default function SuperAdminPage({
     const handleDownloadVisitHistory = (visitsToExport, hospitalName) => {
         const list = visitsToExport || [];
         if (list.length === 0) {
-            alert(isHi ? "डाउनलोड करने के लिए कोई विज़िट रिकॉर्ड उपलब्ध नहीं है।" : "No patient visit records available to download.");
+            notify(isHi ? "डाउनलोड करने के लिए कोई विज़िट रिकॉर्ड उपलब्ध नहीं है।" : "No patient visit records available to download.", "warn");
             return;
         }
         const headers = [
@@ -842,7 +878,7 @@ export default function SuperAdminPage({
             }, 350);
         } catch (err) {
             console.error("Error generating NABH Report:", err);
-            alert("Error generating report: " + err.message);
+            notify("Error generating report: " + err.message, "error");
         }
     };
 
@@ -913,7 +949,7 @@ export default function SuperAdminPage({
             URL.revokeObjectURL(url);
         } catch (err) {
             console.error("Error exporting NABH CSV:", err);
-            alert("Error exporting CSV: " + err.message);
+            notify("Error exporting CSV: " + err.message, "error");
         }
     };
 
@@ -1086,10 +1122,12 @@ export default function SuperAdminPage({
     const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
     const [passwordUpdateSuccess, setPasswordUpdateSuccess] = useState(null);
 
-    const notify = (msg) => {
-        setFeedbackMsg(msg);
+    const notify = useCallback((msg, type = "success") => {
+        const text = typeof msg === "object" ? msg?.message || JSON.stringify(msg) : msg;
+        setFeedbackMsg(text);
         setTimeout(() => setFeedbackMsg(""), 4000);
-    };
+        showToast(msg, type);
+    }, [showToast]);
 
     useEffect(() => {
         setEmployeeSearchQuery("");
@@ -1107,15 +1145,19 @@ export default function SuperAdminPage({
         if (!silent) setLoading(true);
         try {
             const headers = getAuthHeaders();
-            const [overviewRes, hospitalsRes] = await Promise.all([
-                fetch(`${API_BASE}/api/v1/superadmin/overview`, { headers }).then((r) => r.json()),
-                fetch(`${API_BASE}/api/v1/superadmin/hospitals`, { headers }).then((r) => r.json()),
+            const [overviewRes, hospitalsRes, broadcastsRes] = await Promise.all([
+                fetch(`${API_BASE}/api/v1/superadmin/overview`, { headers }).then((r) => r.json()).catch(() => null),
+                fetch(`${API_BASE}/api/v1/superadmin/hospitals`, { headers }).then((r) => r.json()).catch(() => null),
+                fetch(`${API_BASE}/api/v1/broadcasts/active`, { headers }).then((r) => r.json()).catch(() => null),
             ]);
 
-            if (overviewRes.status === "success") {
+            if (overviewRes && overviewRes.status === "success") {
                 setOverview((prev) => (JSON.stringify(prev) === JSON.stringify(overviewRes.overview) ? prev : overviewRes.overview));
             }
-            if (hospitalsRes.status === "success") {
+            if (broadcastsRes && broadcastsRes.status === "success" && typeof broadcastsRes.count === "number") {
+                setActiveBroadcastsCount(broadcastsRes.count);
+            }
+            if (hospitalsRes && hospitalsRes.status === "success") {
                 let list = hospitalsRes.hospitals || [];
 
                 // Filter to only hospitals related to current user if user has an assigned hospital or owned facility
@@ -1134,6 +1176,17 @@ export default function SuperAdminPage({
                         list = scoped;
                     }
                 }
+
+                // Ensure logo_url is populated from branding_json if present
+                list = list.map((h) => {
+                    const bJson = typeof h.branding_json === "string"
+                        ? (() => { try { return JSON.parse(h.branding_json); } catch (e) { return {}; } })()
+                        : (h.branding_json || {});
+                    return {
+                        ...h,
+                        logo_url: h.logo_url || bJson?.logo_url || "",
+                    };
+                });
 
                 setHospitals((prev) => {
                     if (prev.length === list.length && JSON.stringify(prev) === JSON.stringify(list)) {
@@ -1172,12 +1225,19 @@ export default function SuperAdminPage({
             ]);
 
             if (detailRes && detailRes.status === "success") {
+                const hospObj = { ...detailRes.hospital };
+                const bJson = typeof hospObj.branding_json === "string"
+                    ? (() => { try { return JSON.parse(hospObj.branding_json); } catch (e) { return {}; } })()
+                    : (hospObj.branding_json || {});
+                if (!hospObj.logo_url && bJson?.logo_url) {
+                    hospObj.logo_url = bJson.logo_url;
+                }
                 setSelectedHospital((prev) => {
-                    if (prev && prev.hospital_code === detailRes.hospital.hospital_code) {
-                        if (JSON.stringify(prev) === JSON.stringify(detailRes.hospital)) return prev;
-                        return { ...prev, ...detailRes.hospital };
+                    if (prev && prev.hospital_code === hospObj.hospital_code) {
+                        if (JSON.stringify(prev) === JSON.stringify(hospObj)) return prev;
+                        return { ...prev, ...hospObj };
                     }
-                    return detailRes.hospital;
+                    return hospObj;
                 });
             }
             if (empRes && empRes.status === "success") {
@@ -1227,8 +1287,11 @@ export default function SuperAdminPage({
             });
 
             socket.on("connect", () => {
+                setSocketConnected(true);
                 socket.emit("join_room", { tenant_id: hCode });
             });
+            socket.on("disconnect", () => setSocketConnected(false));
+            socket.on("connect_error", () => setSocketConnected(false));
 
             const handleLiveStreamData = (data) => {
                 if (!data) return;
@@ -1294,6 +1357,7 @@ export default function SuperAdminPage({
 
         return () => {
             if (socket) {
+                setSocketConnected(false);
                 socket.disconnect();
             }
         };
@@ -1347,10 +1411,10 @@ export default function SuperAdminPage({
                 fetchGlobalData();
                 setSelectedHospital(data.hospital);
             } else {
-                alert(data.message || data.detail || "Failed to create hospital.");
+                notify(data.message || data.detail || "Failed to create hospital.", "error");
             }
         } catch (err) {
-            alert(`Error creating hospital: ${err.message}`);
+            notify(`Error creating hospital: ${err.message}`, "error");
         }
     };
 
@@ -1383,36 +1447,46 @@ export default function SuperAdminPage({
                 fetchGlobalData();
                 fetchHospitalDeepDive(editHospitalForm.hospital_code);
             } else {
-                alert(data.detail || "Failed to update hospital.");
+                notify(data.detail || "Failed to update hospital.", "error");
             }
         } catch (err) {
-            alert(`Error updating hospital: ${err.message}`);
+            notify(`Error updating hospital: ${err.message}`, "error");
         }
     };
 
     // Delete Hospital Handler
-    const handleDeleteHospital = async (hosp) => {
-        if (!window.confirm(isHi ? `क्या आप वाकई अस्पताल '${hosp.name}' (${hosp.hospital_code}) को हटाना चाहते हैं?` : `Are you sure you want to delete hospital '${hosp.name}' (${hosp.hospital_code}) and all its associated staff, departments, and desks?`)) {
-            return;
-        }
-        try {
-            const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${hosp.hospital_code}`, {
-                method: "DELETE",
-                headers: getAuthHeaders(),
-            });
-            const data = await res.json();
-            if (res.ok && data.status === "success") {
-                notify(isHi ? `अस्पताल '${hosp.name}' सफलतापूर्वक हटा दिया गया!` : `Hospital '${hosp.name}' successfully deleted!`);
-                fetchGlobalData();
-                if (selectedHospital?.hospital_code === hosp.hospital_code) {
-                    setSelectedHospital(null);
+    const handleDeleteHospital = (hosp) => {
+        const confirmMsg = isHi
+            ? `क्या आप वाकई अस्पताल '${hosp.name}' (${hosp.hospital_code}) को हटाना चाहते हैं? इसके सभी संबंधित कर्मचारी, विभाग और डेस्क भी हटा दिए जाएंगे।`
+            : `Are you sure you want to delete hospital '${hosp.name}' (${hosp.hospital_code}) and all its associated staff, departments, and desks?`;
+
+        showConfirm({
+            title: isHi ? "अस्पताल हटाएं" : "Delete Hospital",
+            message: confirmMsg,
+            confirmText: isHi ? "हाँ, हटाएं" : "Delete Hospital",
+            cancelText: isHi ? "रद्द करें" : "Cancel",
+            isDestructive: true,
+            onConfirm: async () => {
+                try {
+                    const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${hosp.hospital_code}`, {
+                        method: "DELETE",
+                        headers: getAuthHeaders(),
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.status === "success") {
+                        notify(isHi ? `अस्पताल '${hosp.name}' सफलतापूर्वक हटा दिया गया!` : `Hospital '${hosp.name}' successfully deleted!`);
+                        fetchGlobalData();
+                        if (selectedHospital?.hospital_code === hosp.hospital_code) {
+                            setSelectedHospital(null);
+                        }
+                    } else {
+                        notify(data.detail || data.message || "Failed to delete hospital.", "error");
+                    }
+                } catch (err) {
+                    notify(`Error deleting hospital: ${err.message}`, "error");
                 }
-            } else {
-                alert(data.detail || data.message || "Failed to delete hospital.");
-            }
-        } catch (err) {
-            alert(`Error deleting hospital: ${err.message}`);
-        }
+            },
+        });
     };
 
     // 4.5. Hospital Customization & Branding Handlers
@@ -1591,7 +1665,7 @@ export default function SuperAdminPage({
         if (e && typeof e.preventDefault === "function") e.preventDefault();
         const targetHosp = forcedTargetHosp || brandingTargetHospital || selectedHospital || hospitals[0];
         if (!targetHosp) {
-            alert(isHi ? "कृपया पहले एक अस्पताल चुनें।" : "Please select a hospital first.");
+            notify(isHi ? "कृपया पहले एक अस्पताल चुनें।" : "Please select a hospital first.", "warn");
             return;
         }
         setIsSavingBranding(true);
@@ -1719,10 +1793,10 @@ export default function SuperAdminPage({
                     fetchHospitalDeepDive(selectedHospital.hospital_code);
                 }
             } else {
-                alert(data.detail || data.message || "Failed to save branding settings.");
+                notify(data.detail || data.message || "Failed to save branding settings.", "error");
             }
         } catch (err) {
-            alert(`Error saving branding: ${err.message}`);
+            notify(`Error saving branding: ${err.message}`, "error");
         } finally {
             setIsSavingBranding(false);
         }
@@ -1742,6 +1816,57 @@ export default function SuperAdminPage({
             brandingLoadedHospCodeRef.current = null;
         }
     }, [activeTab, brandingTargetHospital?.hospital_code, selectedHospital?.hospital_code, hospitals, loadHospitalBrandingData]);
+
+    // Relocated Header Actions & Hospital Switch Listeners
+    useEffect(() => {
+        const handleAddStaff = () => {
+            setCreatedCredentials(null);
+            setShowAddEmployeeModal(true);
+        };
+        const handleAddDesk = () => {
+            setNewDeskForm({
+                dept_code: hospitalDepts[0]?.dept_code || "consultation",
+                desk_name: "",
+                status: "AVAILABLE",
+                assigned_employee_id: "",
+            });
+            setShowAddDeskModal(true);
+        };
+        const handleSwitchTab = (e) => {
+            const tab = e?.detail;
+            if (tab) {
+                setActiveTab(tab);
+                if (tab === "branding") {
+                    setActiveBrandingTab("profile");
+                    const target = selectedHospital || hospitals[0];
+                    if (target) loadHospitalBrandingData(target);
+                }
+            }
+        };
+        const handleHospitalChanged = (e) => {
+            const code = e?.detail;
+            if (code && hospitals.length > 0) {
+                const found = hospitals.find((h) => h.hospital_code === code);
+                if (found) {
+                    setSelectedHospital(found);
+                    if (onSelectHospitalTenant) onSelectHospitalTenant(found.hospital_code);
+                    fetchHospitalDeepDive(found.hospital_code);
+                }
+            }
+        };
+
+        window.addEventListener("superadmin_action_add_staff", handleAddStaff);
+        window.addEventListener("superadmin_action_add_desk", handleAddDesk);
+        window.addEventListener("superadmin_switch_tab", handleSwitchTab);
+        window.addEventListener("hospital_changed", handleHospitalChanged);
+
+        return () => {
+            window.removeEventListener("superadmin_action_add_staff", handleAddStaff);
+            window.removeEventListener("superadmin_action_add_desk", handleAddDesk);
+            window.removeEventListener("superadmin_switch_tab", handleSwitchTab);
+            window.removeEventListener("hospital_changed", handleHospitalChanged);
+        };
+    }, [hospitalDepts, hospitals, selectedHospital, onSelectHospitalTenant, fetchHospitalDeepDive, loadHospitalBrandingData]);
 
     // 5. Add Employee Handler (Doctor, Staff, Admin)
     const handleAddEmployeeSubmit = async (e) => {
@@ -1786,10 +1911,10 @@ export default function SuperAdminPage({
                 fetchHospitalDeepDive(selectedHospital.hospital_code);
                 fetchGlobalData(true);
             } else {
-                alert(data.detail || "Failed to add employee.");
+                notify(data.detail || "Failed to add employee.", "error");
             }
         } catch (err) {
-            alert(`Error: ${err.message}`);
+            notify(`Error: ${err.message}`, "error");
         }
     };
 
@@ -1815,39 +1940,47 @@ export default function SuperAdminPage({
                 fetchHospitalDeepDive(selectedHospital.hospital_code);
                 fetchGlobalData();
             } else {
-                alert(data.detail || "Failed to update employee.");
+                notify(data.detail || "Failed to update employee.", "error");
             }
         } catch (err) {
-            alert(`Error: ${err.message}`);
+            notify(`Error: ${err.message}`, "error");
         }
     };
 
     // 7. Delete Employee Handler
-    const handleDeleteEmployee = async (emp) => {
+    const handleDeleteEmployee = (emp) => {
         if (!selectedHospital) return;
         const empName = emp.name || emp.username || emp.email;
         const confirmMsg = isHi
             ? `क्या आप वाकई कर्मचारी/डॉक्टर '${empName}' को हटाना चाहते हैं?`
             : `Are you sure you want to remove employee/doctor '${empName}'?`;
-        if (!window.confirm(confirmMsg)) return;
 
-        try {
-            const empId = emp.id || emp.employee_id_num;
-            const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/employees/${empId}`, {
-                method: "DELETE",
-                headers: getAuthHeaders(),
-            });
-            const data = await res.json();
-            if (res.ok && data.status === "success") {
-                notify(isHi ? `कर्मचारी '${empName}' हटा दिया गया!` : `Employee '${empName}' removed!`);
-                fetchHospitalDeepDive(selectedHospital.hospital_code);
-                fetchGlobalData();
-            } else {
-                alert(data.detail || "Failed to delete employee.");
-            }
-        } catch (err) {
-            alert(`Error deleting employee: ${err.message}`);
-        }
+        showConfirm({
+            title: isHi ? "कर्मचारी हटाएं" : "Remove Employee",
+            message: confirmMsg,
+            confirmText: isHi ? "हाँ, हटाएं" : "Remove",
+            cancelText: isHi ? "रद्द करें" : "Cancel",
+            isDestructive: true,
+            onConfirm: async () => {
+                try {
+                    const empId = emp.id || emp.employee_id_num;
+                    const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/employees/${empId}`, {
+                        method: "DELETE",
+                        headers: getAuthHeaders(),
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.status === "success") {
+                        notify(isHi ? `कर्मचारी '${empName}' हटा दिया गया!` : `Employee '${empName}' removed!`);
+                        fetchHospitalDeepDive(selectedHospital.hospital_code);
+                        fetchGlobalData();
+                    } else {
+                        notify(data.detail || "Failed to delete employee.", "error");
+                    }
+                } catch (err) {
+                    notify(`Error deleting employee: ${err.message}`, "error");
+                }
+            },
+        });
     };
 
     // 8. Add Department Handler
@@ -1868,38 +2001,46 @@ export default function SuperAdminPage({
                 fetchHospitalDeepDive(selectedHospital.hospital_code);
                 window.dispatchEvent(new CustomEvent("hospital_departments_updated", { detail: { hospital_code: selectedHospital.hospital_code } }));
             } else {
-                alert(data.detail || "Failed to add department.");
+                notify(data.detail || "Failed to add department.", "error");
             }
         } catch (err) {
-            alert(`Error: ${err.message}`);
+            notify(`Error: ${err.message}`, "error");
         }
     };
 
     // 9. Delete Department Handler
-    const handleDeleteDepartment = async (dept) => {
+    const handleDeleteDepartment = (dept) => {
         if (!selectedHospital) return;
         const confirmMsg = isHi
             ? `क्या आप वाकई विभाग '${dept.name}' और इसके सभी डेस्क हटाना चाहते हैं?`
             : `Are you sure you want to remove department '${dept.name}' and all its desks?`;
-        if (!window.confirm(confirmMsg)) return;
 
-        try {
-            const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/departments/${dept.dept_code}`, {
-                method: "DELETE",
-                headers: getAuthHeaders(),
-            });
-            const data = await res.json();
-            if (res.ok && data.status === "success") {
-                notify(isHi ? `विभाग '${dept.name}' हटा दिया गया!` : `Department '${dept.name}' removed!`);
-                fetchHospitalDeepDive(selectedHospital.hospital_code);
-                fetchGlobalData();
-                window.dispatchEvent(new CustomEvent("hospital_departments_updated", { detail: { hospital_code: selectedHospital.hospital_code } }));
-            } else {
-                alert(data.detail || "Failed to delete department.");
-            }
-        } catch (err) {
-            alert(`Error deleting department: ${err.message}`);
-        }
+        showConfirm({
+            title: isHi ? "विभाग हटाएं" : "Remove Department",
+            message: confirmMsg,
+            confirmText: isHi ? "हाँ, हटाएं" : "Remove",
+            cancelText: isHi ? "रद्द करें" : "Cancel",
+            isDestructive: true,
+            onConfirm: async () => {
+                try {
+                    const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/departments/${dept.dept_code}`, {
+                        method: "DELETE",
+                        headers: getAuthHeaders(),
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.status === "success") {
+                        notify(isHi ? `विभाग '${dept.name}' हटा दिया गया!` : `Department '${dept.name}' removed!`);
+                        fetchHospitalDeepDive(selectedHospital.hospital_code);
+                        fetchGlobalData();
+                        window.dispatchEvent(new CustomEvent("hospital_departments_updated", { detail: { hospital_code: selectedHospital.hospital_code } }));
+                    } else {
+                        notify(data.detail || "Failed to delete department.", "error");
+                    }
+                } catch (err) {
+                    notify(`Error deleting department: ${err.message}`, "error");
+                }
+            },
+        });
     };
 
     // 10. Add Desk Handler
@@ -1907,7 +2048,7 @@ export default function SuperAdminPage({
         e.preventDefault();
         if (!selectedHospital) return;
         if (!newDeskForm.dept_code) {
-            alert(isHi ? "कृपया पहले एक विभाग चुनें।" : "Please select a department for this desk.");
+            notify(isHi ? "कृपया पहले एक विभाग चुनें।" : "Please select a department for this desk.", "warn");
             return;
         }
         try {
@@ -1935,37 +2076,45 @@ export default function SuperAdminPage({
                 fetchHospitalDeepDive(selectedHospital.hospital_code);
                 fetchGlobalData();
             } else {
-                alert(data.detail || "Failed to add desk.");
+                notify(data.detail || "Failed to add desk.", "error");
             }
         } catch (err) {
-            alert(`Error adding desk: ${err.message}`);
+            notify(`Error adding desk: ${err.message}`, "error");
         }
     };
 
     // 11. Delete Desk Handler
-    const handleDeleteDesk = async (desk) => {
+    const handleDeleteDesk = (desk) => {
         if (!selectedHospital) return;
         const confirmMsg = isHi
             ? `क्या आप वाकई डेस्क '${desk.desk_name}' को हटाना चाहते हैं?`
             : `Are you sure you want to remove desk '${desk.desk_name}'?`;
-        if (!window.confirm(confirmMsg)) return;
 
-        try {
-            const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/desks/${desk.id}`, {
-                method: "DELETE",
-                headers: getAuthHeaders(),
-            });
-            const data = await res.json();
-            if (res.ok && data.status === "success") {
-                notify(isHi ? `डेस्क '${desk.desk_name}' हटा दिया गया!` : `Desk '${desk.desk_name}' removed!`);
-                fetchHospitalDeepDive(selectedHospital.hospital_code);
-                fetchGlobalData();
-            } else {
-                alert(data.detail || "Failed to delete desk.");
-            }
-        } catch (err) {
-            alert(`Error deleting desk: ${err.message}`);
-        }
+        showConfirm({
+            title: isHi ? "डेस्क हटाएं" : "Remove Desk",
+            message: confirmMsg,
+            confirmText: isHi ? "हाँ, हटाएं" : "Remove",
+            cancelText: isHi ? "रद्द करें" : "Cancel",
+            isDestructive: true,
+            onConfirm: async () => {
+                try {
+                    const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/desks/${desk.id}`, {
+                        method: "DELETE",
+                        headers: getAuthHeaders(),
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.status === "success") {
+                        notify(isHi ? `डेस्क '${desk.desk_name}' हटा दिया गया!` : `Desk '${desk.desk_name}' removed!`);
+                        fetchHospitalDeepDive(selectedHospital.hospital_code);
+                        fetchGlobalData();
+                    } else {
+                        notify(data.detail || "Failed to delete desk.", "error");
+                    }
+                } catch (err) {
+                    notify(`Error deleting desk: ${err.message}`, "error");
+                }
+            },
+        });
     };
 
     // 12. Toggle Desk Status Handler
@@ -2010,10 +2159,10 @@ export default function SuperAdminPage({
                 fetchHospitalDeepDive(selectedHospital.hospital_code);
                 window.dispatchEvent(new CustomEvent("hospital_departments_updated", { detail: { hospital_code: selectedHospital.hospital_code } }));
             } else {
-                alert(data.detail || "Failed to update department.");
+                notify(data.detail || "Failed to update department.", "error");
             }
         } catch (err) {
-            alert(`Error updating department: ${err.message}`);
+            notify(`Error updating department: ${err.message}`, "error");
         }
     };
 
@@ -2042,10 +2191,10 @@ export default function SuperAdminPage({
                 fetchHospitalDeepDive(selectedHospital.hospital_code);
                 fetchGlobalData();
             } else {
-                alert(data.message || data.detail || "Failed to update desk.");
+                notify(data.message || data.detail || "Failed to update desk.", "error");
             }
         } catch (err) {
-            alert(`Error updating desk: ${err.message}`);
+            notify(`Error updating desk: ${err.message}`, "error");
         }
     };
 
@@ -2074,45 +2223,53 @@ export default function SuperAdminPage({
                 fetchHospitalDeepDive(selectedHospital.hospital_code);
                 fetchGlobalData();
             } else {
-                alert(data.message || data.detail || "Failed to update desk assignment.");
+                notify(data.message || data.detail || "Failed to update desk assignment.", "error");
             }
         } catch (err) {
-            alert(`Error assigning desk: ${err.message}`);
+            notify(`Error assigning desk: ${err.message}`, "error");
         }
     };
 
     // 15. Bulk Update Desk Status by Department
-    const handleBulkDeskStatus = async (deptCode, targetStatus) => {
+    const handleBulkDeskStatus = (deptCode, targetStatus) => {
         if (!selectedHospital) return;
         const confirmMsg = isHi
             ? `क्या आप वाकई विभाग '${deptCode}' के सभी डेस्क को ${targetStatus === "AVAILABLE" ? "सक्रिय" : "निष्क्रिय"} करना चाहते हैं?`
             : `Are you sure you want to set all desks in department '${deptCode}' to ${targetStatus}?`;
-        if (!window.confirm(confirmMsg)) return;
 
-        try {
-            const res = await fetch(
-                `${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/desks/bulk-status`,
-                {
-                    method: "POST",
-                    headers: getAuthHeaders(),
-                    body: JSON.stringify({ dept_code: deptCode, status: targetStatus }),
+        showConfirm({
+            title: isHi ? "डेस्क स्थिति अपडेट करें" : "Update Desks Status",
+            message: confirmMsg,
+            confirmText: isHi ? "हाँ, अपडेट करें" : "Update All",
+            cancelText: isHi ? "रद्द करें" : "Cancel",
+            isDestructive: false,
+            onConfirm: async () => {
+                try {
+                    const res = await fetch(
+                        `${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/desks/bulk-status`,
+                        {
+                            method: "POST",
+                            headers: getAuthHeaders(),
+                            body: JSON.stringify({ dept_code: deptCode, status: targetStatus }),
+                        }
+                    );
+                    const data = await res.json();
+                    if (res.ok && data.status === "success") {
+                        notify(
+                            isHi
+                                ? `✓ ${data.result.updated_count} डेस्क अपडेट किए गए!`
+                                : `Successfully set ${data.result.updated_count} desks to ${targetStatus}!`
+                        );
+                        fetchHospitalDeepDive(selectedHospital.hospital_code);
+                        fetchGlobalData();
+                    } else {
+                        notify(data.detail || "Failed to update desks in bulk.", "error");
+                    }
+                } catch (err) {
+                    notify(`Error updating desks in bulk: ${err.message}`, "error");
                 }
-            );
-            const data = await res.json();
-            if (res.ok && data.status === "success") {
-                notify(
-                    isHi
-                        ? `✓ ${data.result.updated_count} डेस्क अपडेट किए गए!`
-                        : `Successfully set ${data.result.updated_count} desks to ${targetStatus}!`
-                );
-                fetchHospitalDeepDive(selectedHospital.hospital_code);
-                fetchGlobalData();
-            } else {
-                alert(data.detail || "Failed to update desks in bulk.");
-            }
-        } catch (err) {
-            alert(`Error updating desks in bulk: ${err.message}`);
-        }
+            },
+        });
     };
 
     // 16. Update Employee / Doctor Password Handler
@@ -2120,7 +2277,7 @@ export default function SuperAdminPage({
         e.preventDefault();
         if (!selectedHospital || !passwordTargetEmployee) return;
         if (!newPasswordValue || newPasswordValue.trim().length < 4) {
-            alert(isHi ? "पासवर्ड कम से कम 4 अक्षरों का होना चाहिए।" : "Password must be at least 4 characters.");
+            notify(isHi ? "पासवर्ड कम से कम 4 अक्षरों का होना चाहिए।" : "Password must be at least 4 characters.", "warn");
             return;
         }
         setIsUpdatingPassword(true);
@@ -2161,19 +2318,76 @@ export default function SuperAdminPage({
                         : `Password for '${passwordTargetEmployee.name || passwordTargetEmployee.username}' updated successfully!`
                 );
             } else {
-                alert(data.detail || data.message || "Failed to update password.");
+                notify(data.detail || data.message || "Failed to update password.", "error");
             }
         } catch (err) {
-            alert(`Error updating password: ${err.message}`);
+            notify(`Error updating password: ${err.message}`, "error");
         } finally {
             setIsUpdatingPassword(false);
         }
     };
 
     return (
-        <div className="superadmin-portal-root" style={{ width: "100%", maxWidth: "100%", margin: "0 auto", padding: "0 4px 4px 4px", boxSizing: "border-box" }}>
-            {/* 1. SUPER ADMIN HERO SECTION (Real-Time Live Telemetry) */}
-            <section className="superadmin-hero-container">
+        <div className="superadmin-portal-root" style={{ width: "100%", maxWidth: "100%", margin: "0", padding: "0", boxSizing: "border-box" }}>
+            <div className={`superadmin-layout-container ${isSidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+                {/* Mobile Drawer Overlay Backdrop */}
+                {mobileDrawerOpen && (
+                    <div
+                        className="superadmin-sidebar-backdrop"
+                        onClick={() => setMobileDrawerOpen(false)}
+                    />
+                )}
+
+                {/* Left Side: Modern Persistent Control Center Sidebar (Reference Rail) */}
+                <SuperAdminSidebar
+                    mobileOpen={mobileDrawerOpen}
+                    onCloseMobile={() => setMobileDrawerOpen(false)}
+                    activeTab={activeTab}
+                    onSelectTab={(tabId) => {
+                        setActiveTab(tabId);
+                        if (tabId === "branding") {
+                            setActiveBrandingTab("profile");
+                            const target = selectedHospital || hospitals[0];
+                            if (target) {
+                                loadHospitalBrandingData(target);
+                            }
+                        }
+                        setMobileDrawerOpen(false);
+                    }}
+                    selectedHospital={selectedHospital}
+                    hospitals={hospitals}
+                    hospitalEmployees={hospitalEmployees}
+                    hospitalDesksData={hospitalDesksData}
+                    hospitalDepts={hospitalDepts}
+                    hospitalVisitsData={hospitalVisitsData}
+                    hospitalBranding={hospitalBranding}
+                    brandingForm={brandingForm}
+                    activeBroadcastsCount={activeBroadcastsCount}
+                    socketConnected={socketConnected}
+                    lastSyncedAt={lastSyncedAt}
+                    isHi={isHi}
+                />
+
+                {/* Right Side: Main Workspace */}
+                <main className="superadmin-workspace">
+                    {/* Mobile Navigation Header Bar with Hamburger */}
+                    <div className="superadmin-mobile-topbar">
+                        <button
+                            type="button"
+                            className="superadmin-mobile-menu-btn"
+                            onClick={() => setMobileDrawerOpen(true)}
+                            aria-label="Open Super Admin Navigation"
+                        >
+                            <IconMenu size={20} />
+                        </button>
+                        <div className="superadmin-mobile-title">
+                            <IconShield size={18} color="#0284C7" />
+                            <span>{selectedHospital?.name || (isHi ? "सुपर एडमिन" : "Super Admin Control Center")}</span>
+                        </div>
+                    </div>
+
+                    {/* 1. SUPER ADMIN HERO SECTION (Real-Time Live Telemetry) */}
+                    <section className="superadmin-hero-container">
                 <div className="superadmin-hero-left-col">
                     <div>
                         {selectedHospital && (
@@ -2306,21 +2520,6 @@ export default function SuperAdminPage({
 
                         return (
                             <>
-                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", zIndex: 3, flexWrap: "wrap", gap: "8px" }}>
-                                    <div className="superadmin-hero-telemetry-badge" style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "rgba(255, 255, 255, 0.95)", backdropFilter: "blur(8px)", padding: "4px 12px", borderRadius: "9999px", border: "1px solid #BAE6FD", boxShadow: "0 2px 8px rgba(2, 132, 199, 0.08)" }}>
-                                        <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#10B981", display: "inline-block" }} />
-                                        <span style={{ fontSize: "11px", fontWeight: 800, color: "#0369A1", letterSpacing: "0.2px" }}>
-                                            {selectedHospital
-                                                ? `${selectedHospital.name.toUpperCase()} • ${isHi ? "लाइव टेलीमेट्री" : "LIVE CLOUD TELEMETRY"}`
-                                                : (isHi ? "लाइव नेटवर्क टेलीमेट्री" : "LIVE CLOUD TELEMETRY")}
-                                        </span>
-                                    </div>
-                                    {selectedHospital && (
-                                        <span style={{ fontSize: "11px", color: "#64748B", fontWeight: 700 }}>
-                                            {selectedHospital.hospital_code}
-                                        </span>
-                                    )}
-                                </div>
 
                                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", width: "100%", margin: "0", zIndex: 3 }}>
                                     <div className="superadmin-hero-telemetry-card" style={{ background: "rgba(255, 255, 255, 0.92)", backdropFilter: "blur(10px)", border: "1px solid #BAE6FD", borderRadius: "14px", padding: "12px 14px", boxShadow: "0 4px 12px rgba(2, 132, 199, 0.06)" }}>
@@ -2367,148 +2566,9 @@ export default function SuperAdminPage({
                 </div>
             )}
 
-            {/* 2. UNIFIED SUPER ADMIN NAVIGATION HUB (SLIDER BAR) */}
-            <section className="superadmin-nav-section">
-                <div className="superadmin-nav-header">
-                    <div className="superadmin-nav-title">
-                        <IconSliders size={20} color="#0284C7" />
-                        <div>
-                            <h2 style={{ margin: 0, fontSize: "18px", color: "var(--superadmin-text-main, #0F172A)", fontWeight: 800 }}>
-                                {isHi ? "सुपर एडमिन नियंत्रण हब" : "Super Admin Control Center"}
-                            </h2>
-                            <span style={{ fontSize: "12px", color: "var(--superadmin-text-muted, #64748B)" }}>
-                                {isHi ? "मॉड्यूल का चयन करें" : "Select an operational module to review and control:"}
-                            </span>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="superadmin-tabs-slider-wrapper">
-                    {/* Left subtle edge gradient indicator */}
-                    <div className={`slider-edge-gradient left ${canScrollLeft ? "active" : ""}`} />
-
-                    <div
-                        className="superadmin-tabs-bar"
-                        ref={tabsBarRef}
-                        onScroll={updateScrollBounds}
-                    >
-                        {[
-                            {
-                                id: "overview",
-                                icon: <IconChart size={20} />,
-                                title: isHi ? "360° अवलोकन" : "360° Overview",
-                                subtitle: isHi ? "लाइव कतार, चार्ट, ऑडिट" : "Live Queue & Telemetry",
-                                badge: null,
-                            },
-                            {
-                                id: "hospitals",
-                                icon: <IconHospital size={20} />,
-                                title: isHi ? "अस्पताल नेटवर्क" : "Hospitals",
-                                subtitle: isHi ? "शाखाएं व स्थान" : "Branches & Locations",
-                                badge: hospitals.length,
-                            },
-                            {
-                                id: "employees",
-                                icon: <IconUsers size={20} />,
-                                title: isHi ? "स्टाफ" : "Staff",
-                                subtitle: isHi ? "डॉक्टर, स्टाफ, क्रेडेंशियल" : "Clinicians & Employees",
-                                badge: hospitalEmployees.length,
-                            },
-                            {
-                                id: "desks",
-                                icon: <IconDesk size={20} />,
-                                title: isHi ? "सक्रिय काउंटर/डेस्क" : "Active Desks",
-                                subtitle: isHi ? "जोड़ें / हटाएं / स्थिति" : "Add, Remove & Status",
-                                badge: `${hospitalDesksData.active_desks || 0}/${hospitalDesksData.total_desks || 0}`,
-                            },
-                            {
-                                id: "depts",
-                                icon: <IconBuilding size={20} />,
-                                title: isHi ? "क्लिनिकल विभाग" : "Departments",
-                                subtitle: isHi ? "जोड़ें / हटाएं / OPD, Lab" : "Add, Remove Categories",
-                                badge: hospitalDepts.length,
-                            },
-                            {
-                                id: "visits",
-                                icon: <IconFileText size={20} />,
-                                title: isHi ? "मरीज़ विज़िट" : "Patient Visits",
-                                subtitle: isHi ? "परामर्श व विज़िट इतिहास" : "Consultation Archive",
-                                badge: hospitalVisitsData?.summary?.total_patients_visited_all_time ?? hospitalVisitsData?.visits?.length ?? 0,
-                            },
-                            {
-                                id: "branding",
-                                icon: <IconPalette size={20} />,
-                                title: isHi ? "कस्टमाइज़ेशन व ब्रांडिंग" : "Branding Studio",
-                                subtitle: isHi ? "प्रोफाइल, थीम, लोगो, समय" : "Profile, Theme, Logo & Hours",
-                                badge: null,
-                            },
-                        ].map((tab) => {
-                            const isActive = activeTab === tab.id;
-                            return (
-                                <button
-                                    key={tab.id}
-                                    type="button"
-                                    data-tab={tab.id}
-                                    onClick={() => {
-                                        setActiveTab(tab.id);
-                                        if (tab.id === "branding") {
-                                            setActiveBrandingTab("profile");
-                                            const target = selectedHospital || hospitals[0];
-                                            if (target) {
-                                                loadHospitalBrandingData(target);
-                                            }
-                                        }
-                                    }}
-                                    className={`tab-button-modern ${isActive ? "active" : "inactive"}`}
-                                >
-                                    <div className="tab-icon-wrapper">
-                                        {tab.icon}
-                                    </div>
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
-                                            <span className="tab-title-text" style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                                {tab.title}
-                                            </span>
-                                            {tab.badge !== null && (
-                                                <span
-                                                    className="tab-count-badge"
-                                                    style={{
-                                                        background: isActive ? "#FFFFFF" : "#0284C7",
-                                                        color: isActive ? "#0284C7" : "#FFFFFF",
-                                                        flexShrink: 0,
-                                                    }}
-                                                >
-                                                    {tab.badge}
-                                                </span>
-                                            )}
-                                        </div>
-                                        <span
-                                            className="tab-sub-text"
-                                            style={{
-                                                color: isActive ? "#E0F2FE" : "#64748B",
-                                                whiteSpace: "nowrap",
-                                                overflow: "hidden",
-                                                textOverflow: "ellipsis",
-                                            }}
-                                        >
-                                            {tab.subtitle}
-                                        </span>
-                                    </div>
-                                </button>
-                            );
-                        })}
-                    </div>
-
-                    {/* Right subtle edge gradient indicator */}
-                    <div className={`slider-edge-gradient right ${canScrollRight ? "active" : ""}`} />
-                </div>
-            </section>
-
-            {/* 3. 2-COLUMN RESPONSIVE DASHBOARD LAYOUT */}
-            <div className={`superadmin-portal-dashboard ${activeTab !== "overview" ? "full-width-layout" : ""}`}>
-                {/* LEFT COLUMN: Main Modular Tab Content */}
-                <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-                    {/* TAB 0: 360° VISUAL HOSPITAL OPERATIONS DASHBOARD */}
+                    {/* Main Active Module Workspace View */}
+                    <div className="superadmin-module-content" style={{ display: "flex", flexDirection: "column", gap: "24px", width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box" }}>
+                        {/* TAB 0: 360° VISUAL HOSPITAL OPERATIONS DASHBOARD */}
                     {activeTab === "overview" && (
                         <Hospital360Overview
                             selectedHospital={selectedHospital}
@@ -2688,6 +2748,8 @@ export default function SuperAdminPage({
                             formatRelativeLogin={formatRelativeLogin}
                             language={language}
                             isHi={isHi}
+                            notify={notify}
+                            showConfirm={showConfirm}
                         />
                     )}
 
@@ -2759,56 +2821,52 @@ export default function SuperAdminPage({
                             fetchGlobalData={fetchGlobalData}
                             getAuthHeaders={getAuthHeaders}
                             currentUser={currentUser}
+                            showConfirm={showConfirm}
                         />
                     )}
-                </div>
 
-                {/* RIGHT COLUMN: Telemetry & Live Network Status Sidebar Card (Shown Only on 360 Overview) */}
-                {activeTab === "overview" && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-                        <div className="telemetry-sidebar-card">
-                            <h3 style={{ margin: "0 0 8px 0", fontSize: "16px", color: "var(--superadmin-text-main, #0F172A)", fontWeight: 800, display: "flex", alignItems: "center", gap: "6px" }}>
-                                <IconHospital size={16} color="#0284C7" />
-                                <span>{isHi ? "सक्रिय अस्पताल दृश्य" : "Focus Hospital"}</span>
-                            </h3>
-                            <span style={{ fontSize: "12px", color: "var(--superadmin-text-muted, #64748B)", marginBottom: "10px", display: "block" }}>
-                                Select which hospital's data to view and manage:
-                            </span>
+                    {/* TAB 7: KIOSKS & WAITING ROOM DISPLAYS */}
+                    {activeTab === "kiosks" && (
+                        <KiosksManagementTab
+                            selectedHospital={selectedHospital}
+                            hospitals={hospitals}
+                            onSelectHospital={(hosp) => {
+                                setSelectedHospital(hosp);
+                                if (onSelectHospitalTenant) onSelectHospitalTenant(hosp.hospital_code);
+                            }}
+                            hospitalDepts={hospitalDepts}
+                            getAuthHeaders={getAuthHeaders}
+                            notify={notify}
+                            showConfirm={showConfirm}
+                            language={language}
+                            isHi={isHi}
+                        />
+                    )}
 
-                            <select
-                                value={selectedHospital?.hospital_code || ""}
-                                onChange={(e) => {
-                                    const found = hospitals.find((h) => h.hospital_code === e.target.value);
-                                    if (found) {
-                                        setSelectedHospital(found);
-                                        if (onSelectHospitalTenant) onSelectHospitalTenant(found.hospital_code);
-                                    }
-                                }}
-                                style={sidebarSelectStyle}
-                            >
-                                {hospitals.map((h) => (
-                                    <option key={h.hospital_code} value={h.hospital_code}>
-                                        {h.name} ({h.hospital_code})
-                                    </option>
-                                ))}
-                            </select>
-
-                            {selectedHospital && (
-                                <div style={{ marginTop: "12px", padding: "12px", background: "var(--superadmin-sub-card, #F8FAFC)", borderRadius: "12px", border: "1px solid var(--superadmin-card-border, #E2E8F0)", fontSize: "12px" }}>
-                                    <div style={{ fontWeight: 800, color: "var(--superadmin-text-main, #0F172A)", marginBottom: "4px" }}>{selectedHospital.name}</div>
-                                    <div style={{ color: "#64748B", display: "flex", alignItems: "center", gap: "4px" }}>
-                                        <IconMapPin size={12} color="#64748B" />
-                                        <span>{selectedHospital.address || "Address not configured"}</span>
-                                    </div>
-                                    <div style={{ color: "#64748B", marginTop: "4px", display: "flex", alignItems: "center", gap: "4px" }}>
-                                        <IconPhone size={12} color="#64748B" />
-                                        <span>{selectedHospital.phone || "—"}</span>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
+                    {/* TAB 8: EMERGENCY BROADCAST & ANNOUNCEMENT CENTER */}
+                    {activeTab === "broadcasts" && (
+                        <BroadcastCenterTab
+                            hospitals={hospitals}
+                            selectedHospital={selectedHospital}
+                            getAuthHeaders={getAuthHeaders}
+                            notify={notify}
+                            showConfirm={showConfirm}
+                            isHi={isHi}
+                            currentUser={currentUser}
+                            socketConnected={socketConnected}
+                        />
+                    )}
                     </div>
-                )}
+
+                    {/* FOOTER */}
+                    <div style={{ marginTop: "24px", marginBottom: "0px", width: "100%" }}>
+                        <Footer
+                            language={language}
+                            hospitalName={selectedHospital?.name || currentUser?.hospital_name || "City General Hospital"}
+                            currentUser={currentUser}
+                        />
+                    </div>
+                </main>
             </div>
 
             {/* 4. MODALS */}
@@ -2956,14 +3014,11 @@ export default function SuperAdminPage({
                 isHi={isHi}
             />
 
-            {/* FOOTER */}
-            <div style={{ marginTop: "20px", marginBottom: "0px" }}>
-                <Footer
-                    language={language}
-                    hospitalName={selectedHospital?.name || currentUser?.hospital_name || "City General Hospital"}
-                    currentUser={currentUser}
-                />
-            </div>
+
+
+            {/* IN-APP TOAST AND CONFIRMATION MODALS */}
+            <InAppToast toast={inAppToast} onClose={() => setInAppToast(null)} isDark={isDark} />
+            <InAppConfirmModal dialog={confirmDialog} onClose={() => setConfirmDialog(null)} isDark={isDark} />
         </div>
     );
 }

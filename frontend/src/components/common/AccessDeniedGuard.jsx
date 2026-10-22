@@ -31,7 +31,7 @@ export default function AccessDeniedGuard({ requiredRole, pageName, currentUser,
             : (isDoctorTarget
               ? (language === "hi" ? "डॉक्टर प्रमाणीकरण आवश्यक" : "Doctor Authentication Required")
               : (isStaffTarget
-                ? (language === "hi" ? "स्टाफ रिसेप्शन डेस्क प्रमाणीकरण आवश्यक" : "Staff Reception Desk Required")
+                ? (language === "hi" ? "रिसेप्शन पोर्टल प्रमाणीकरण आवश्यक" : "Reception Portal Access Required")
                 : (language === "hi" ? "प्रतिबंधित पहुंच" : "Restricted Access")))}
         </h2>
         <p style={{ color: "#475569", fontSize: "14px", lineHeight: "1.6", marginBottom: "20px" }}>
@@ -88,7 +88,7 @@ export default function AccessDeniedGuard({ requiredRole, pageName, currentUser,
                 return language === "hi" ? "डॉक्टर परामर्श डेस्क पर जाएं" : "Go to Doctor Consult Desk";
               }
               if (["staff", "receptionist", "nurse"].includes(r)) {
-                return language === "hi" ? "स्टाफ रिसेप्शन डेस्क पर जाएं" : "Go to Staff Reception Desk";
+                return language === "hi" ? "रिसेप्शन पोर्टल पर जाएं" : "Go to Reception Portal";
               }
               return language === "hi" ? "रोगी पोर्टल पर वापस जाएं" : "Return to Patient Portal";
             })()}

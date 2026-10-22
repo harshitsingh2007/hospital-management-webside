@@ -1368,3 +1368,445 @@
           background: #10B981;
           animation: liveRadarPing 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
         }
+
+        /* =========================================================================
+           SUPER ADMIN REFERENCE SIDEBAR RAIL (GEETA UNIVERSITY PORTAL STYLE)
+           ========================================================================= */
+
+        .superadmin-layout-container {
+          position: relative;
+          width: 100%;
+          min-height: calc(100vh - 90px);
+          box-sizing: border-box;
+        }
+
+        /* 1. Fixed Full-Height Sidebar Rail */
+        .superadmin-geeta-sidebar {
+          position: fixed;
+          top: 0;
+          left: 0;
+          bottom: 0;
+          height: 100vh;
+          width: 72px;
+          background: #FFFFFF;
+          border-right: 1px solid #E2E8F0;
+          display: flex;
+          flex-direction: column;
+          z-index: 1000;
+          overflow: hidden;
+          scrollbar-width: none;
+          -ms-overflow-style: none;
+          transition: width 200ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 200ms ease;
+        }
+
+        .superadmin-geeta-sidebar::-webkit-scrollbar {
+          display: none;
+        }
+
+        /* 2. Expanded State (Widens to 300px as an Overlay over the page) */
+        .superadmin-geeta-sidebar.expanded {
+          width: 300px;
+          box-shadow: 4px 0 24px rgba(0, 0, 0, 0.12), 0 0 1px rgba(0, 0, 0, 0.06);
+        }
+
+        /* 3. Top Rail Area (Hospital Logo & Pin Button) */
+        .superadmin-rail-top {
+          height: 72px;
+          padding: 0 14px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          border-bottom: 1px solid #F1F5F9;
+          flex-shrink: 0;
+          box-sizing: border-box;
+        }
+
+        .superadmin-rail-logo-wrap {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          min-width: 0;
+        }
+
+        .superadmin-rail-logo-img {
+          width: 44px;
+          height: 44px;
+          object-fit: contain;
+          border-radius: 12px;
+          background: #FFFFFF;
+          border: 1px solid #E2E8F0;
+          box-sizing: border-box;
+          padding: 2px;
+          flex-shrink: 0;
+        }
+
+        .superadmin-rail-crest {
+          width: 44px;
+          height: 44px;
+          border-radius: 12px;
+          background: #F8FAFC;
+          border: 1px solid #E2E8F0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+        }
+
+        .superadmin-rail-title-wrap {
+          display: flex;
+          flex-direction: column;
+          min-width: 0;
+          line-height: 1.2;
+        }
+
+        .superadmin-rail-brand-name {
+          font-size: 14.5px;
+          font-weight: 800;
+          color: #0C2340;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          letter-spacing: -0.3px;
+        }
+
+        .superadmin-rail-sub-title {
+          font-size: 10px;
+          font-weight: 700;
+          color: #0284C7;
+          letter-spacing: 0.5px;
+          text-transform: uppercase;
+          margin-top: 2px;
+        }
+
+        .superadmin-pin-toggle-btn {
+          width: 28px;
+          height: 28px;
+          border-radius: 50%;
+          border: none;
+          background: none;
+          color: #94A3B8;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          transition: all 0.15s ease;
+          padding: 0;
+          flex-shrink: 0;
+        }
+
+        .superadmin-pin-toggle-btn:hover {
+          color: #0C2340;
+          background: #F1F5F9;
+        }
+
+        .superadmin-pin-toggle-btn.is-pinned {
+          color: #0284C7;
+        }
+
+        .superadmin-mobile-close-btn {
+          width: 32px;
+          height: 32px;
+          border-radius: 8px;
+          border: 1px solid #CBD5E1;
+          background: #F8FAFC;
+          color: #64748B;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+        }
+
+        /* 4. Single Flat List Navigation (44px height, 8px gaps) */
+        .superadmin-rail-nav {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          padding: 14px 10px;
+          overflow-y: auto;
+          scrollbar-width: none;
+          box-sizing: border-box;
+        }
+
+        .superadmin-rail-nav::-webkit-scrollbar {
+          display: none;
+        }
+
+        .superadmin-rail-item {
+          height: 44px;
+          width: 100%;
+          display: flex;
+          align-items: center;
+          border-radius: 12px;
+          background: transparent;
+          border: 1px solid transparent;
+          color: #334155;
+          cursor: pointer;
+          padding: 0 12px;
+          gap: 14px;
+          transition: all 0.15s ease;
+          outline: none;
+          text-align: left;
+          user-select: none;
+          box-sizing: border-box;
+          position: relative;
+        }
+
+        .superadmin-rail-item:hover {
+          background: #F1F5F9;
+          color: #0C2340;
+        }
+
+        .superadmin-rail-item:focus-visible {
+          outline: 2px solid #0284C7;
+          outline-offset: 1px;
+        }
+
+        /* Solid Dark Navy Active Pill Matching Reference */
+        .superadmin-rail-item.active {
+          background: #0C2340 !important;
+          color: #FFFFFF !important;
+          box-shadow: 0 2px 8px rgba(12, 35, 64, 0.25);
+        }
+
+        .superadmin-rail-item.active .superadmin-rail-item-icon {
+          color: #FFFFFF !important;
+        }
+
+        .superadmin-rail-item-icon {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+          color: #475569;
+          transition: color 0.15s ease;
+          width: 22px;
+          height: 22px;
+        }
+
+        .superadmin-rail-item-label {
+          font-size: 13.5px;
+          font-weight: 600;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          flex: 1;
+        }
+
+        .superadmin-rail-item-badge {
+          font-size: 10.5px;
+          font-weight: 800;
+          padding: 1px 7px;
+          border-radius: 10px;
+          background: #E2E8F0;
+          color: #334155;
+          margin-left: auto;
+        }
+
+        .superadmin-rail-item-badge.active {
+          background: rgba(255, 255, 255, 0.2);
+          color: #FFFFFF;
+        }
+
+        /* 5. Compact System Status Dot at Bottom */
+        .superadmin-rail-status-dock {
+          padding: 12px 14px;
+          border-top: 1px solid #F1F5F9;
+          flex-shrink: 0;
+          background: inherit;
+          box-sizing: border-box;
+        }
+
+        .superadmin-rail-status-collapsed {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          height: 28px;
+          cursor: pointer;
+        }
+
+        .status-dot-pulse {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+        }
+
+        .status-dot-pulse.green {
+          background: #10B981;
+          box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+        }
+
+        .status-dot-pulse.red {
+          background: #EF4444;
+          box-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
+        }
+
+        .superadmin-rail-status-expanded {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          font-size: 11px;
+        }
+
+        .status-indicator-row {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-weight: 700;
+          color: #0C2340;
+        }
+
+        .status-label-text {
+          font-size: 11px;
+          white-space: nowrap;
+        }
+
+        .status-sub-info {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          font-size: 10px;
+          color: #64748B;
+        }
+
+        /* 6. Workspace Layout (Left clearance handled cleanly by page wrapper) */
+        .superadmin-workspace {
+          margin-left: 0;
+          flex: 1;
+          min-width: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 20px;
+          padding: 0;
+          box-sizing: border-box;
+        }
+
+        .superadmin-mobile-topbar {
+          display: none;
+          align-items: center;
+          gap: 12px;
+          padding: 10px 16px;
+          background: var(--superadmin-card-bg, #FFFFFF);
+          border: 1px solid var(--superadmin-card-border, #E2E8F0);
+          border-radius: 14px;
+        }
+
+        .superadmin-mobile-menu-btn {
+          width: 36px;
+          height: 36px;
+          border-radius: 8px;
+          border: 1px solid #CBD5E1;
+          background: #F1F5F9;
+          color: #0F172A;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+        }
+
+        .superadmin-mobile-title {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 15px;
+          font-weight: 800;
+          color: #0F172A;
+        }
+
+        .desktop-only {
+          display: flex;
+        }
+
+        .mobile-only {
+          display: none;
+        }
+
+        /* 7. Responsive Breakpoints (Tablet & Mobile) */
+        @media (max-width: 768px) {
+          .desktop-only {
+            display: none !important;
+          }
+
+          .mobile-only {
+            display: flex !important;
+          }
+
+          .superadmin-mobile-topbar {
+            display: flex;
+          }
+
+          .superadmin-sidebar-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(4px);
+            z-index: 9998;
+          }
+
+          .superadmin-geeta-sidebar {
+            position: fixed !important;
+            top: 0 !important;
+            bottom: 0 !important;
+            left: 0 !important;
+            height: 100vh !important;
+            width: 285px !important;
+            z-index: 9999 !important;
+            transform: translateX(-100%);
+            box-shadow: 4px 0 30px rgba(0, 0, 0, 0.25);
+          }
+
+          .superadmin-geeta-sidebar.mobile-drawer-open {
+            transform: translateX(0);
+          }
+
+          .superadmin-workspace {
+            margin-left: 0 !important;
+          }
+        }
+
+        /* 8. Dark Theme Support */
+        body.theme-dark .superadmin-geeta-sidebar {
+          background: #0F172A;
+          border-color: #1E293B;
+          box-shadow: 4px 0 24px rgba(0, 0, 0, 0.5);
+        }
+
+        body.theme-dark .superadmin-rail-top {
+          border-color: #1E293B;
+        }
+
+        body.theme-dark .superadmin-rail-crest {
+          background: #1E293B;
+          border-color: #334155;
+        }
+
+        body.theme-dark .superadmin-rail-brand-name {
+          color: #F8FAFC;
+        }
+
+        body.theme-dark .superadmin-rail-item {
+          color: #CBD5E1;
+        }
+
+        body.theme-dark .superadmin-rail-item:hover {
+          background: #1E293B;
+          color: #38BDF8;
+        }
+
+        body.theme-dark .superadmin-rail-item.active {
+          background: #1E3A8A !important;
+          color: #FFFFFF !important;
+        }
+
+        body.theme-dark .superadmin-rail-status-dock {
+          border-color: #1E293B;
+        }
+
+        body.theme-dark .status-indicator-row {
+          color: #F8FAFC;
+        }
+
+        body.theme-dark .superadmin-mobile-topbar {
+          background: #0F172A;
+          border-color: #1E293B;
+        }

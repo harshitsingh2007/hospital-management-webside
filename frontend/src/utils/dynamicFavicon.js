@@ -88,7 +88,7 @@ export function updateBrowserTabBrand({
       if (["doctor", "staff", "receptionist", "admin"].includes(roleStr)) {
         portalSuffix = roleStr === "doctor"
           ? "Doctor Portal"
-          : (roleStr === "receptionist" ? "Reception Portal" : "Staff Portal");
+          : "Reception Portal";
       }
 
       document.title = `${cleanName} | ${portalSuffix}`;

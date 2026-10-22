@@ -47,6 +47,7 @@ export default function Header({
   const [showAddFamilyModal, setShowAddFamilyModal] = useState(false);
   const [familySwitcherExpanded, setFamilySwitcherExpanded] = useState(false);
 
+
   // Live Family Tickets dictionary for badge rendering
   const [familyTickets, setFamilyTickets] = useState(() => {
     try {
@@ -944,7 +945,7 @@ export default function Header({
 
         {/* 3. Right: Theme Toggle (User Portal Only), Language Selector & Patient Profile Dropdown */}
         <div style={{ display: "flex", alignItems: "center", gap: "8px", position: "relative", flexShrink: 0 }}>
-          {/* Theme Toggle Switch (Available for Patient, Super Admin & Doctor/Staff Portals) */}
+          {/* Theme Toggle Switch (Available for Patient, Super Admin & Doctor/Reception Portals) */}
           {(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "admin") && (
             <button
               type="button"

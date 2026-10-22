@@ -179,6 +179,7 @@ export default function BrandingStaffSubTab({
     hospitalDepts = [],
     fetchHospitalDeepDive,
     fetchGlobalData,
+    showConfirm,
 }) {
     const tenantId = currentHosp?.hospital_code || "city-hospital-01";
     const hospName = currentHosp?.name || "Hospital";
@@ -329,11 +330,11 @@ export default function BrandingStaffSubTab({
                     room_number: "",
                 });
             } else {
-                alert(data.detail || data.message || "Failed to create staff member.");
+                if (notify) notify(data.detail || data.message || "Failed to create staff member.", "error");
             }
         } catch (err) {
             setIsSubmitting(false);
-            alert(`Error: ${err.message}`);
+            if (notify) notify(`Error: ${err.message}`, "error");
         }
     };
 
@@ -618,29 +619,48 @@ export default function BrandingStaffSubTab({
                 if (fetchHospitalDeepDive) fetchHospitalDeepDive(tenantId, true);
             }
         } catch (err) {
-            alert(`Error toggling employee: ${err.message}`);
+            if (notify) notify(`Error toggling employee: ${err.message}`, "error");
         }
     };
 
     // Handle Delete Staff
-    const handleDeleteStaff = async (employee) => {
-        if (!window.confirm(isHi ? `क्या आप निश्चित रूप से '${employee.username || employee.name}' को हटाना चाहते हैं?` : `Are you sure you want to remove staff member '${employee.username || employee.name}'?`)) {
-            return;
-        }
-        try {
-            const headers = getAuthHeaders ? getAuthHeaders() : { "Content-Type": "application/json" };
-            const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${tenantId}/employees/${employee.id}`, {
-                method: "DELETE",
-                headers,
-            });
-            const data = await res.json();
-            if (res.ok && data.status === "success") {
-                if (notify) notify(isHi ? "स्टाफ सदस्य सफलतापूर्वक हटाया गया" : "Staff member removed successfully");
-                fetchEmployees();
-                if (fetchHospitalDeepDive) fetchHospitalDeepDive(tenantId, true);
+    const handleDeleteStaff = (employee) => {
+        const empName = employee.username || employee.name || "staff member";
+        const confirmMsg = isHi
+            ? `क्या आप निश्चित रूप से '${empName}' को हटाना चाहते हैं?`
+            : `Are you sure you want to remove staff member '${empName}'?`;
+
+        const executeDelete = async () => {
+            try {
+                const headers = getAuthHeaders ? getAuthHeaders() : { "Content-Type": "application/json" };
+                const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${tenantId}/employees/${employee.id}`, {
+                    method: "DELETE",
+                    headers,
+                });
+                const data = await res.json();
+                if (res.ok && data.status === "success") {
+                    if (notify) notify(isHi ? "स्टाफ सदस्य सफलतापूर्वक हटाया गया" : "Staff member removed successfully");
+                    fetchEmployees();
+                    if (fetchHospitalDeepDive) fetchHospitalDeepDive(tenantId, true);
+                } else {
+                    if (notify) notify(data.detail || data.message || "Failed to delete employee", "error");
+                }
+            } catch (err) {
+                if (notify) notify(`Error deleting employee: ${err.message}`, "error");
             }
-        } catch (err) {
-            alert(`Error deleting employee: ${err.message}`);
+        };
+
+        if (showConfirm) {
+            showConfirm({
+                title: isHi ? "स्टाफ सदस्य हटाएं" : "Remove Staff Member",
+                message: confirmMsg,
+                confirmText: isHi ? "हाँ, हटाएं" : "Remove",
+                cancelText: isHi ? "रद्द करें" : "Cancel",
+                isDestructive: true,
+                onConfirm: executeDelete,
+            });
+        } else {
+            executeDelete();
         }
     };
 

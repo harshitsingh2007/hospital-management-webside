@@ -5,3 +5,5 @@ export { default as DesksManagementTab } from "./DesksManagementTab";
 export { default as DepartmentsTab } from "./DepartmentsTab";
 export { default as BrandingStudioTab } from "./BrandingStudioTab";
 export { default as PatientVisitsTab } from "./PatientVisitsTab";
+export { default as KiosksManagementTab } from "./KiosksManagementTab";
+export { default as BroadcastCenterTab } from "./BroadcastCenterTab";

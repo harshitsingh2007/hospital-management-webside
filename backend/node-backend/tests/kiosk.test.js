@@ -214,6 +214,18 @@ async function runKioskTests() {
     assert.strictEqual(mock8.result.body.kiosk.kiosk_code, "K-02");
     console.log("[PASS] Test 8: Super Admin / Operations can upsert kiosk terminals.");
 
+    // TEST 9: Delete Kiosk
+    const { deleteKioskEndpoint } = require("../src/controllers/kiosk.controller");
+    const mock9 = createMockRes();
+    await deleteKioskEndpoint(
+      { params: { hospital_code: testHospCode, kiosk_code: "K-02" } },
+      mock9.res,
+      (err) => { throw err; }
+    );
+    assert.strictEqual(mock9.result.statusCode, 200);
+    assert.strictEqual(mock9.result.body.status, "success");
+    console.log("[PASS] Test 9: Super Admin can delete kiosk terminal.");
+
     console.log("✅ ALL DEDICATED KIOSK TESTS PASSED!");
   } finally {
     // Cleanup test data

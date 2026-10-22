@@ -5,7 +5,7 @@
  * Supports temporary legacy header fallback during frontend migration when configured.
  */
 
-const { verifyToken } = require("../utils/jwt");
+const { verifyToken, generateToken } = require("../utils/jwt");
 const prisma = require("../config/prisma");
 const env = require("../config/env");
 
@@ -79,6 +79,17 @@ async function authenticate(req, res, next) {
           (user.role !== "user" ? "city-hospital-01" : null),
         department: user.employees[0]?.departments?.dept_code || "all",
       };
+
+      // Sliding session activity: refresh 15-minute token and attach to response header
+      try {
+        const refreshedToken = generateToken({
+          id: user.id,
+          email: user.email,
+          username: user.username,
+          role: user.role,
+        }, "15m");
+        res.setHeader("X-Refreshed-Token", refreshedToken);
+      } catch (e) {}
 
       return next();
     }
