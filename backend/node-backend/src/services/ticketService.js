@@ -245,6 +245,15 @@ async function joinQueue({
   appointmentId = null,
   status = "waiting",
 }) {
+  const cleanCat = String(serviceCategory || "consultation").trim().toLowerCase();
+  if (cleanCat === "pharmacy") {
+    const err = new Error(
+      "Direct walk-in registration for Pharmacy & Medicine is not permitted. Please register for General Consultation (OPD) or a clinical clinic. The doctor will route your token to the Pharmacy once medicines are prescribed."
+    );
+    err.status = 400;
+    throw err;
+  }
+
   const tenant = engine._getTenant(tenantId);
   const now = Date.now() / 1000.0;
   const ticketId = engine.generateTicketId();
@@ -721,11 +730,48 @@ async function completeTicket(tenantId, ticketId, department = null, prescriptio
   try {
     const { recordCompletedVisit } = require("./patientHistoryService");
     let rxData = {};
-    if (prescriptionNotes && typeof prescriptionNotes === "object") {
-      rxData = prescriptionNotes;
-    } else if (ticket.prescription_notes) {
-      try { rxData = JSON.parse(ticket.prescription_notes); } catch (e) {}
+    if (prescriptionNotes) {
+      if (typeof prescriptionNotes === "object") {
+        rxData = prescriptionNotes;
+      } else if (typeof prescriptionNotes === "string") {
+        try {
+          const parsed = JSON.parse(prescriptionNotes);
+          if (parsed && typeof parsed === "object") rxData = parsed;
+        } catch (e) {}
+      }
     }
+    if (!Object.keys(rxData).length && ticket.prescription_notes) {
+      try {
+        const parsed = JSON.parse(ticket.prescription_notes);
+        if (parsed && typeof parsed === "object") rxData = parsed;
+      } catch (e) {}
+    }
+
+    let cleanAdv = "";
+    if (typeof rxData.advice === "string") {
+      cleanAdv = rxData.advice.trim();
+    } else if (typeof rxData.clinical_notes === "string") {
+      cleanAdv = rxData.clinical_notes.trim();
+    } else if (typeof prescriptionNotes === "string") {
+      const trimmed = prescriptionNotes.trim();
+      if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+        cleanAdv = trimmed;
+      }
+    }
+
+    while ((cleanAdv.startsWith('"') && cleanAdv.endsWith('"')) || (cleanAdv.startsWith("'") && cleanAdv.endsWith("'"))) {
+      cleanAdv = cleanAdv.slice(1, -1).trim();
+    }
+    if (cleanAdv.startsWith("{") || cleanAdv.startsWith("[")) {
+      try {
+        const inner = JSON.parse(cleanAdv);
+        cleanAdv = (inner && typeof inner.advice === "string") ? inner.advice.trim() : "";
+      } catch (e) {
+        cleanAdv = "";
+      }
+    }
+    cleanAdv = cleanAdv.replace(/_/g, " ");
+
     await recordCompletedVisit({
       hospital_id: hid,
       ticket_id: ticket.ticket_id,
@@ -733,9 +779,9 @@ async function completeTicket(tenantId, ticketId, department = null, prescriptio
       diagnosis: rxData.diagnosis || ticket.medical_condition,
       doctor_name: (rxData.doctor_name && rxData.doctor_name !== "Dr. Staff Desk") ? rxData.doctor_name : (ticket.served_by_doctor_name || rxData.doctor_name || "Dr. Staff Desk"),
       department_name: ticket.service_category,
-      medicines: rxData.medicines || [],
+      medicines: Array.isArray(rxData.medicines) ? rxData.medicines : [],
       lab_tests: rxData.lab_tests || "",
-      advice: rxData.advice || (typeof prescriptionNotes === "string" ? prescriptionNotes : ""),
+      advice: cleanAdv,
       follow_up: rxData.follow_up || "",
     });
   } catch (err) {

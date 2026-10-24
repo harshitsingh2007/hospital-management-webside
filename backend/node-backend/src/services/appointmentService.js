@@ -36,6 +36,13 @@ async function bookAppointment({
 }) {
   const aptId = `APT-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
   const deptCode = String(serviceCategory || "consultation").trim().toLowerCase();
+  if (deptCode === "pharmacy") {
+    const err = new Error(
+      "Appointments cannot be booked directly for Pharmacy & Medicine. Please book an appointment with General Consultation (OPD) or a specialist. If medicines are prescribed, your ticket is automatically transferred to the Pharmacy Station."
+    );
+    err.status = 400;
+    throw err;
+  }
   const qDateStr = parseQueueDate(appointmentDate);
   const qDateObj = queueDateToPrismaDate(qDateStr);
   const todayStr = getCurrentQueueDate();

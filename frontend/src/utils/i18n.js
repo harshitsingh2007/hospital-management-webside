@@ -769,22 +769,81 @@ export function formatRiskLabel(val, lang = "en") {
 }
 
 /**
+ * Recursively unwraps and extracts clean human-readable clinical advice,
+ * strictly preventing raw stringified JSON payloads from ever leaking to UI.
+ */
+export function cleanAdviceText(val) {
+  if (!val) return "";
+  let s = String(val).trim();
+  while (
+    (s.startsWith('"') && s.endsWith('"')) ||
+    (s.startsWith("'") && s.endsWith("'"))
+  ) {
+    s = s.slice(1, -1).trim();
+  }
+  if (!s) return "";
+
+  // Check if string is a JSON object or array
+  if ((s.startsWith("{") && s.endsWith("}")) || (s.startsWith("[") && s.endsWith("]"))) {
+    try {
+      const obj = JSON.parse(s);
+      if (obj && typeof obj === "object") {
+        if (Array.isArray(obj)) {
+          return obj.map(cleanAdviceText).filter(Boolean).join(" • ");
+        }
+        return cleanAdviceText(obj.advice || obj.clinical_notes || "");
+      }
+    } catch (_) {}
+    return "";
+  }
+
+  // If it contains JSON key signatures, safely extract the advice field or discard
+  if (s.includes('"doctor_name"') || s.includes('"medicines"') || s.includes('"dispensed_by"')) {
+    try {
+      const match = s.match(/"advice"\s*:\s*"([^"]*)"/);
+      if (match && match[1]) {
+        return cleanAdviceText(match[1]);
+      }
+    } catch (_) {}
+    return "";
+  }
+
+  return s.replace(/_/g, " ").trim();
+}
+
+/**
  * Universal helper to format any field (symptom, department, status, custom text)
  * cleanly without underscores, using spaces and proper casing.
  */
 export function formatCleanText(val, lang = "en") {
   if (!val) return "";
   if (typeof val !== "string") return String(val);
-  const trimmed = val.trim();
+  let trimmed = val.trim();
+  while (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    trimmed = trimmed.slice(1, -1).trim();
+  }
   if (!trimmed) return "";
 
-  // If it's a JSON string, try to parse
+  // If it's a JSON string, try to parse and extract human readable fields
   if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
     try {
       const obj = JSON.parse(trimmed);
-      if (obj.diagnosis) return formatCleanText(obj.diagnosis, lang);
-      if (obj.advice) return formatCleanText(obj.advice, lang);
+      if (obj && typeof obj === "object") {
+        if (obj.diagnosis) return formatCleanText(obj.diagnosis, lang);
+        if (obj.advice) return cleanAdviceText(obj.advice);
+        if (obj.medical_condition) return formatCleanText(obj.medical_condition, lang);
+      }
     } catch (e) {}
+    // If it was raw JSON but no safe text could be extracted, do not render raw JSON
+    return "";
+  }
+
+  // If it contains JSON key signatures, do not leak raw payload
+  if (trimmed.includes('"doctor_name"') || trimmed.includes('"medicines"') || trimmed.includes('"dispensed_by"')) {
+    return "";
   }
 
   // Check known symptoms
@@ -819,4 +878,5 @@ export function formatCleanText(val, lang = "en") {
   }
   return unescaped;
 }
+
 

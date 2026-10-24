@@ -8,7 +8,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { API_BASE, HOSPITAL_CONFIG } from "../config/hospitalConfig";
-import { t, getCategoryLabel, getStatusLabel, SYMPTOM_OPTIONS, RISK_OPTIONS, formatSymptomLabel, formatRiskLabel, formatCleanText } from "../utils/i18n";
+import { t, getCategoryLabel, getStatusLabel, SYMPTOM_OPTIONS, RISK_OPTIONS, formatSymptomLabel, formatRiskLabel, formatCleanText, cleanAdviceText } from "../utils/i18n";
 import { printTokenPass, printAppointmentRecord, printPrescriptionSlip, downloadPrescriptionPDF } from "../utils/printPassHelper";
 import HeroBanner from "../components/patient/HeroBanner";
 import Footer from "../components/common/Footer";
@@ -762,14 +762,28 @@ export default function PatientPage({
   }, [activeHospitalCode, tenantId]);
 
   const availableDepartments = useMemo(() => {
-    if (hospitalDepartments.length > 0) {
-      return hospitalDepartments.map((d) => ({
-        id: d.dept_code || d.code || String(d.id),
-        label: d.name,
-      }));
-    }
-    return HOSPITAL_CONFIG.categories;
+    const list = hospitalDepartments.length > 0
+      ? hospitalDepartments.map((d) => ({
+          id: d.dept_code || d.code || String(d.id),
+          label: d.name,
+        }))
+      : HOSPITAL_CONFIG.categories;
+
+    // Clinical Workflow Rule: Pharmacy is a fulfillment stage routed by doctor prescription, NOT a direct patient booking/walk-in entry
+    return list.filter((d) => {
+      const code = String(d.id || "").toLowerCase().trim();
+      const label = String(d.label || "").toLowerCase().trim();
+      return code !== "pharmacy" && !label.includes("pharmacy") && !label.includes("दवा");
+    });
   }, [hospitalDepartments]);
+
+  useEffect(() => {
+    if (category === "pharmacy" || (availableDepartments.length > 0 && !availableDepartments.some((d) => String(d.id).toLowerCase() === String(category).toLowerCase()))) {
+      if (availableDepartments.length > 0) {
+        setCategory(availableDepartments[0].id);
+      }
+    }
+  }, [availableDepartments, category]);
 
   const getDeptDisplayName = useCallback((recordOrCode) => {
     if (!recordOrCode) return language === "hi" ? "सामान्य परामर्श (OPD)" : "General Consultation (OPD)";
@@ -924,7 +938,8 @@ export default function PatientPage({
 
       let allMeds = Array.isArray(parsed.medicines) ? [...parsed.medicines] : [];
       let allLabTests = parsed.lab_tests ? [parsed.lab_tests] : [];
-      let allAdvices = parsed.advice ? [parsed.advice] : [];
+      const cleanParsedAdv = cleanAdviceText(parsed.advice || parsed.clinical_notes || "");
+      let allAdvices = cleanParsedAdv ? [cleanParsedAdv] : [];
 
       if (resolvedStages.length > 0) {
         const seenMeds = new Set(allMeds.map((m) => `${String(m.name || "").toLowerCase()}_${String(m.dosage || "").toLowerCase()}`));
@@ -948,8 +963,9 @@ export default function PatientPage({
             if (stgRx.lab_tests && stgRx.lab_tests !== "no" && !allLabTests.includes(stgRx.lab_tests)) {
               allLabTests.push(stgRx.lab_tests);
             }
-            if (stgRx.advice && stgRx.advice.trim() && !allAdvices.includes(stgRx.advice.trim())) {
-              allAdvices.push(stgRx.advice.trim());
+            const cleanStgAdv = cleanAdviceText(stgRx.advice || stgRx.clinical_notes || "");
+            if (cleanStgAdv && !allAdvices.includes(cleanStgAdv)) {
+              allAdvices.push(cleanStgAdv);
             }
           }
         });
@@ -988,9 +1004,9 @@ export default function PatientPage({
     }
 
     // Clean fallback for plain text advice or completed consultation
-    let rawStr = typeof prescriptionNotes === "string" ? prescriptionNotes.trim() : "";
-    if (rawStr.startsWith("{") || rawStr.startsWith('"{')) {
-      rawStr = "Clinical prescription available upon request.";
+    let rawStr = cleanAdviceText(prescriptionNotes);
+    if (!rawStr) {
+      rawStr = "Clinical consultation completed. Regular medical review as advised.";
     }
 
     const fallbackDoctor = fallbackTicket?.doctor_name || fallbackTicket?.served_by_doctor_name || "Consultant Physician";
@@ -1001,7 +1017,7 @@ export default function PatientPage({
       diagnosis: formatCleanText(fallbackTicket?.medical_condition || "Clinical Consultation", language),
       medicines: [],
       lab_tests: "",
-      advice: rawStr ? rawStr.replace(/_/g, " ") : "Clinical consultation completed. Regular medical review as advised.",
+      advice: rawStr.replace(/_/g, " "),
       follow_up: "Review as advised",
       prescribed_at: safeISODate(fallbackTicket?.serve_end_time || fallbackTicket?.created_at),
       patient_name: formatCleanText(fallbackTicket?.name || fallbackTicket?.patient_name || (currentUser ? (currentUser.username || currentUser.name) : "Patient"), language),
@@ -1621,9 +1637,10 @@ export default function PatientPage({
 
           if (rx) {
             if (rx.diagnosis && rx.diagnosis !== "Clinical Consultation" && rx.diagnosis !== "General OPD") mergedDiag = rx.diagnosis;
-            if (rx.advice && rx.advice.trim()) mergedAdvices.push(rx.advice.trim());
+            const cleanA = cleanAdviceText(rx.advice || rx.clinical_notes || "");
+            if (cleanA && !mergedAdvices.includes(cleanA)) mergedAdvices.push(cleanA);
             if (rx.lab_tests && rx.lab_tests !== "no") mergedLabTests.push(rx.lab_tests);
-            if (rx.follow_up) mergedFollowUp = rx.follow_up;
+            if (rx.follow_up) mergedFollowUp = cleanAdviceText(rx.follow_up) || rx.follow_up;
             if (rx.target_department) targetDept = rx.target_department;
             if (rx.transfer_notes) transferNotes = rx.transfer_notes;
             if (Array.isArray(rx.medicines)) {

@@ -34,7 +34,6 @@ import {
   Stethoscope,
   Building2,
   ShieldCheck,
-  Package,
   Layers,
   ChevronRight,
   ArrowRight,
@@ -46,8 +45,14 @@ import {
   BadgeAlert,
   SlidersHorizontal,
   ExternalLink,
-  Info
+  Info,
+  History,
+  Calendar,
+  Download,
+  Eye,
+  Activity
 } from "lucide-react";
+import * as XLSX from "xlsx";
 
 export default function PharmacyPage({
   tenantId,
@@ -73,7 +78,7 @@ export default function PharmacyPage({
     HOSPITAL_CONFIG.tenantId ||
     "city-hospital-01";
 
-  const brandPrimary = hospitalBranding?.primary_color || "#059669";
+  const brandPrimary = hospitalBranding?.primary_color || "#0284C7";
   const brandName = hospitalBranding?.hospital_name || hospitalBranding?.name || currentUser?.hospital_name || "City General Hospital";
 
   // Theme Sync
@@ -90,6 +95,17 @@ export default function PharmacyPage({
       setCurrentTheme(theme);
     }
   }, [theme]);
+
+  useEffect(() => {
+    const handleThemeEvent = (e) => {
+      const t = typeof e?.detail === "string" ? e.detail : e?.detail?.theme;
+      if (t && (t === "dark" || t === "light")) {
+        setCurrentTheme(t);
+      }
+    };
+    window.addEventListener("theme_changed", handleThemeEvent);
+    return () => window.removeEventListener("theme_changed", handleThemeEvent);
+  }, []);
 
   const isDark = currentTheme === "dark";
 
@@ -113,19 +129,442 @@ export default function PharmacyPage({
     if (setTheme) setTheme(nextTheme);
   };
 
-  // Station Counter State
-  const [activeCounter, setActiveCounter] = useState("Counter 1 - General Dispensing");
-  const counterOptions = [
-    { id: "counter_1", label: isHi ? "काउंटर 1 - सामान्य वितरण" : "Counter 1 - General Dispensing" },
-    { id: "counter_2", label: isHi ? "काउंटर 2 - फास्ट ट्रैक / वृद्धजन" : "Counter 2 - Fast Track / Senior Citizens" },
-    { id: "counter_3", label: isHi ? "काउंटर 3 - इनपेशेंट व रीफिल" : "Counter 3 - Inpatient & Refills" },
+  // Station Counter & Assigned Desk State (Configured by Super Admin)
+  const [hospitalDesks, setHospitalDesks] = useState([]);
+  const [assignedDesk, setAssignedDesk] = useState(null);
+  const [selectedDesk, setSelectedDesk] = useState(null);
+  const [activeCounter, setActiveCounter] = useState(() => {
+    try {
+      const saved = localStorage.getItem("pharmacy_active_counter");
+      if (saved) return saved;
+    } catch (_) {}
+    return "Pharma Desk-1";
+  });
+
+  // Fetch Desks from SuperAdmin management API
+  useEffect(() => {
+    let isMounted = true;
+    const fetchHospitalDesks = async () => {
+      if (!effectiveHospitalCode) return;
+      try {
+        const headers = { "Content-Type": "application/json" };
+        if (currentUser?.email) headers["X-User-Email"] = currentUser.email;
+        try {
+          const token = localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || currentUser?.token;
+          if (token) headers["Authorization"] = `Bearer ${token}`;
+        } catch (_) {}
+
+        const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${effectiveHospitalCode}/desks`, {
+          headers,
+        });
+        const data = await res.json();
+        if (isMounted && data && data.status === "success" && Array.isArray(data.desks)) {
+          setHospitalDesks(data.desks);
+
+          // Find pharmacy-specific desks
+          const pharmaDesks = data.desks.filter((d) => {
+            const dCode = (d.dept_code || "").toLowerCase();
+            const dName = (d.department_name || "").toLowerCase();
+            const deskName = (d.desk_name || "").toLowerCase();
+            return dCode === "pharmacy" || dName.includes("pharm") || deskName.includes("pharm");
+          });
+
+          // Match the desk specifically assigned to currentUser by Super Admin
+          const currentUserId = Number(currentUser?.id);
+          const currentEmpCode = String(currentUser?.employee_id || "").trim().toLowerCase();
+          const currentUsername = String(currentUser?.username || "").trim().toLowerCase();
+          const currentName = String(currentUser?.name || "").trim().toLowerCase();
+
+          const candidateList = pharmaDesks.length > 0 ? pharmaDesks : data.desks;
+          const myDesk = candidateList.find((d) => {
+            const assignedUserId = Number(d.assigned_user_id);
+            const assignedEmpId = Number(d.assigned_employee_id);
+            const assignedEmpName = String(d.assigned_employee_name || "").trim().toLowerCase();
+            const assignedEmpCode = String(d.assigned_employee_code || "").trim().toLowerCase();
+
+            return (
+              (assignedUserId && assignedUserId === currentUserId) ||
+              (assignedEmpId && assignedEmpId === currentUserId) ||
+              (currentEmpCode && assignedEmpCode === currentEmpCode) ||
+              (currentUsername && assignedEmpName === currentUsername) ||
+              (currentName && assignedEmpName === currentName)
+            );
+          });
+
+          if (myDesk) {
+            setAssignedDesk(myDesk);
+            setSelectedDesk(myDesk);
+            setActiveCounter(myDesk.desk_name);
+            try {
+              localStorage.setItem("pharmacy_active_counter", myDesk.desk_name);
+            } catch (_) {}
+          } else if (candidateList.length > 0) {
+            setSelectedDesk(candidateList[0]);
+            setActiveCounter((prev) => {
+              const exists = candidateList.some((d) => d.desk_name === prev);
+              return exists ? prev : candidateList[0].desk_name;
+            });
+          }
+        }
+      } catch (e) {
+        console.error("Failed to load desks from superadmin:", e);
+      }
+    };
+
+    fetchHospitalDesks();
+    return () => {
+      isMounted = false;
+    };
+  }, [effectiveHospitalCode, currentUser?.id, currentUser?.username, currentUser?.email, currentUser?.employee_id, currentUser?.name]);
+
+  const counterOptions = useMemo(() => {
+    const pharmaDesks = (hospitalDesks || []).filter((d) => {
+      const dCode = (d.dept_code || "").toLowerCase();
+      const dName = (d.department_name || "").toLowerCase();
+      const deskName = (d.desk_name || "").toLowerCase();
+      return dCode === "pharmacy" || dName.includes("pharm") || deskName.includes("pharm");
+    });
+
+    const list = pharmaDesks.length > 0 ? pharmaDesks : (hospitalDesks.length > 0 ? hospitalDesks : []);
+
+    if (list.length > 0) {
+      return list.map((d) => {
+        const isMyDesk = assignedDesk && d.id === assignedDesk.id;
+        const assignedLabel = isMyDesk
+          ? (isHi ? " ★ (आपका आवंटित डेस्क)" : " ★ (Your Assigned Desk)")
+          : d.assigned_employee_name
+          ? ` (${d.assigned_employee_name})`
+          : "";
+        return {
+          id: `desk_${d.id}`,
+          deskId: d.id,
+          desk_name: d.desk_name,
+          label: `${d.desk_name}${assignedLabel}`,
+          rawDesk: d,
+          isAssigned: isMyDesk,
+        };
+      });
+    }
+
+    // Default Fallback if no desks are created in database yet
+    return [
+      { id: "counter_1", desk_name: "Pharma Desk-1", label: isHi ? "फार्मा डेस्क-1 (सामान्य वितरण)" : "Pharma Desk-1 (General Dispensing)" },
+      { id: "counter_2", desk_name: "Pharma Desk-2", label: isHi ? "फार्मा डेस्क-2 (फास्ट ट्रैक / वृद्धजन)" : "Pharma Desk-2 (Fast Track / Senior Citizens)" },
+      { id: "counter_3", desk_name: "Pharma Desk-3", label: isHi ? "फार्मा डेस्क-3 (इनपेशेंट व रीफिल)" : "Pharma Desk-3 (Inpatient & Refills)" },
+    ];
+  }, [hospitalDesks, assignedDesk, isHi]);
+
+  // Pharmacist Duty Status: "ACTIVE" | "ON_BREAK" | "SHIFT_ENDED"
+  const [pharmaDutyStatus, setPharmaDutyStatus] = useState(() => {
+    try {
+      const saved = localStorage.getItem("pharma_duty_status");
+      if (saved && ["ACTIVE", "ON_BREAK", "SHIFT_ENDED"].includes(saved)) {
+        return saved;
+      }
+    } catch (_) {}
+    return "ACTIVE";
+  });
+  const [showDutyDropdown, setShowDutyDropdown] = useState(false);
+  const dutyDropdownRef = useRef(null);
+
+  const handleUpdateDutyStatus = useCallback((status) => {
+    setPharmaDutyStatus(status);
+    try {
+      localStorage.setItem("pharma_duty_status", status);
+    } catch (_) {}
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dutyDropdownRef.current && !dutyDropdownRef.current.contains(e.target)) {
+        setShowDutyDropdown(false);
+      }
+    };
+    if (showDutyDropdown) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showDutyDropdown]);
+
+  const dutyStatusOptions = [
+    {
+      id: "ACTIVE",
+      label: isHi ? "ड्यूटी पर सक्रिय" : "Active on Duty",
+      badgeLabel: isHi ? "सक्रिय" : "Active on Duty",
+      icon: <span style={{ display: "inline-block", width: "9px", height: "9px", borderRadius: "50%", background: "#10B981", boxShadow: "0 0 6px rgba(16, 185, 129, 0.8)" }} />,
+      color: "#10B981",
+      bg: isDark ? "rgba(16, 185, 129, 0.2)" : "#ECFDF5",
+      border: isDark ? "rgba(16, 185, 129, 0.45)" : "#A7F3D0",
+      desc: isHi ? "दवा वितरण व कतार कॉलिंग हेतु उपलब्ध" : "Ready to dispense & call queue",
+    },
+    {
+      id: "ON_BREAK",
+      label: isHi ? "चाय / अल्पाहार अवकाश" : "On Tea Break",
+      badgeLabel: isHi ? "अवकाश पर" : "On Tea Break",
+      icon: <Coffee size={13} color="#D97706" />,
+      color: "#D97706",
+      bg: isDark ? "rgba(245, 158, 11, 0.2)" : "#FEF3C7",
+      border: isDark ? "rgba(245, 158, 11, 0.5)" : "#FDE68A",
+      desc: isHi ? "वितरण कॉलिंग अस्थायी रूप से रुकी है" : "Dispensing temporarily paused",
+    },
+    {
+      id: "SHIFT_ENDED",
+      label: isHi ? "शिफ्ट समाप्त (ऑफ ड्यूटी)" : "Shift Ended",
+      badgeLabel: isHi ? "शिफ्ट समाप्त" : "Shift Ended",
+      icon: <span style={{ display: "inline-block", width: "9px", height: "9px", borderRadius: "50%", background: "#EF4444", boxShadow: "0 0 6px rgba(239, 68, 68, 0.8)" }} />,
+      color: "#EF4444",
+      bg: isDark ? "rgba(239, 68, 68, 0.2)" : "#FEF2F2",
+      border: isDark ? "rgba(239, 68, 68, 0.45)" : "#FECACA",
+      desc: isHi ? "फार्मेसी काउंटर आज के लिए बंद" : "Counter offline / shift closed",
+    },
   ];
 
-  // Pharmacist Duty Status
-  const [pharmaDutyStatus, setPharmaDutyStatus] = useState("ACTIVE"); // "ACTIVE" | "ON_BREAK" | "INVENTORY"
-
-  // Active Workspace Tab: "dispensing" | "archive" | "reference"
+  // Active Workspace Tab: "dispensing" | "archive" | "history"
   const [activeTab, setActiveTab] = useState("dispensing");
+
+  // Patient Visit History Section State
+  const [patientVisits, setPatientVisits] = useState([]);
+  const [visitsSummary, setVisitsSummary] = useState({});
+  const [loadingVisits, setLoadingVisits] = useState(false);
+  const [visitSearchQuery, setVisitSearchQuery] = useState("");
+  const [visitFilterDept, setVisitFilterDept] = useState("pharmacy"); // "pharmacy" | "all" | "today" | "completed"
+  const [selectedVisitModal, setSelectedVisitModal] = useState(null);
+
+  // Fetch Patient Visit History from Backend
+  const fetchPatientVisits = useCallback(async () => {
+    if (!effectiveHospitalCode) return;
+    setLoadingVisits(true);
+    try {
+      const headers = { "Content-Type": "application/json" };
+      if (currentUser?.email) headers["X-User-Email"] = currentUser.email;
+      try {
+        const token = localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || currentUser?.token;
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+      } catch (_) {}
+
+      const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${effectiveHospitalCode}/visits?limit=500`, {
+        headers,
+      });
+      const data = await res.json();
+      if (data && data.status === "success") {
+        setPatientVisits(Array.isArray(data.visits) ? data.visits : []);
+        setVisitsSummary(data.summary || {});
+      }
+    } catch (err) {
+      console.error("Failed to load patient visits:", err);
+    } finally {
+      setLoadingVisits(false);
+    }
+  }, [effectiveHospitalCode, currentUser?.email, currentUser?.token]);
+
+  // Initial load of visit history
+  useEffect(() => {
+    fetchPatientVisits();
+  }, [fetchPatientVisits]);
+
+  // Parse structured clinical details from visit & transfer stages
+  const parseVisitDetails = useCallback((visit) => {
+    if (!visit) {
+      return {
+        doctorName: "",
+        diagnosis: "",
+        medicines: [],
+        advice: "",
+        followUp: "",
+        dispensedBy: "",
+        dispensedCounter: "",
+        dispensedAt: null,
+      };
+    }
+
+    let doctorName = "";
+    let diagnosis = visit.medical_condition || "";
+    let medicines = [];
+    let advice = "";
+    let followUp = "";
+    let dispensedBy = "";
+    let dispensedCounter = "";
+    let dispensedAt = null;
+
+    const stages = Array.isArray(visit.transfer_stages) ? visit.transfer_stages : [];
+    const consultStage = stages.find((s) => {
+      const c = (s.dept_code || s.department || "").toLowerCase();
+      return c.includes("consult") || c.includes("opd") || c.includes("doctor");
+    }) || stages[0];
+
+    const pharmaStage = stages.find((s) => {
+      const c = (s.dept_code || s.department || "").toLowerCase();
+      return c.includes("pharm");
+    });
+
+    const notesToParse = consultStage?.notes || visit.prescription_notes || "";
+    if (notesToParse) {
+      try {
+        let raw = typeof notesToParse === "string" ? notesToParse.trim() : notesToParse;
+        if (typeof raw === "string") {
+          const jsonMatch = raw.match(/\{[\s\S]*\}/);
+          if (jsonMatch) raw = jsonMatch[0];
+          const parsed = JSON.parse(raw);
+          doctorName = parsed.doctor_name || "";
+          diagnosis = parsed.diagnosis || diagnosis;
+          if (Array.isArray(parsed.medicines)) medicines = parsed.medicines;
+          advice = parsed.advice || "";
+          followUp = parsed.follow_up || "";
+          dispensedBy = parsed.dispensed_by || "";
+          dispensedCounter = parsed.dispensing_counter || "";
+          dispensedAt = parsed.dispensed_at || null;
+        } else if (typeof raw === "object") {
+          doctorName = raw.doctor_name || "";
+          diagnosis = raw.diagnosis || diagnosis;
+          if (Array.isArray(raw.medicines)) medicines = raw.medicines;
+          advice = raw.advice || "";
+          followUp = raw.follow_up || "";
+          dispensedBy = raw.dispensed_by || "";
+          dispensedCounter = raw.dispensing_counter || "";
+          dispensedAt = raw.dispensed_at || null;
+        }
+      } catch (_) {}
+    }
+
+    if (pharmaStage?.notes) {
+      try {
+        let rawP = typeof pharmaStage.notes === "string" ? pharmaStage.notes.trim() : pharmaStage.notes;
+        if (typeof rawP === "string") {
+          const jsonMatch = rawP.match(/\{[\s\S]*\}/);
+          if (jsonMatch) rawP = jsonMatch[0];
+          const parsedP = JSON.parse(rawP);
+          if (parsedP.dispensed_by) dispensedBy = parsedP.dispensed_by;
+          if (parsedP.dispensing_counter) dispensedCounter = parsedP.dispensing_counter;
+          if (parsedP.dispensed_at) dispensedAt = parsedP.dispensed_at;
+        }
+      } catch (_) {}
+    }
+
+    if (!doctorName && consultStage?.served_by) {
+      doctorName = consultStage.served_by;
+    }
+    if (!dispensedBy && pharmaStage?.served_by) {
+      dispensedBy = pharmaStage.served_by;
+    }
+
+    return {
+      doctorName: doctorName || "Attending Physician",
+      diagnosis: diagnosis || "General Consultation",
+      medicines,
+      advice,
+      followUp,
+      dispensedBy: dispensedBy || (pharmaStage?.status === "completed" ? (currentUser?.name || "Pharmacy Staff") : "Dispensed"),
+      dispensedCounter: dispensedCounter || (pharmaStage ? activeCounter : "Pharmacy Desk"),
+      dispensedAt: dispensedAt || pharmaStage?.serve_end_time || null,
+    };
+  }, [activeCounter, currentUser?.name]);
+
+  // Filtered visits computation
+  const filteredVisits = useMemo(() => {
+    let list = patientVisits;
+    if (visitFilterDept === "pharmacy") {
+      list = list.filter((v) => {
+        const dept = (v.dept_code || v.department || "").toLowerCase();
+        const hasPharmaStage = Array.isArray(v.transfer_stages) && v.transfer_stages.some((s) => (s.dept_code || s.department || "").toLowerCase().includes("pharm"));
+        return dept.includes("pharm") || hasPharmaStage;
+      });
+    } else if (visitFilterDept === "completed") {
+      list = list.filter((v) => (v.status || "").toLowerCase() === "completed");
+    } else if (visitFilterDept === "today") {
+      const today = new Date().toISOString().split("T")[0];
+      list = list.filter((v) => (v.queue_date || "").startsWith(today) || (v.created_at || "").startsWith(today));
+    }
+
+    if (!visitSearchQuery.trim()) return list;
+    const q = visitSearchQuery.toLowerCase().trim();
+    return list.filter((v) => {
+      const name = (v.patient_name || "").toLowerCase();
+      const token = String(v.token_number || v.ticket_id || "").toLowerCase();
+      const phone = (v.phone || "").toLowerCase();
+      const details = parseVisitDetails(v);
+      const doc = (details.doctorName || "").toLowerCase();
+      const diag = (details.diagnosis || "").toLowerCase();
+      const medMatch = details.medicines.some((m) => (m.name || "").toLowerCase().includes(q));
+      return name.includes(q) || token.includes(q) || phone.includes(q) || doc.includes(q) || diag.includes(q) || medMatch;
+    });
+  }, [patientVisits, visitFilterDept, visitSearchQuery, parseVisitDetails]);
+
+  // Export visit logs to Excel
+  const handleExportVisitsExcel = () => {
+    try {
+      const exportRows = filteredVisits.map((v) => {
+        const details = parseVisitDetails(v);
+        return {
+          "Token #": v.token_number || v.ticket_id,
+          "Patient Name": v.patient_name,
+          "Age": v.age || "N/A",
+          "Gender": v.gender || "N/A",
+          "Phone": v.phone || "N/A",
+          "Visit Date": v.queue_date || (v.created_at ? v.created_at.split("T")[0] : ""),
+          "Initial Department": v.origin_department || "OPD",
+          "Final Department": v.department || "Pharmacy",
+          "Status": (v.status || "").toUpperCase(),
+          "Doctor Name": details.doctorName,
+          "Clinical Diagnosis": details.diagnosis,
+          "Dispensed By": details.dispensedBy,
+          "Dispensing Counter": details.dispensedCounter,
+          "Dispensed At": details.dispensedAt ? new Date(details.dispensedAt).toLocaleTimeString() : "N/A",
+          "Total Medicines Prescribed": details.medicines.length,
+          "Medicines List": details.medicines.map((m) => `${m.name} (${m.dosage || ""} ${m.frequency || ""})`).join("; "),
+          "Doctor Advice": details.advice || "N/A",
+        };
+      });
+
+      const worksheet = XLSX.utils.json_to_sheet(exportRows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Patient Visits");
+      XLSX.writeFile(workbook, `Hospital_Patient_Visits_${new Date().toISOString().split("T")[0]}.xlsx`);
+      showToast(isHi ? "विज़िट इतिहास एक्सेल में निर्यात किया गया!" : "Exported visit records to Excel!", "success");
+    } catch (err) {
+      console.error("Export error:", err);
+      showToast("Failed to export Excel: " + err.message, "error");
+    }
+  };
+
+  // Re-print prescription slip from visit history record
+  const handlePrintVisitPrescription = (visit) => {
+    if (!visit) return;
+    const details = parseVisitDetails(visit);
+    const fullData = {
+      patient_name: visit.patient_name || "Patient",
+      age: visit.age || 30,
+      gender: visit.gender || "Patient",
+      phone: visit.phone || "",
+      ticket_id: visit.token_number || visit.ticket_id,
+      doctor_name: details.doctorName || "Attending Physician",
+      doctor_department: visit.origin_department || "OPD",
+      diagnosis: details.diagnosis || "",
+      medicines: details.medicines || [],
+      advice: details.advice || "",
+      follow_up: details.followUp || "",
+      hospital_name: brandName,
+      prescribed_at: visit.created_at || new Date().toISOString(),
+    };
+    printPrescriptionSlip(fullData, language, hospitalBranding);
+  };
+
+  // Re-print dispensing envelope label from visit history record
+  const handlePrintVisitEnvelopeLabel = (visit) => {
+    if (!visit) return;
+    const details = parseVisitDetails(visit);
+    const labelData = {
+      ticket_id: visit.token_number || visit.ticket_id,
+      patient_name: visit.patient_name || "Patient",
+      age: visit.age || 30,
+      gender: visit.gender || "Patient",
+      doctor_name: details.doctorName || "Attending Physician",
+      pharmacist_name: details.dispensedBy || currentUser?.name || currentUser?.username || "Licensed Pharmacist",
+      counter: details.dispensedCounter || activeCounter,
+      hospital_name: brandName,
+      medicines: details.medicines || [],
+    };
+    printDispensingLabelSlip(labelData, language, hospitalBranding);
+  };
 
   // Filter & Search Term
   const [searchQuery, setSearchQuery] = useState("");
@@ -199,10 +638,14 @@ export default function PharmacyPage({
   const [callingNext, setCallingNext] = useState(false);
   const handleCallNextPatient = async () => {
     if (pharmaDutyStatus !== "ACTIVE") {
+      const statusNames = {
+        ON_BREAK: isHi ? "चाय / अल्पाहार अवकाश" : "Tea Break",
+        SHIFT_ENDED: isHi ? "शिफ्ट समाप्त" : "Shift Ended",
+      };
       showToast(
         isHi
-          ? "आपकी ड्यूटी स्थिति वर्तमान में 'अवकाश / इन्वेंटरी' पर है। कृपया पहले सक्रिय (Active) करें।"
-          : "Your status is set to Break/Restocking. Switch to 'Active' to call the next patient.",
+          ? `आपकी स्थिति वर्तमान में '${statusNames[pharmaDutyStatus] || pharmaDutyStatus}' पर है। मरीज़ को बुलाने के लिए कृपया पहले 'ड्यूटी पर सक्रिय' करें।`
+          : `Your status is currently set to '${statusNames[pharmaDutyStatus] || pharmaDutyStatus}'. Switch to 'Active on Duty' to call the next patient.`,
         "warn"
       );
       return;
@@ -218,6 +661,8 @@ export default function PharmacyPage({
           doctor_id: currentUser?.id,
           doctor_name: currentUser?.name || currentUser?.username || "Head Pharmacist",
           doctor_email: currentUser?.email,
+          desk_id: selectedDesk?.id || assignedDesk?.id || null,
+          desk_name: activeCounter,
         });
       } else {
         await fetch(`${API_BASE}/api/v1/plugin/serve-next`, {
@@ -228,6 +673,8 @@ export default function PharmacyPage({
             department: "pharmacy",
             doctor_id: currentUser?.id,
             doctor_name: currentUser?.name || currentUser?.username || "Head Pharmacist",
+            desk_id: selectedDesk?.id || assignedDesk?.id || null,
+            desk_name: activeCounter,
           }),
         });
         if (refreshData) refreshData();
@@ -332,7 +779,7 @@ export default function PharmacyPage({
       gender: ticket.gender || "Patient",
       doctor_name: parsed?.doctor_name || "Attending Physician",
       pharmacist_name: currentUser?.name || currentUser?.username || "Licensed Pharmacist",
-      counter: activeCounter.split("-")[0].trim(),
+      counter: activeCounter.includes(" - ") ? activeCounter.split(" - ")[0].trim() : activeCounter,
       hospital_name: brandName,
       medicines: Array.isArray(parsed?.medicines) ? parsed.medicines : [],
     };
@@ -368,16 +815,190 @@ export default function PharmacyPage({
     );
   }, [pharmacyQueue, searchQuery]);
 
-  // Color Tokens
+  // Color Tokens (Unified Clinical Ocean Blue & Slate Palette)
   const pageBg = isDark ? "#070B14" : "#F8FAFC";
   const cardBg = isDark ? "#0F172A" : "#FFFFFF";
   const cardBorder = isDark ? "1px solid #1E293B" : "1px solid #E2E8F0";
   const textColor = isDark ? "#F8FAFC" : "#0F172A";
   const mutedText = isDark ? "#94A3B8" : "#64748B";
-  const highlightGreen = "#059669";
+  const highlightPrimary = "#0284C7";
 
   return (
-    <div style={{ minHeight: "100vh", background: pageBg, color: textColor, paddingBottom: "60px", transition: "all 0.25s ease" }}>
+    <div
+      className="pharmacy-portal-wrapper"
+      style={{
+        background: pageBg,
+        color: textColor,
+        paddingBottom: "12px",
+        transition: "all 0.25s ease",
+        "--pharma-card-bg": cardBg,
+        "--pharma-card-border": isDark ? "#1E293B" : "#E2E8F0",
+        "--pharma-card-text": textColor,
+      }}
+    >
+      {/* Embedded CSS Style Rules matching Doctor & Staff Portals */}
+      <style>{`
+        .pharmacy-portal-wrapper * {
+          font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+
+        .pharmacy-portal-wrapper .user-dashboard-footer {
+          margin-top: 14px !important;
+          padding-top: 10px !important;
+          padding-bottom: 4px !important;
+        }
+
+        .pharmacy-hero-container {
+          background: radial-gradient(circle at 10% 15%, rgba(2, 132, 199, 0.28) 0%, transparent 45%),
+                      radial-gradient(circle at 90% 85%, rgba(56, 189, 248, 0.18) 0%, transparent 50%),
+                      linear-gradient(135deg, #090F1E 0%, #0F172A 60%, #162447 100%);
+          border: 1px solid rgba(56, 189, 248, 0.25);
+          border-radius: 28px;
+          padding: 26px 30px;
+          color: #FFFFFF;
+          box-shadow: 0 20px 45px -12px rgba(15, 23, 42, 0.35), 0 0 0 1px rgba(56, 189, 248, 0.18);
+          margin-bottom: 24px;
+          position: relative;
+          overflow: hidden;
+        }
+
+        .pharmacy-hero-kpi-grid {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 14px;
+          margin-top: 22px;
+          border-top: 1px solid rgba(255, 255, 255, 0.12);
+          padding-top: 18px;
+        }
+
+        @media (max-width: 960px) {
+          .pharmacy-hero-kpi-grid {
+            grid-template-columns: repeat(2, 1fr);
+          }
+        }
+
+        @media (max-width: 540px) {
+          .pharmacy-hero-kpi-grid {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        .pharmacy-kpi-card {
+          background: rgba(255, 255, 255, 0.08);
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+          border: 1px solid rgba(255, 255, 255, 0.14);
+          border-radius: 18px;
+          padding: 14px 18px;
+        }
+
+        .pharmacy-tabs-grid {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 12px;
+          margin-bottom: 24px;
+        }
+
+        @media (max-width: 920px) {
+          .pharmacy-tabs-grid {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        .tab-button-modern {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 14px 18px;
+          border-radius: 16px;
+          cursor: pointer;
+          text-align: left;
+          user-select: none;
+          outline: none;
+        }
+
+        .tab-button-modern.active {
+          background: linear-gradient(135deg, #0284C7 0%, #0369A1 100%);
+          border: 1px solid #0284C7;
+          color: #FFFFFF;
+          box-shadow: 0 8px 20px rgba(2, 132, 199, 0.28);
+        }
+
+        .tab-button-modern.inactive {
+          background: var(--pharma-card-bg, #FFFFFF);
+          border: 1px solid var(--pharma-card-border, #E2E8F0);
+          color: var(--pharma-card-text, #0F172A);
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02);
+        }
+
+        .tab-icon-wrapper {
+          width: 40px;
+          height: 40px;
+          border-radius: 12px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+        }
+
+        .tab-button-modern.active .tab-icon-wrapper {
+          background: rgba(255, 255, 255, 0.2);
+          color: #BAE6FD;
+        }
+
+        .tab-button-modern.inactive .tab-icon-wrapper {
+          background: #F0F9FF;
+          color: #0284C7;
+        }
+
+        .tab-title-text {
+          font-size: 13.5px;
+          font-weight: 800;
+          letter-spacing: -0.2px;
+          line-height: 1.2;
+        }
+
+        .tab-sub-text {
+          font-size: 11px;
+          font-weight: 600;
+          display: block;
+          margin-top: 2px;
+          opacity: 0.85;
+        }
+
+        .tab-count-badge {
+          font-size: 11px;
+          font-weight: 800;
+          padding: 2px 8px;
+          border-radius: 9999px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        /* Dark Mode Overrides for Inactive Modern Tab Buttons */
+        body.theme-dark .tab-button-modern.inactive,
+        [data-theme="dark"] .tab-button-modern.inactive {
+          background: #0F172A !important;
+          border-color: #1E293B !important;
+          color: #F8FAFC !important;
+        }
+
+        body.theme-dark .tab-button-modern.inactive .tab-icon-wrapper,
+        [data-theme="dark"] .tab-button-modern.inactive .tab-icon-wrapper {
+          background: rgba(2, 132, 199, 0.2) !important;
+          color: #38BDF8 !important;
+        }
+
+        @keyframes spinSlow {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        .spin-icon {
+          animation: spinSlow 1s linear infinite;
+        }
+      `}</style>
+
       {/* Toast Notification */}
       {toastMsg && (
         <div
@@ -385,10 +1006,10 @@ export default function PharmacyPage({
             position: "fixed",
             top: "24px",
             right: "24px",
-            background: toastMsg.type === "error" ? "#EF4444" : toastMsg.type === "warn" ? "#F59E0B" : "#059669",
+            background: toastMsg.type === "error" ? "#EF4444" : toastMsg.type === "warn" ? "#F59E0B" : "#0284C7",
             color: "#FFFFFF",
             padding: "12px 20px",
-            borderRadius: "12px",
+            borderRadius: "14px",
             boxShadow: "0 10px 30px rgba(0,0,0,0.25)",
             zIndex: 99999,
             display: "flex",
@@ -410,36 +1031,23 @@ export default function PharmacyPage({
         </div>
       )}
 
-      {/* Hero Header & Telemetry Banner */}
-      <div
-        style={{
-          background: isDark
-            ? "linear-gradient(135deg, #064E3B 0%, #065F46 60%, #047857 100%)"
-            : "linear-gradient(135deg, #059669 0%, #047857 60%, #065F46 100%)",
-          borderRadius: "24px",
-          padding: "24px 28px",
-          color: "#FFFFFF",
-          boxShadow: "0 10px 30px -10px rgba(5, 150, 105, 0.4)",
-          marginBottom: "24px",
-          position: "relative",
-          overflow: "hidden",
-        }}
-      >
+      {/* Executive Dark-Navy Clinical Hero Header */}
+      <div className="pharmacy-hero-container">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "16px" }}>
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
-              <span style={{ background: "rgba(255,255,255,0.2)", padding: "4px 10px", borderRadius: "8px", fontSize: "11px", fontWeight: 800, letterSpacing: "0.5px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px", flexWrap: "wrap" }}>
+              <span style={{ background: "rgba(255,255,255,0.14)", padding: "4px 10px", borderRadius: "8px", fontSize: "11px", fontWeight: 800, letterSpacing: "0.5px" }}>
                 🏥 {brandName.toUpperCase()}
               </span>
-              <span style={{ background: "rgba(16, 185, 129, 0.3)", border: "1px solid rgba(255,255,255,0.3)", padding: "4px 10px", borderRadius: "8px", fontSize: "11px", fontWeight: 800 }}>
-                {isHi ? "फार्मेसी एवं दवा वितरण केंद्र" : "CENTRAL PHARMACY STATION"}
+              <span style={{ background: "rgba(56, 189, 248, 0.2)", border: "1px solid rgba(56, 189, 248, 0.4)", color: "#BAE6FD", padding: "4px 10px", borderRadius: "8px", fontSize: "11px", fontWeight: 800 }}>
+                {isHi ? "केंद्रीय फार्मेसी एवं दवा वितरण केंद्र" : "CENTRAL PHARMACY STATION"}
               </span>
             </div>
-            <h1 style={{ margin: 0, fontSize: "26px", fontWeight: 900, letterSpacing: "-0.5px" }}>
+            <h1 style={{ margin: 0, fontSize: "28px", fontWeight: 900, letterSpacing: "-0.5px" }}>
               {isHi ? "फार्मेसी वितरण वर्कस्टेशन" : "Pharmacy Dispensing Workstation"}
             </h1>
-            <p style={{ margin: "6px 0 0 0", fontSize: "13px", opacity: 0.9, display: "flex", alignItems: "center", gap: "6px" }}>
-              <User size={14} />
+            <p style={{ margin: "6px 0 0 0", fontSize: "13px", opacity: 0.9, display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+              <User size={14} color="#38BDF8" />
               <span>
                 {isHi ? "लॉगिन फार्मासिस्ट" : "Active Pharmacist"}: <strong>{currentUser?.name || currentUser?.username}</strong>
                 {currentUser?.department ? ` • Dept: ${currentUser.department.toUpperCase()}` : ""}
@@ -447,105 +1055,173 @@ export default function PharmacyPage({
             </p>
           </div>
 
-          {/* Quick Counter Selector & Duty Switcher */}
+          {/* Assigned Desk Display & Duty Switcher */}
           <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-            <select
-              value={activeCounter}
-              onChange={(e) => setActiveCounter(e.target.value)}
+            <div
               style={{
-                background: "rgba(255,255,255,0.15)",
-                color: "#FFFFFF",
-                border: "1px solid rgba(255,255,255,0.3)",
-                borderRadius: "10px",
-                padding: "8px 12px",
-                fontSize: "12px",
-                fontWeight: 700,
-                cursor: "pointer",
-                outline: "none",
-              }}
-            >
-              {counterOptions.map((c) => (
-                <option key={c.id} value={c.label} style={{ color: "#0F172A", background: "#FFFFFF" }}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-
-            <button
-              onClick={() => setPharmaDutyStatus((prev) => (prev === "ACTIVE" ? "ON_BREAK" : "ACTIVE"))}
-              style={{
-                background: pharmaDutyStatus === "ACTIVE" ? "#10B981" : "#F59E0B",
-                color: "#FFFFFF",
-                border: "none",
-                borderRadius: "10px",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                background: "rgba(255, 255, 255, 0.12)",
+                border: "1px solid rgba(255, 255, 255, 0.25)",
+                borderRadius: "12px",
                 padding: "8px 14px",
-                fontSize: "12px",
-                fontWeight: 800,
-                cursor: "pointer",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "6px",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+                backdropFilter: "blur(8px)",
               }}
             >
-              <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#FFFFFF", display: "inline-block" }} />
-              <span>{pharmaDutyStatus === "ACTIVE" ? (isHi ? "ड्यूटी पर सक्रिय" : "Active on Duty") : (isHi ? "अवकाश पर" : "On Tea Break")}</span>
-            </button>
+              <span
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 800,
+                  color: "#38BDF8",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "5px",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.5px",
+                }}
+              >
+                🪑 {isHi ? "डेस्क / काउंटर" : "Desk / Counter"}:
+              </span>
+              <span
+                style={{
+                  color: "#FFFFFF",
+                  fontSize: "13px",
+                  fontWeight: 900,
+                  letterSpacing: "0.2px",
+                }}
+              >
+                {assignedDesk?.desk_name || activeCounter || "PHARMA-1"}
+              </span>
+            </div>
 
-            <button
-              onClick={() => navigateTo("doctor")}
-              style={{
-                background: "rgba(255,255,255,0.2)",
-                color: "#FFFFFF",
-                border: "1px solid rgba(255,255,255,0.35)",
-                borderRadius: "10px",
-                padding: "8px 13px",
-                fontSize: "12px",
-                fontWeight: 800,
-                cursor: "pointer",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "6px",
-              }}
-              title={isHi ? "डॉक्टर ओपीडी परामर्श डेस्क पर जाएं" : "Switch to Doctor Consult Desk"}
-            >
-              <span>🩺</span>
-              <span>{isHi ? "डॉक्टर डेस्क" : "Doctor Desk"}</span>
-            </button>
+            {/* Pharmacist Duty Status Dropdown (Active on Duty, On Tea Break, Shift Ended) */}
+            <div style={{ position: "relative" }} ref={dutyDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setShowDutyDropdown((prev) => !prev)}
+                style={{
+                  background:
+                    pharmaDutyStatus === "ACTIVE"
+                      ? "linear-gradient(135deg, #10B981 0%, #059669 100%)"
+                      : pharmaDutyStatus === "ON_BREAK"
+                      ? "linear-gradient(135deg, #F59E0B 0%, #D97706 100%)"
+                      : "linear-gradient(135deg, #EF4444 0%, #DC2626 100%)",
+                  color: "#FFFFFF",
+                  border: "none",
+                  borderRadius: "12px",
+                  padding: "8px 16px",
+                  fontSize: "12px",
+                  fontWeight: 800,
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  boxShadow:
+                    pharmaDutyStatus === "ACTIVE"
+                      ? "0 4px 14px rgba(16, 185, 129, 0.35)"
+                      : pharmaDutyStatus === "ON_BREAK"
+                      ? "0 4px 14px rgba(245, 158, 11, 0.35)"
+                      : "0 4px 14px rgba(239, 68, 68, 0.35)",
+                  transition: "all 0.2s ease",
+                }}
+                title={isHi ? "ड्यूटी स्थिति बदलें (सक्रिय, ब्रेक, शिफ्ट समाप्त)" : "Select Duty Status (Active on Duty, On Tea Break, Shift Ended)"}
+              >
+                <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#FFFFFF", display: "inline-block" }} />
+                <span>
+                  {pharmaDutyStatus === "ACTIVE"
+                    ? (isHi ? "ड्यूटी पर सक्रिय" : "Active on Duty")
+                    : pharmaDutyStatus === "ON_BREAK"
+                    ? (isHi ? "अवकाश पर" : "On Tea Break")
+                    : (isHi ? "शिफ्ट समाप्त" : "Shift Ended")}
+                </span>
+                <span style={{ fontSize: "9px", opacity: 0.85, marginLeft: "2px" }}>▼</span>
+              </button>
 
-            <button
-              onClick={handleToggleTheme}
-              style={{
-                background: "rgba(255,255,255,0.15)",
-                color: "#FFFFFF",
-                border: "1px solid rgba(255,255,255,0.3)",
-                borderRadius: "10px",
-                padding: "8px 12px",
-                fontSize: "12px",
-                fontWeight: 700,
-                cursor: "pointer",
-              }}
-              title="Toggle Dark / Light Theme"
-            >
-              {isDark ? "☀️ Light" : "🌙 Dark"}
-            </button>
+              {showDutyDropdown && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 8px)",
+                    right: 0,
+                    background: isDark ? "#0F172A" : "#FFFFFF",
+                    border: isDark ? "1px solid rgba(255, 255, 255, 0.18)" : "1px solid #CBD5E1",
+                    borderRadius: "14px",
+                    padding: "6px",
+                    boxShadow: isDark
+                      ? "0 20px 40px -4px rgba(0, 0, 0, 0.7), 0 8px 16px rgba(2, 132, 199, 0.2)"
+                      : "0 20px 40px -4px rgba(0, 0, 0, 0.2), 0 8px 16px rgba(2, 132, 199, 0.12)",
+                    zIndex: 9999,
+                    minWidth: "240px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "4px",
+                    backdropFilter: "blur(12px)",
+                  }}
+                >
+                  <div style={{ padding: "6px 10px 4px 10px", fontSize: "10.5px", fontWeight: 800, color: isDark ? "#94A3B8" : "#64748B", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                    {isHi ? "फार्मासिस्ट ड्यूटी स्थिति चुनें" : "Select Pharmacist Duty Status"}
+                  </div>
+
+                  {dutyStatusOptions.map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => {
+                        handleUpdateDutyStatus(opt.id);
+                        setShowDutyDropdown(false);
+                        showToast(
+                          isHi
+                            ? `ड्यूटी स्थिति बदलकर '${opt.label}' कर दी गई`
+                            : `Duty status updated to '${opt.label}'`,
+                          opt.id === "ACTIVE" ? "success" : opt.id === "ON_BREAK" ? "warn" : "info"
+                        );
+                      }}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "10px",
+                        padding: "8px 12px",
+                        borderRadius: "10px",
+                        border: pharmaDutyStatus === opt.id ? `1px solid ${opt.border}` : "1px solid transparent",
+                        background: pharmaDutyStatus === opt.id ? opt.bg : "transparent",
+                        color: isDark ? "#FFFFFF" : "#0F172A",
+                        cursor: "pointer",
+                        textAlign: "left",
+                        transition: "all 0.15s ease",
+                        width: "100%",
+                      }}
+                    >
+                      <span style={{ fontSize: "14px" }}>{opt.icon}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: "12px", fontWeight: 800, color: opt.color }}>
+                          {opt.label}
+                        </div>
+                        <div style={{ fontSize: "10px", color: isDark ? "#94A3B8" : "#64748B", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {opt.desc}
+                        </div>
+                      </div>
+                      {pharmaDutyStatus === opt.id && (
+                        <span style={{ color: opt.color, fontSize: "12px", fontWeight: 900 }}>✓</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+
           </div>
         </div>
 
-        {/* Live Metrics Grid */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-            gap: "14px",
-            marginTop: "20px",
-            borderTop: "1px solid rgba(255,255,255,0.2)",
-            paddingTop: "18px",
-          }}
-        >
-          <div style={{ background: "rgba(255,255,255,0.12)", borderRadius: "14px", padding: "12px 16px" }}>
-            <div style={{ fontSize: "11px", fontWeight: 700, opacity: 0.85, textTransform: "uppercase" }}>
-              {isHi ? "वितरण हेतु प्रतीक्षारत" : "Prescriptions Waiting"}
+        {/* Live Metrics Grid (Glassmorphic Telemetry Cards) */}
+        <div className="pharmacy-hero-kpi-grid">
+          <div className="pharmacy-kpi-card">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontSize: "11px", fontWeight: 700, opacity: 0.85, textTransform: "uppercase", color: "#BAE6FD" }}>
+                {isHi ? "वितरण हेतु प्रतीक्षारत" : "Prescriptions Waiting"}
+              </div>
+              <Pill size={16} color="#38BDF8" />
             </div>
             <div style={{ fontSize: "28px", fontWeight: 900, marginTop: "4px" }}>
               {pharmacyQueue.length}
@@ -555,21 +1231,39 @@ export default function PharmacyPage({
             </div>
           </div>
 
-          <div style={{ background: "rgba(255,255,255,0.12)", borderRadius: "14px", padding: "12px 16px" }}>
-            <div style={{ fontSize: "11px", fontWeight: 700, opacity: 0.85, textTransform: "uppercase" }}>
-              {isHi ? "काउंटर पर वितरण जारी" : "Serving at Counter"}
+          <div className="pharmacy-kpi-card">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontSize: "11px", fontWeight: 700, opacity: 0.85, textTransform: "uppercase", color: "#BAE6FD" }}>
+                {isHi ? "काउंटर पर वितरण जारी" : "Serving at Counter"}
+              </div>
+              <Clock size={16} color="#38BDF8" />
             </div>
             <div style={{ fontSize: "28px", fontWeight: 900, marginTop: "4px" }}>
-              {activeServingTicket ? `#${activeServingTicket.ticket_id}` : (isHi ? "काउंटर तैयार" : "Ready")}
+              {activeServingTicket
+                ? `#${activeServingTicket.ticket_id}`
+                : pharmaDutyStatus === "SHIFT_ENDED"
+                ? (isHi ? "शिफ्ट समाप्त" : "Shift Ended")
+                : pharmaDutyStatus === "ON_BREAK"
+                ? (isHi ? "अवकाश" : "On Break")
+                : (isHi ? "काउंटर तैयार" : "Ready")}
             </div>
             <div style={{ fontSize: "11px", opacity: 0.8, marginTop: "2px" }}>
-              {activeServingTicket ? activeServingTicket.name : (isHi ? "अगला टोकन बुलाएं" : "Counter available")}
+              {activeServingTicket
+                ? activeServingTicket.name
+                : pharmaDutyStatus === "SHIFT_ENDED"
+                ? (isHi ? "काउंटर सेवा बंद है" : "Counter offline / closed")
+                : pharmaDutyStatus === "ON_BREAK"
+                ? (isHi ? "अवकाश पर (कॉलिंग रुकी है)" : "Dispensing paused")
+                : (isHi ? `${activeCounter} उपलब्ध` : `${activeCounter} ready`)}
             </div>
           </div>
 
-          <div style={{ background: "rgba(255,255,255,0.12)", borderRadius: "14px", padding: "12px 16px" }}>
-            <div style={{ fontSize: "11px", fontWeight: 700, opacity: 0.85, textTransform: "uppercase" }}>
-              {isHi ? "आज पूर्ण वितरण" : "Dispensed Today"}
+          <div className="pharmacy-kpi-card">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontSize: "11px", fontWeight: 700, opacity: 0.85, textTransform: "uppercase", color: "#BAE6FD" }}>
+                {isHi ? "आज पूर्ण वितरण" : "Dispensed Today"}
+              </div>
+              <CheckCircle2 size={16} color="#34D399" />
             </div>
             <div style={{ fontSize: "28px", fontWeight: 900, marginTop: "4px" }}>
               {analytics?.completed_today || 18}
@@ -579,9 +1273,12 @@ export default function PharmacyPage({
             </div>
           </div>
 
-          <div style={{ background: "rgba(255,255,255,0.12)", borderRadius: "14px", padding: "12px 16px" }}>
-            <div style={{ fontSize: "11px", fontWeight: 700, opacity: 0.85, textTransform: "uppercase" }}>
-              {isHi ? "औसत वितरण समय" : "Avg. Turnaround"}
+          <div className="pharmacy-kpi-card">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontSize: "11px", fontWeight: 700, opacity: 0.85, textTransform: "uppercase", color: "#BAE6FD" }}>
+                {isHi ? "औसत वितरण समय" : "Avg. Turnaround"}
+              </div>
+              <Sparkles size={16} color="#FBBF24" />
             </div>
             <div style={{ fontSize: "28px", fontWeight: 900, marginTop: "4px" }}>
               ~3.8 min
@@ -593,271 +1290,138 @@ export default function PharmacyPage({
         </div>
       </div>
 
-      {/* Navigation Sub-Tabs */}
-      <div style={{ display: "flex", gap: "8px", marginBottom: "20px" }}>
-        <button
-          onClick={() => setActiveTab("dispensing")}
+      {/* Duty Status Alert Banner when On Break or Shift Ended */}
+      {pharmaDutyStatus !== "ACTIVE" && (
+        <div
           style={{
-            padding: "9px 18px",
-            borderRadius: "12px",
-            fontWeight: 800,
-            fontSize: "13px",
-            cursor: "pointer",
-            border: activeTab === "dispensing" ? `1.5px solid ${brandPrimary}` : cardBorder,
-            background: activeTab === "dispensing" ? (isDark ? "rgba(5, 150, 105, 0.2)" : "#ECFDF5") : cardBg,
-            color: activeTab === "dispensing" ? (isDark ? "#34D399" : "#065F46") : textColor,
-            display: "inline-flex",
+            marginBottom: "18px",
+            padding: "12px 18px",
+            borderRadius: "14px",
+            background:
+              pharmaDutyStatus === "SHIFT_ENDED"
+                ? (isDark ? "rgba(239, 68, 68, 0.15)" : "#FEF2F2")
+                : (isDark ? "rgba(245, 158, 11, 0.15)" : "#FFFBEB"),
+            border:
+              pharmaDutyStatus === "SHIFT_ENDED"
+                ? (isDark ? "1px solid rgba(239, 68, 68, 0.35)" : "1px solid #FECACA")
+                : (isDark ? "1px solid rgba(245, 158, 11, 0.35)" : "1px solid #FDE68A"),
+            color:
+              pharmaDutyStatus === "SHIFT_ENDED"
+                ? (isDark ? "#FCA5A5" : "#B91C1C")
+                : (isDark ? "#FDE68A" : "#B45309"),
+            display: "flex",
             alignItems: "center",
-            gap: "7px",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: "10px",
+            fontSize: "13px",
+            fontWeight: 700,
           }}
         >
-          <Pill size={15} />
-          <span>{isHi ? "दवा वितरण स्टेशन" : "Live Dispensing Counter"}</span>
-          <span style={{ background: brandPrimary, color: "#fff", fontSize: "11px", padding: "1px 6px", borderRadius: "10px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <span>{pharmaDutyStatus === "SHIFT_ENDED" ? "🛑" : "☕"}</span>
+            <span>
+              {pharmaDutyStatus === "SHIFT_ENDED"
+                ? (isHi
+                    ? "शिफ्ट समाप्त (Shift Ended): फार्मेसी काउंटर सेवा आज के लिए बंद है। मरीज़ कॉलिंग रुकी है।"
+                    : "Shift Ended: Pharmacy counter service is closed. Patient calling is paused.")
+                : (isHi
+                    ? "चाय / अल्पाहार अवकाश: काउंटर कॉलिंग अस्थायी रूप से रुकी है।"
+                    : "On Tea Break: Counter dispensing is temporarily paused.")}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleUpdateDutyStatus("ACTIVE")}
+            style={{
+              background: "linear-gradient(135deg, #10B981 0%, #059669 100%)",
+              color: "#FFFFFF",
+              border: "none",
+              borderRadius: "10px",
+              padding: "6px 14px",
+              fontSize: "12px",
+              fontWeight: 800,
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+              boxShadow: "0 2px 8px rgba(16, 185, 129, 0.35)",
+            }}
+          >
+            <span>✓</span>
+            <span>{isHi ? "ड्यूटी पुनः शुरू करें" : "Resume Active Duty"}</span>
+          </button>
+        </div>
+      )}
+
+      {/* Modern 2-Tab Navigation Bar matching Doctor & Staff Portals */}
+      <div className="pharmacy-tabs-grid">
+        <button
+          onClick={() => setActiveTab("dispensing")}
+          className={`tab-button-modern ${activeTab === "dispensing" ? "active" : "inactive"}`}
+        >
+          <div className="tab-icon-wrapper">
+            <Pill size={18} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div className="tab-title-text">{isHi ? "दवा वितरण स्टेशन" : "Live Dispensing Counter"}</div>
+            <span className="tab-sub-text">{isHi ? "सक्रिय पर्चे व दवा वितरण" : "Active Prescriptions & Queue"}</span>
+          </div>
+          <span
+            className="tab-count-badge"
+            style={{
+              background: activeTab === "dispensing" ? "rgba(255,255,255,0.25)" : (isDark ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE"),
+              color: activeTab === "dispensing" ? "#FFFFFF" : "#0284C7",
+            }}
+          >
             {pharmacyQueue.length}
           </span>
         </button>
 
         <button
           onClick={() => setActiveTab("archive")}
-          style={{
-            padding: "9px 18px",
-            borderRadius: "12px",
-            fontWeight: 800,
-            fontSize: "13px",
-            cursor: "pointer",
-            border: activeTab === "archive" ? `1.5px solid ${brandPrimary}` : cardBorder,
-            background: activeTab === "archive" ? (isDark ? "rgba(5, 150, 105, 0.2)" : "#ECFDF5") : cardBg,
-            color: activeTab === "archive" ? (isDark ? "#34D399" : "#065F46") : textColor,
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "7px",
-          }}
+          className={`tab-button-modern ${activeTab === "archive" ? "active" : "inactive"}`}
         >
-          <FileText size={15} />
-          <span>{isHi ? "दवा वितरण अभिलेख व खोज" : "Prescription Lookup & Audit"}</span>
+          <div className="tab-icon-wrapper">
+            <FileText size={18} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div className="tab-title-text">{isHi ? "दवा वितरण अभिलेख व खोज" : "Prescription Lookup & Audit"}</div>
+            <span className="tab-sub-text">{isHi ? "अस्पताल के सभी पर्चों का ऑडिट" : "Search & Reprint Dispensed Rx"}</span>
+          </div>
         </button>
 
         <button
-          onClick={() => setActiveTab("reference")}
-          style={{
-            padding: "9px 18px",
-            borderRadius: "12px",
-            fontWeight: 800,
-            fontSize: "13px",
-            cursor: "pointer",
-            border: activeTab === "reference" ? `1.5px solid ${brandPrimary}` : cardBorder,
-            background: activeTab === "reference" ? (isDark ? "rgba(5, 150, 105, 0.2)" : "#ECFDF5") : cardBg,
-            color: activeTab === "reference" ? (isDark ? "#34D399" : "#065F46") : textColor,
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "7px",
+          onClick={() => {
+            setActiveTab("history");
+            fetchPatientVisits();
           }}
+          className={`tab-button-modern ${activeTab === "history" ? "active" : "inactive"}`}
         >
-          <Package size={15} />
-          <span>{isHi ? "जेनेरिक दवा संदर्भ गाइड" : "Generic Formulary Reference"}</span>
+          <div className="tab-icon-wrapper">
+            <History size={18} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div className="tab-title-text">{isHi ? "मरीज़ विज़िट इतिहास" : "Patient Visit History"}</div>
+            <span className="tab-sub-text">{isHi ? "आए हुए मरीजों का संपूर्ण रिकॉर्ड" : "Past Patient Footfall & Audit"}</span>
+          </div>
+          <span
+            className="tab-count-badge"
+            style={{
+              background: activeTab === "history" ? "rgba(255,255,255,0.25)" : (isDark ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE"),
+              color: activeTab === "history" ? "#FFFFFF" : "#0284C7",
+            }}
+          >
+            {patientVisits.length}
+          </span>
         </button>
       </div>
 
       {/* Main Workspace Body */}
       {activeTab === "dispensing" && (
-        <div style={{ display: "grid", gridTemplateColumns: "380px 1fr", gap: "20px" }}>
-          {/* Left Column: Waiting Pharmacy Queue */}
-          <div style={{ background: cardBg, border: cardBorder, borderRadius: "18px", padding: "18px", boxShadow: "0 4px 15px rgba(0,0,0,0.02)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <span style={{ fontSize: "16px" }}>📋</span>
-                <h3 style={{ margin: 0, fontSize: "15px", fontWeight: 800, color: textColor }}>
-                  {isHi ? "फार्मेसी कतार" : "Pharmacy Queue"} ({pharmacyQueue.length})
-                </h3>
-              </div>
-              <button
-                onClick={handleCallNextPatient}
-                disabled={callingNext || pharmacyQueue.length === 0}
-                style={{
-                  background: "linear-gradient(135deg, #059669 0%, #047857 100%)",
-                  color: "#FFFFFF",
-                  border: "none",
-                  borderRadius: "10px",
-                  padding: "7px 12px",
-                  fontSize: "12px",
-                  fontWeight: 800,
-                  cursor: pharmacyQueue.length === 0 ? "not-allowed" : "pointer",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "5px",
-                  boxShadow: "0 2px 8px rgba(5, 150, 105, 0.3)",
-                  opacity: pharmacyQueue.length === 0 ? 0.6 : 1,
-                }}
-              >
-                <span>📢</span>
-                <span>{callingNext ? (isHi ? "बुला रहे हैं..." : "Calling...") : (isHi ? "अगला बुलाएं" : "Call Next")}</span>
-              </button>
-            </div>
-
-            {/* Search Input */}
-            <div style={{ position: "relative", marginBottom: "14px" }}>
-              <input
-                type="text"
-                placeholder={isHi ? "टोकन # या मरीज का नाम खोजें..." : "Filter queue by token # or name..."}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                style={{
-                  width: "100%",
-                  padding: "8px 12px 8px 32px",
-                  borderRadius: "10px",
-                  border: cardBorder,
-                  background: isDark ? "#1E293B" : "#F8FAFC",
-                  color: textColor,
-                  fontSize: "12.5px",
-                  boxSizing: "border-box",
-                  outline: "none",
-                }}
-              />
-              <Search size={14} color={mutedText} style={{ position: "absolute", left: "10px", top: "11px" }} />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery("")}
-                  style={{ position: "absolute", right: "8px", top: "8px", background: "none", border: "none", color: mutedText, cursor: "pointer", fontSize: "12px" }}
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-
-            {/* Waiting Queue List */}
-            <div style={{ display: "flex", flexDirection: "column", gap: "10px", maxHeight: "680px", overflowY: "auto", paddingRight: "4px" }}>
-              {filteredQueue.length === 0 ? (
-                <div style={{ textAlign: "center", padding: "40px 16px", color: mutedText }}>
-                  <Pill size={36} color={mutedText} style={{ opacity: 0.4, margin: "0 auto 12px auto" }} />
-                  <div style={{ fontSize: "14px", fontWeight: 700 }}>
-                    {isHi ? "कतार में कोई मरीज प्रतीक्षारत नहीं है" : "No prescriptions waiting in queue"}
-                  </div>
-                  <div style={{ fontSize: "12px", marginTop: "4px" }}>
-                    {isHi ? "डॉक्टर द्वारा पर्ची स्थानांतरित होते ही यहाँ स्वतः प्रदर्शित होगी।" : "Transferred prescriptions from doctor desks will appear here live."}
-                  </div>
-                </div>
-              ) : (
-                filteredQueue.map((ticket, idx) => {
-                  const rxNotes = parseRxNotes(ticket);
-                  const medList = Array.isArray(rxNotes?.medicines) ? rxNotes.medicines : [];
-                  const isSelected = activeServingTicket?.ticket_id === ticket.ticket_id;
-
-                  return (
-                    <div
-                      key={ticket.ticket_id || idx}
-                      onClick={() => setActiveServingTicket(ticket)}
-                      style={{
-                        padding: "12px 14px",
-                        borderRadius: "14px",
-                        border: isSelected ? "2px solid #059669" : cardBorder,
-                        background: isSelected ? (isDark ? "rgba(5, 150, 105, 0.15)" : "#ECFDF5") : (isDark ? "#1E293B" : "#FFFFFF"),
-                        cursor: "pointer",
-                        transition: "all 0.15s ease",
-                      }}
-                    >
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                        <div>
-                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                            <span style={{ fontSize: "14px", fontWeight: 900, color: highlightGreen }}>
-                              #{ticket.ticket_id}
-                            </span>
-                            <span style={{ fontSize: "13.5px", fontWeight: 800, color: textColor }}>
-                              {ticket.name}
-                            </span>
-                          </div>
-                          <div style={{ fontSize: "11px", color: mutedText, marginTop: "2px" }}>
-                            {ticket.age || 30}y, {ticket.gender || "Patient"} • Ph: {ticket.phone || "N/A"}
-                          </div>
-                        </div>
-
-                        <span
-                          style={{
-                            fontSize: "10px",
-                            fontWeight: 800,
-                            padding: "2px 7px",
-                            borderRadius: "6px",
-                            background: isDark ? "rgba(5, 150, 105, 0.25)" : "#D1FAE5",
-                            color: "#059669",
-                          }}
-                        >
-                          {ticket.priority_level === 1 ? "EMERGENCY" : "STANDARD"}
-                        </span>
-                      </div>
-
-                      {/* Prescribed By & Items Count */}
-                      <div style={{ marginTop: "8px", paddingTop: "8px", borderTop: isDark ? "1px solid #334155" : "1px solid #F1F5F9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <div style={{ fontSize: "11px", color: mutedText }}>
-                          👨‍⚕️ {rxNotes?.doctor_name || "Doctor"}
-                        </div>
-                        <div style={{ fontSize: "11px", fontWeight: 800, color: "#0284C7", display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                          <Pill size={11} />
-                          <span>{medList.length} {isHi ? "दवाएं" : "Medicines"}</span>
-                        </div>
-                      </div>
-
-                      {/* Action buttons */}
-                      <div style={{ marginTop: "8px", display: "flex", gap: "6px" }}>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleReAnnounce(ticket);
-                          }}
-                          style={{
-                            flex: 1,
-                            padding: "4px 8px",
-                            borderRadius: "6px",
-                            border: isDark ? "1px solid #334155" : "1px solid #E2E8F0",
-                            background: isDark ? "#0F172A" : "#F8FAFC",
-                            color: textColor,
-                            fontSize: "11px",
-                            fontWeight: 700,
-                            cursor: "pointer",
-                            display: "inline-flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            gap: "4px",
-                          }}
-                        >
-                          <Volume2 size={11} />
-                          <span>{isHi ? "कॉल करें" : "Announce"}</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setActiveServingTicket(ticket);
-                          }}
-                          style={{
-                            flex: 1,
-                            padding: "4px 8px",
-                            borderRadius: "6px",
-                            border: "none",
-                            background: highlightGreen,
-                            color: "#FFFFFF",
-                            fontSize: "11px",
-                            fontWeight: 800,
-                            cursor: "pointer",
-                            display: "inline-flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            gap: "4px",
-                          }}
-                        >
-                          <span>{isHi ? "काउंटर पर लें ➔" : "Dispense ➔"}</span>
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-
-          {/* Right Column: Active Interactive Clinical Dispensing Terminal */}
-          <div style={{ background: cardBg, border: cardBorder, borderRadius: "18px", padding: "22px", boxShadow: "0 4px 15px rgba(0,0,0,0.02)" }}>
+        <div style={{ width: "100%" }}>
+          {/* Active Interactive Clinical Dispensing Terminal (Full Width Workspace) */}
+          <div style={{ background: cardBg, border: cardBorder, borderRadius: "18px", padding: "24px", boxShadow: "0 4px 15px rgba(0,0,0,0.02)" }}>
             {activeServingTicket ? (
               (() => {
                 const ticket = activeServingTicket;
@@ -871,14 +1435,14 @@ export default function PharmacyPage({
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", paddingBottom: "16px", borderBottom: cardBorder, marginBottom: "18px" }}>
                       <div>
                         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                          <span style={{ fontSize: "20px", fontWeight: 900, color: highlightGreen }}>
+                          <span style={{ fontSize: "20px", fontWeight: 900, color: highlightPrimary }}>
                             Token #{ticket.ticket_id}
                           </span>
                           <span style={{ fontSize: "18px", fontWeight: 800, color: textColor }}>
                             {ticket.name}
                           </span>
-                          <span style={{ background: isDark ? "rgba(5, 150, 105, 0.2)" : "#ECFDF5", color: highlightGreen, padding: "2px 8px", borderRadius: "6px", fontSize: "11px", fontWeight: 800 }}>
-                            {activeCounter}
+                          <span style={{ background: isDark ? "rgba(2, 132, 199, 0.2)" : "#E0F2FE", color: highlightPrimary, padding: "3px 10px", borderRadius: "8px", fontSize: "11px", fontWeight: 800, display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                            🪑 {activeCounter}
                           </span>
                         </div>
                         <div style={{ fontSize: "12px", color: mutedText, marginTop: "4px" }}>
@@ -910,7 +1474,7 @@ export default function PharmacyPage({
                           }}
                           title="Broadcast Audio Call Chime"
                         >
-                          <Volume2 size={13} color="#059669" />
+                          <Volume2 size={13} color="#0284C7" />
                           <span>{isHi ? "लाउडस्पीकर" : "Re-Announce"}</span>
                         </button>
 
@@ -920,9 +1484,9 @@ export default function PharmacyPage({
                           style={{
                             padding: "7px 12px",
                             borderRadius: "10px",
-                            border: "1.5px solid #059669",
-                            background: isDark ? "rgba(5, 150, 105, 0.2)" : "#ECFDF5",
-                            color: isDark ? "#34D399" : "#065F46",
+                            border: "1.5px solid #0284C7",
+                            background: isDark ? "rgba(2, 132, 199, 0.18)" : "#F0F9FF",
+                            color: isDark ? "#38BDF8" : "#0369A1",
                             fontSize: "12px",
                             fontWeight: 800,
                             cursor: "pointer",
@@ -1003,7 +1567,7 @@ export default function PharmacyPage({
                     {/* Interactive Dispensing Checklist Header */}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                        <Pill size={17} color={highlightGreen} />
+                        <Pill size={17} color={highlightPrimary} />
                         <h4 style={{ margin: 0, fontSize: "14px", fontWeight: 800, color: textColor }}>
                           {isHi ? "दवा वितरण चेकलिस्ट व सत्यापन" : "Medication Dispensing Checklist"} ({medicines.length})
                         </h4>
@@ -1059,7 +1623,7 @@ export default function PharmacyPage({
                                     style={{
                                       width: "18px",
                                       height: "18px",
-                                      accentColor: "#059669",
+                                      accentColor: "#0284C7",
                                       marginTop: "3px",
                                       cursor: "pointer",
                                     }}
@@ -1096,7 +1660,7 @@ export default function PharmacyPage({
                                   <div style={{ fontSize: "10.5px", fontWeight: 700, color: mutedText, textTransform: "uppercase" }}>
                                     {isHi ? "वितरण मात्रा" : "Total To Pack"}
                                   </div>
-                                  <div style={{ fontSize: "14px", fontWeight: 900, color: "#059669", marginTop: "2px" }}>
+                                  <div style={{ fontSize: "14px", fontWeight: 900, color: highlightPrimary, marginTop: "2px" }}>
                                     {calculatedUnits}
                                   </div>
                                   <span
@@ -1158,7 +1722,7 @@ export default function PharmacyPage({
                             gap: "6px",
                           }}
                         >
-                          <Printer size={14} color="#059669" />
+                          <Printer size={14} color="#0284C7" />
                           <span>{isHi ? "पैकेट लेबल प्रिंट" : "Print Label Slip"}</span>
                         </button>
 
@@ -1167,7 +1731,7 @@ export default function PharmacyPage({
                           disabled={completingTicket}
                           onClick={() => handleCompleteDispensing(ticket)}
                           style={{
-                            background: "linear-gradient(135deg, #059669 0%, #047857 100%)",
+                            background: "linear-gradient(135deg, #10B981 0%, #059669 100%)",
                             color: "#FFFFFF",
                             border: "none",
                             borderRadius: "10px",
@@ -1178,7 +1742,7 @@ export default function PharmacyPage({
                             display: "inline-flex",
                             alignItems: "center",
                             gap: "7px",
-                            boxShadow: "0 4px 14px rgba(5, 150, 105, 0.35)",
+                            boxShadow: "0 4px 14px rgba(16, 185, 129, 0.35)",
                           }}
                         >
                           <CheckCircle2 size={16} />
@@ -1193,15 +1757,15 @@ export default function PharmacyPage({
                   </div>
                 );
               })()
-            ) : (
+            ) : filteredQueue.length === 0 ? (
               <div style={{ textAlign: "center", padding: "70px 20px", color: mutedText }}>
                 <div
                   style={{
                     width: "68px",
                     height: "68px",
                     borderRadius: "50%",
-                    background: isDark ? "rgba(5, 150, 105, 0.2)" : "#ECFDF5",
-                    color: highlightGreen,
+                    background: isDark ? "rgba(2, 132, 199, 0.2)" : "#F0F9FF",
+                    color: highlightPrimary,
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
@@ -1213,17 +1777,17 @@ export default function PharmacyPage({
                 <h3 style={{ margin: "0 0 6px 0", fontSize: "18px", fontWeight: 800, color: textColor }}>
                   {isHi ? "फार्मेसी काउंटर उपलब्ध है" : "Pharmacy Counter Ready"}
                 </h3>
-                <p style={{ margin: "0 0 20px 0", fontSize: "13px", maxWidth: "420px", marginInline: "auto", lineHeight: 1.5 }}>
+                <p style={{ margin: "0 0 20px 0", fontSize: "13px", maxWidth: "460px", marginInline: "auto", lineHeight: 1.5 }}>
                   {isHi
-                    ? "कतार से मरीज का चयन करें या अगला टोकन बुलाने के लिए बटन दबाएं। प्रिस्क्रिप्शन विवरण एवं सत्यापन चेकलिस्ट यहाँ खुल जाएगी।"
-                    : "Select a waiting prescription from the queue on the left or click below to call the next patient to your counter."}
+                    ? "डॉक्टर द्वारा पर्ची स्थानांतरित होते ही यहाँ स्वतः प्रदर्शित होगी। अगला टोकन बुलाने के लिए नीचे बटन दबाएं।"
+                    : "Transferred prescriptions from doctor desks will appear here live. Click below to call the next patient to your counter."}
                 </p>
                 <button
                   type="button"
                   onClick={handleCallNextPatient}
                   disabled={callingNext || pharmacyQueue.length === 0}
                   style={{
-                    background: "linear-gradient(135deg, #059669 0%, #047857 100%)",
+                    background: "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)",
                     color: "#FFFFFF",
                     border: "none",
                     borderRadius: "12px",
@@ -1234,13 +1798,188 @@ export default function PharmacyPage({
                     display: "inline-flex",
                     alignItems: "center",
                     gap: "8px",
-                    boxShadow: "0 4px 14px rgba(5, 150, 105, 0.3)",
+                    boxShadow: "0 4px 14px rgba(2, 132, 199, 0.35)",
                     opacity: pharmacyQueue.length === 0 ? 0.6 : 1,
                   }}
                 >
                   <Volume2 size={16} />
                   <span>{callingNext ? (isHi ? "बुला रहे हैं..." : "Calling...") : (isHi ? "अगला टोकन बुलाएं" : "Call Next Patient to Counter")}</span>
                 </button>
+              </div>
+            ) : (
+              <div>
+                {/* Full-width queue stream when tickets are waiting */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px", flexWrap: "wrap", gap: "12px" }}>
+                  <div>
+                    <h3 style={{ margin: "0 0 4px 0", fontSize: "18px", fontWeight: 800, color: textColor }}>
+                      {isHi ? "प्रतीक्षारत फार्मेसी कतार" : "Waiting Prescriptions"} ({pharmacyQueue.length})
+                    </h3>
+                    <p style={{ margin: 0, fontSize: "12.5px", color: mutedText }}>
+                      {isHi ? "दवा वितरण प्रारंभ करने हेतु काउंटर पर लें या लाउडस्पीकर पर कॉल करें।" : "Call next queued patient or select any prescription to dispense at your counter."}
+                    </p>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                    <div style={{ position: "relative" }}>
+                      <input
+                        type="text"
+                        placeholder={isHi ? "टोकन # या नाम खोजें..." : "Filter by token or name..."}
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        style={{
+                          padding: "7px 12px 7px 30px",
+                          borderRadius: "10px",
+                          border: cardBorder,
+                          background: isDark ? "#1E293B" : "#F8FAFC",
+                          color: textColor,
+                          fontSize: "12px",
+                          outline: "none",
+                          width: "180px",
+                        }}
+                      />
+                      <Search size={13} color={mutedText} style={{ position: "absolute", left: "9px", top: "10px" }} />
+                      {searchQuery && (
+                        <button
+                          onClick={() => setSearchQuery("")}
+                          style={{ position: "absolute", right: "6px", top: "7px", background: "none", border: "none", color: mutedText, cursor: "pointer", fontSize: "11px" }}
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleCallNextPatient}
+                      disabled={callingNext || pharmacyQueue.length === 0}
+                      style={{
+                        background: "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)",
+                        color: "#FFFFFF",
+                        border: "none",
+                        borderRadius: "10px",
+                        padding: "8px 18px",
+                        fontSize: "12.5px",
+                        fontWeight: 800,
+                        cursor: pharmacyQueue.length === 0 ? "not-allowed" : "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        boxShadow: "0 2px 8px rgba(2, 132, 199, 0.3)",
+                      }}
+                    >
+                      <Volume2 size={14} />
+                      <span>{callingNext ? (isHi ? "बुला रहे हैं..." : "Calling...") : (isHi ? "अगला टोकन बुलाएं" : "Call Next Patient")}</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "14px" }}>
+                  {filteredQueue.map((ticket, idx) => {
+                    const rxNotes = parseRxNotes(ticket);
+                    const medList = Array.isArray(rxNotes?.medicines) ? rxNotes.medicines : [];
+                    return (
+                      <div
+                        key={ticket.ticket_id || idx}
+                        style={{
+                          padding: "16px",
+                          borderRadius: "14px",
+                          border: cardBorder,
+                          background: isDark ? "#1E293B" : "#F8FAFC",
+                          transition: "all 0.15s ease",
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                          <div>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                              <span style={{ fontSize: "16px", fontWeight: 900, color: highlightPrimary }}>
+                                #{ticket.ticket_id}
+                              </span>
+                              <span style={{ fontSize: "15px", fontWeight: 800, color: textColor }}>
+                                {ticket.name}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: "11.5px", color: mutedText, marginTop: "2px" }}>
+                              {ticket.age || 30}y, {ticket.gender || "Patient"} • Ph: {ticket.phone || "N/A"}
+                            </div>
+                          </div>
+
+                          <span
+                            style={{
+                              fontSize: "10px",
+                              fontWeight: 800,
+                              padding: "2px 8px",
+                              borderRadius: "6px",
+                              background: ticket.priority_level === 1
+                                ? (isDark ? "rgba(244, 63, 94, 0.25)" : "#FFE4E6")
+                                : (isDark ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE"),
+                              color: ticket.priority_level === 1 ? "#E11D48" : "#0284C7",
+                            }}
+                          >
+                            {ticket.priority_level === 1 ? "EMERGENCY" : "STANDARD"}
+                          </span>
+                        </div>
+
+                        <div style={{ marginTop: "10px", paddingTop: "10px", borderTop: isDark ? "1px solid #334155" : "1px solid #E2E8F0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <div style={{ fontSize: "11.5px", color: mutedText }}>
+                            👨‍⚕️ {rxNotes?.doctor_name || "Doctor"}
+                          </div>
+                          <div style={{ fontSize: "11.5px", fontWeight: 800, color: "#0284C7", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                            <Pill size={12} />
+                            <span>{medList.length} {isHi ? "दवाएं" : "Medicines"}</span>
+                          </div>
+                        </div>
+
+                        <div style={{ marginTop: "12px", display: "flex", gap: "8px" }}>
+                          <button
+                            type="button"
+                            onClick={() => handleReAnnounce(ticket)}
+                            style={{
+                              flex: 1,
+                              padding: "7px 10px",
+                              borderRadius: "8px",
+                              border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
+                              background: isDark ? "#0F172A" : "#FFFFFF",
+                              color: textColor,
+                              fontSize: "12px",
+                              fontWeight: 700,
+                              cursor: "pointer",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              gap: "5px",
+                            }}
+                          >
+                            <Volume2 size={12} color="#0284C7" />
+                            <span>{isHi ? "कॉल करें" : "Announce"}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setActiveServingTicket(ticket)}
+                            style={{
+                              flex: 1.2,
+                              padding: "7px 10px",
+                              borderRadius: "8px",
+                              border: "none",
+                              background: "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)",
+                              color: "#FFFFFF",
+                              fontSize: "12px",
+                              fontWeight: 800,
+                              cursor: "pointer",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              gap: "5px",
+                              boxShadow: "0 2px 6px rgba(2, 132, 199, 0.25)",
+                            }}
+                          >
+                            <span>{isHi ? "काउंटर पर लें ➔" : "Dispense ➔"}</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </div>
@@ -1318,7 +2057,7 @@ export default function PharmacyPage({
 
                   return (
                     <tr key={t.ticket_id || idx} style={{ borderBottom: isDark ? "1px solid #1E293B" : "1px solid #F1F5F9" }}>
-                      <td style={{ padding: "10px 12px", fontWeight: 800, color: highlightGreen, fontFamily: "monospace" }}>
+                      <td style={{ padding: "10px 12px", fontWeight: 800, color: highlightPrimary, fontFamily: "monospace" }}>
                         #{t.ticket_id}
                       </td>
                       <td style={{ padding: "10px 12px", fontWeight: 700, color: textColor }}>
@@ -1332,7 +2071,7 @@ export default function PharmacyPage({
                         {medList.length > 0 ? (
                           <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
                             {medList.slice(0, 3).map((m, mIdx) => (
-                              <span key={mIdx} style={{ background: isDark ? "rgba(5, 150, 105, 0.2)" : "#ECFDF5", color: "#059669", padding: "1px 6px", borderRadius: "4px", fontSize: "10.5px", fontWeight: 700 }}>
+                              <span key={mIdx} style={{ background: isDark ? "rgba(2, 132, 199, 0.2)" : "#F0F9FF", color: "#0284C7", padding: "1px 6px", borderRadius: "4px", fontSize: "10.5px", fontWeight: 700 }}>
                                 {m.name}
                               </span>
                             ))}
@@ -1349,8 +2088,8 @@ export default function PharmacyPage({
                             borderRadius: "6px",
                             fontSize: "10.5px",
                             fontWeight: 800,
-                            background: isPharma ? (isDark ? "rgba(5, 150, 105, 0.25)" : "#D1FAE5") : (isDark ? "#334155" : "#E2E8F0"),
-                            color: isPharma ? "#059669" : mutedText,
+                            background: isPharma ? (isDark ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE") : (isDark ? "#334155" : "#E2E8F0"),
+                            color: isPharma ? "#0284C7" : mutedText,
                           }}
                         >
                           {t.status.toUpperCase()} {isPharma ? "• PHARMACY" : ""}
@@ -1381,11 +2120,12 @@ export default function PharmacyPage({
                               padding: "4px 8px",
                               borderRadius: "6px",
                               border: "none",
-                              background: highlightGreen,
+                              background: "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)",
                               color: "#FFFFFF",
                               fontSize: "11px",
                               fontWeight: 700,
                               cursor: "pointer",
+                              boxShadow: "0 2px 6px rgba(2, 132, 199, 0.25)",
                             }}
                           >
                             Rx
@@ -1401,59 +2141,776 @@ export default function PharmacyPage({
         </div>
       )}
 
-      {/* Tab 3: Generic Formulary Reference */}
-      {activeTab === "reference" && (
-        <div style={{ background: cardBg, border: cardBorder, borderRadius: "18px", padding: "24px" }}>
-          <h3 style={{ margin: "0 0 6px 0", fontSize: "17px", fontWeight: 800, color: textColor }}>
-            {isHi ? "जन औषधि एवं जेनेरिक दवा संदर्भ गाइड" : "Generic Formulary & Dispensing Reference Guide"}
-          </h3>
-          <p style={{ margin: "0 0 18px 0", fontSize: "12.5px", color: mutedText }}>
-            {isHi ? "सामान्य आवश्यक दवाएं, मानक खुराक एवं ब्रांड विकल्प।" : "Standard dispensing parameters, generic equivalents, and administration guidance."}
-          </p>
+      {/* Tab 3: Patient Visit History */}
+      {activeTab === "history" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+          {/* Telemetry Metric Cards */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gap: "14px",
+            }}
+          >
+            <div
+              style={{
+                background: cardBg,
+                border: cardBorder,
+                borderRadius: "16px",
+                padding: "16px 20px",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.02)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  {isHi ? "कुल मरीज़ विज़िट" : "Total Visits Recorded"}
+                </span>
+                <History size={16} color="#0284C7" />
+              </div>
+              <div style={{ fontSize: "28px", fontWeight: 900, color: textColor, marginTop: "6px" }}>
+                {visitsSummary?.total_patients_visited_all_time || patientVisits.length}
+              </div>
+              <div style={{ fontSize: "11px", color: mutedText, marginTop: "2px" }}>
+                {isHi ? "अस्पताल में सभी विभागों के मरीज़" : "All departments footfall log"}
+              </div>
+            </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "14px" }}>
-            {[
-              { generic: "Paracetamol", brand: "Dolo 650 / Calpol", dose: "500mg / 650mg", schedule: "SOS / 1-0-1", use: "Antipyretic & Analgesic (Fever & Pain)" },
-              { generic: "Amoxicillin + Clavulanate", brand: "Augmentin / Clavam", dose: "625mg", schedule: "1-0-1 After food", use: "Broad Spectrum Antibiotic" },
-              { generic: "Azithromycin", brand: "Azee / Zithrox", dose: "500mg", schedule: "1-0-0 Before food (3-5d)", use: "Upper Respiratory Tract Infection" },
-              { generic: "Pantoprazole", brand: "Pan 40 / Pantocid", dose: "40mg", schedule: "1-0-0 Empty Stomach (AC)", use: "Proton Pump Inhibitor (Acidity & GERD)" },
-              { generic: "Cetirizine", brand: "Cetzine / Okacet", dose: "10mg", schedule: "0-0-1 At bedtime (HS)", use: "Antihistamine (Allergy & Rhinitis)" },
-              { generic: "Metformin", brand: "Glycomet", dose: "500mg / 850mg", schedule: "1-0-1 With or after meals", use: "Type 2 Diabetes Mellitus" },
-              { generic: "Amlodipine", brand: "Amlopres / Stamlo", dose: "5mg", schedule: "1-0-0 Morning", use: "Hypertension & Angina" },
-              { generic: "Oral Rehydration Salts (ORS)", brand: "Electral", dose: "1 Sachet in 1L Water", schedule: "Sip throughout day", use: "Dehydration & Diarrhea" },
-            ].map((item, idx) => (
-              <div
-                key={idx}
-                style={{
-                  background: isDark ? "#1E293B" : "#F8FAFC",
-                  border: cardBorder,
-                  borderRadius: "14px",
-                  padding: "14px",
-                }}
-              >
-                <div style={{ fontSize: "14px", fontWeight: 800, color: highlightGreen }}>
-                  {item.generic}
+            <div
+              style={{
+                background: cardBg,
+                border: cardBorder,
+                borderRadius: "16px",
+                padding: "16px 20px",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.02)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  {isHi ? "फार्मेसी पूर्ण विज़िट" : "Pharmacy Dispensed"}
+                </span>
+                <Pill size={16} color="#10B981" />
+              </div>
+              <div style={{ fontSize: "28px", fontWeight: 900, color: "#10B981", marginTop: "6px" }}>
+                {patientVisits.filter((v) => {
+                  const d = (v.dept_code || v.department || "").toLowerCase();
+                  const hasPharma = Array.isArray(v.transfer_stages) && v.transfer_stages.some((s) => (s.dept_code || s.department || "").toLowerCase().includes("pharm"));
+                  return d.includes("pharm") || hasPharma;
+                }).length}
+              </div>
+              <div style={{ fontSize: "11px", color: mutedText, marginTop: "2px" }}>
+                {isHi ? "फार्मेसी में दवा प्राप्त की" : "Prescriptions processed & fulfilled"}
+              </div>
+            </div>
+
+            <div
+              style={{
+                background: cardBg,
+                border: cardBorder,
+                borderRadius: "16px",
+                padding: "16px 20px",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.02)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  {isHi ? "सफलतापूर्वक पूर्ण" : "Completed Consultations"}
+                </span>
+                <CheckCircle2 size={16} color="#0284C7" />
+              </div>
+              <div style={{ fontSize: "28px", fontWeight: 900, color: textColor, marginTop: "6px" }}>
+                {visitsSummary?.all_time_completed || patientVisits.filter((v) => (v.status || "").toLowerCase() === "completed").length}
+              </div>
+              <div style={{ fontSize: "11px", color: mutedText, marginTop: "2px" }}>
+                {isHi ? "सफल परामर्श व उपचारित" : "Visits successfully closed"}
+              </div>
+            </div>
+
+            <div
+              style={{
+                background: cardBg,
+                border: cardBorder,
+                borderRadius: "16px",
+                padding: "16px 20px",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.02)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  {isHi ? "आज के मरीज़" : "Today's Patient Footfall"}
+                </span>
+                <Calendar size={16} color="#F59E0B" />
+              </div>
+              <div style={{ fontSize: "28px", fontWeight: 900, color: "#F59E0B", marginTop: "6px" }}>
+                {visitsSummary?.today_patients_visited || 0}
+              </div>
+              <div style={{ fontSize: "11px", color: mutedText, marginTop: "2px" }}>
+                {isHi ? "आज अस्पताल में पंजीकृत" : "Registered across hospital today"}
+              </div>
+            </div>
+          </div>
+
+          {/* Main Table Card */}
+          <div style={{ background: cardBg, border: cardBorder, borderRadius: "18px", padding: "24px" }}>
+            {/* Toolbar */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", flexWrap: "wrap", gap: "14px" }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: "17px", fontWeight: 800, color: textColor, display: "flex", alignItems: "center", gap: "8px" }}>
+                  <History size={18} color="#0284C7" />
+                  <span>{isHi ? "मरीज़ विज़िट एवं दवा वितरण इतिहास" : "Patient Visit & Dispensing History"}</span>
+                </h3>
+                <p style={{ margin: "4px 0 0 0", fontSize: "12px", color: mutedText }}>
+                  {isHi
+                    ? "अस्पताल में आए सभी मरीजों के परामर्श, निदान, लिखी गई दवाएं और वितरण का संपूर्ण ऑडिट रिकॉर्ड।"
+                    : "Comprehensive audit records of patient visits, clinical diagnoses, doctor prescriptions, and pharmacy dispensations."}
+                </p>
+              </div>
+
+              {/* Search, Filter, Excel Export & Refresh Controls */}
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                {/* Search Box */}
+                <div style={{ position: "relative" }}>
+                  <Search size={14} color={mutedText} style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)" }} />
+                  <input
+                    type="text"
+                    placeholder={isHi ? "मरीज़, टोकन, फोन, डॉक्टर या दवा खोजें..." : "Search patient, token, phone, doctor or medicine..."}
+                    value={visitSearchQuery}
+                    onChange={(e) => setVisitSearchQuery(e.target.value)}
+                    style={{
+                      padding: "8px 12px 8px 34px",
+                      borderRadius: "10px",
+                      border: cardBorder,
+                      background: isDark ? "#1E293B" : "#F8FAFC",
+                      color: textColor,
+                      fontSize: "12.5px",
+                      outline: "none",
+                      width: "260px",
+                    }}
+                  />
+                  {visitSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setVisitSearchQuery("")}
+                      style={{
+                        position: "absolute",
+                        right: "10px",
+                        top: "50%",
+                        transform: "translateY(-50%)",
+                        background: "none",
+                        border: "none",
+                        color: mutedText,
+                        cursor: "pointer",
+                        fontSize: "12px",
+                      }}
+                    >
+                      ✕
+                    </button>
+                  )}
                 </div>
-                <div style={{ fontSize: "11.5px", color: mutedText, marginTop: "2px" }}>
-                  Brand equivalents: <strong style={{ color: textColor }}>{item.brand}</strong>
-                </div>
-                <div style={{ marginTop: "8px", paddingTop: "8px", borderTop: isDark ? "1px solid #334155" : "1px solid #E2E8F0", fontSize: "11.5px" }}>
-                  <div><strong>Standard:</strong> {item.dose} • {item.schedule}</div>
-                  <div style={{ color: mutedText, marginTop: "2px" }}><strong>Indication:</strong> {item.use}</div>
+
+                {/* Filter Dropdown */}
+                <select
+                  value={visitFilterDept}
+                  onChange={(e) => setVisitFilterDept(e.target.value)}
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: "10px",
+                    border: cardBorder,
+                    background: isDark ? "#1E293B" : "#F8FAFC",
+                    color: textColor,
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    outline: "none",
+                    cursor: "pointer",
+                  }}
+                >
+                  <option value="pharmacy">{isHi ? "फार्मेसी विज़िट (दवा वितरण)" : "Pharmacy Dispensed"}</option>
+                  <option value="all">{isHi ? "सभी अस्पताल विज़िट" : "All Hospital Visits"}</option>
+                  <option value="completed">{isHi ? "केवल पूर्ण विज़िट" : "Completed Only"}</option>
+                  <option value="today">{isHi ? "आज के मरीज़" : "Today's Visits"}</option>
+                </select>
+
+                {/* Export to Excel */}
+                <button
+                  type="button"
+                  onClick={handleExportVisitsExcel}
+                  style={{
+                    background: isDark ? "rgba(16, 185, 129, 0.18)" : "#ECFDF5",
+                    border: isDark ? "1px solid rgba(16, 185, 129, 0.4)" : "1px solid #A7F3D0",
+                    color: "#10B981",
+                    borderRadius: "10px",
+                    padding: "8px 14px",
+                    fontSize: "12px",
+                    fontWeight: 800,
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "6px",
+                  }}
+                  title={isHi ? "एक्सेल फ़ाइल में डाउनलोड करें" : "Download as Excel Sheet"}
+                >
+                  <Download size={13} />
+                  <span>{isHi ? "एक्सेल निर्यात" : "Export Excel"}</span>
+                </button>
+
+                {/* Refresh */}
+                <button
+                  type="button"
+                  onClick={fetchPatientVisits}
+                  disabled={loadingVisits}
+                  style={{
+                    background: cardBg,
+                    border: cardBorder,
+                    color: textColor,
+                    borderRadius: "10px",
+                    padding: "8px 12px",
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    cursor: loadingVisits ? "wait" : "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "6px",
+                  }}
+                  title="Reload visit history"
+                >
+                  <RefreshCw size={13} className={loadingVisits ? "spin-icon" : ""} />
+                  <span>{isHi ? "रिफ्रेश" : "Refresh"}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Visit Stream Table */}
+            {loadingVisits && patientVisits.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "48px 20px", color: mutedText }}>
+                <RefreshCw size={26} className="spin-icon" style={{ margin: "0 auto 12px auto", display: "block", color: "#0284C7" }} />
+                <div style={{ fontSize: "14px", fontWeight: 700 }}>
+                  {isHi ? "मरीज़ विज़िट इतिहास लोड हो रहा है..." : "Loading patient visit history..."}
                 </div>
               </div>
-            ))}
+            ) : filteredVisits.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "48px 20px", color: mutedText, background: isDark ? "#0B1120" : "#F8FAFC", borderRadius: "14px", border: cardBorder }}>
+                <History size={36} color={mutedText} style={{ margin: "0 auto 12px auto", opacity: 0.5 }} />
+                <div style={{ fontSize: "15px", fontWeight: 800, color: textColor }}>
+                  {isHi ? "कोई विज़िट रिकॉर्ड नहीं मिला" : "No visit records found"}
+                </div>
+                <div style={{ fontSize: "12px", marginTop: "4px" }}>
+                  {visitSearchQuery
+                    ? (isHi ? `'${visitSearchQuery}' से मेल खाता कोई रिकॉर्ड नहीं मिला।` : `No records match search '${visitSearchQuery}'.`)
+                    : (isHi ? "इस फ़िल्टर में अभी कोई मरीज़ दर्ज नहीं है।" : "No patient visits recorded under this filter.")}
+                </div>
+              </div>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12.5px" }}>
+                  <thead>
+                    <tr style={{ background: isDark ? "#1E293B" : "#F1F5F9", borderBottom: cardBorder }}>
+                      <th style={{ padding: "11px 12px", textAlign: "left", fontWeight: 800, color: mutedText }}>TOKEN / DATE</th>
+                      <th style={{ padding: "11px 12px", textAlign: "left", fontWeight: 800, color: mutedText }}>PATIENT INFO</th>
+                      <th style={{ padding: "11px 12px", textAlign: "left", fontWeight: 800, color: mutedText }}>CARE PATHWAY</th>
+                      <th style={{ padding: "11px 12px", textAlign: "left", fontWeight: 800, color: mutedText }}>DOCTOR & DIAGNOSIS</th>
+                      <th style={{ padding: "11px 12px", textAlign: "left", fontWeight: 800, color: mutedText }}>PRESCRIBED MEDICINES</th>
+                      <th style={{ padding: "11px 12px", textAlign: "left", fontWeight: 800, color: mutedText }}>DISPENSING AUDIT</th>
+                      <th style={{ padding: "11px 12px", textAlign: "center", fontWeight: 800, color: mutedText }}>STATUS</th>
+                      <th style={{ padding: "11px 12px", textAlign: "right", fontWeight: 800, color: mutedText }}>ACTIONS</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredVisits.map((visit, vIdx) => {
+                      const details = parseVisitDetails(visit);
+                      const isComplete = (visit.status || "").toLowerCase() === "completed";
+                      const dateDisplay = visit.queue_date || (visit.created_at ? new Date(visit.created_at).toLocaleDateString() : "Today");
+                      const timeDisplay = visit.created_at ? new Date(visit.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+
+                      return (
+                        <tr
+                          key={visit.id || visit.ticket_id || vIdx}
+                          style={{
+                            borderBottom: isDark ? "1px solid #1E293B" : "1px solid #F1F5F9",
+                            background: vIdx % 2 === 0 ? "transparent" : (isDark ? "rgba(255,255,255,0.015)" : "rgba(0,0,0,0.01)"),
+                          }}
+                        >
+                          {/* Token & Date */}
+                          <td style={{ padding: "11px 12px", verticalAlign: "middle" }}>
+                            <div style={{ display: "inline-block", background: isDark ? "rgba(2, 132, 199, 0.2)" : "#E0F2FE", color: "#0284C7", padding: "2px 8px", borderRadius: "6px", fontWeight: 900, fontFamily: "monospace", fontSize: "12px" }}>
+                              #{visit.token_number || visit.ticket_id}
+                            </div>
+                            <div style={{ fontSize: "11px", color: mutedText, marginTop: "4px", display: "flex", alignItems: "center", gap: "4px" }}>
+                              <Calendar size={11} />
+                              <span>{dateDisplay} {timeDisplay ? `• ${timeDisplay}` : ""}</span>
+                            </div>
+                          </td>
+
+                          {/* Patient Info */}
+                          <td style={{ padding: "11px 12px", verticalAlign: "middle" }}>
+                            <div style={{ fontWeight: 800, color: textColor, fontSize: "13px" }}>
+                              {visit.patient_name}
+                            </div>
+                            <div style={{ fontSize: "11.5px", color: mutedText, marginTop: "2px" }}>
+                              {visit.age ? `${visit.age}y` : "Age N/A"} • {visit.gender || "Patient"}
+                            </div>
+                            {visit.phone && (
+                              <div style={{ fontSize: "11px", color: mutedText, fontFamily: "monospace" }}>
+                                📞 {visit.phone}
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Care Pathway */}
+                          <td style={{ padding: "11px 12px", verticalAlign: "middle" }}>
+                            <div style={{ fontSize: "11.5px", fontWeight: 700, color: textColor }}>
+                              {visit.origin_department || "OPD"} ➔ {visit.department || "Pharmacy"}
+                            </div>
+                            {visit.service_duration_minutes ? (
+                              <div style={{ fontSize: "11px", color: mutedText, marginTop: "2px" }}>
+                                ⏱️ {visit.service_duration_minutes} min total
+                              </div>
+                            ) : null}
+                          </td>
+
+                          {/* Doctor & Diagnosis */}
+                          <td style={{ padding: "11px 12px", verticalAlign: "middle" }}>
+                            <div style={{ fontWeight: 700, color: textColor, fontSize: "12px" }}>
+                              👨‍⚕️ {details.doctorName}
+                            </div>
+                            <div style={{ fontSize: "11px", color: "#0284C7", fontWeight: 700, marginTop: "2px" }}>
+                              🩺 {details.diagnosis}
+                            </div>
+                          </td>
+
+                          {/* Prescribed Medicines */}
+                          <td style={{ padding: "11px 12px", verticalAlign: "middle" }}>
+                            {details.medicines && details.medicines.length > 0 ? (
+                              <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                                <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                                  {details.medicines.slice(0, 2).map((m, mIdx) => (
+                                    <span
+                                      key={mIdx}
+                                      style={{
+                                        background: isDark ? "rgba(2, 132, 199, 0.2)" : "#F0F9FF",
+                                        border: isDark ? "1px solid rgba(2, 132, 199, 0.35)" : "1px solid #BAE6FD",
+                                        color: "#0284C7",
+                                        padding: "2px 7px",
+                                        borderRadius: "6px",
+                                        fontSize: "10.5px",
+                                        fontWeight: 700,
+                                      }}
+                                    >
+                                      💊 {m.name} {m.dosage ? `(${m.dosage})` : ""}
+                                    </span>
+                                  ))}
+                                  {details.medicines.length > 2 && (
+                                    <span style={{ fontSize: "10.5px", color: mutedText, fontWeight: 700, alignSelf: "center" }}>
+                                      +{details.medicines.length - 2} more
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            ) : (
+                              <span style={{ fontSize: "11px", color: mutedText, fontStyle: "italic" }}>
+                                {isHi ? "कोई दवा नहीं" : "No meds listed"}
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Dispensing Audit */}
+                          <td style={{ padding: "11px 12px", verticalAlign: "middle" }}>
+                            <div style={{ fontSize: "11.5px", fontWeight: 700, color: textColor }}>
+                              👤 {details.dispensedBy}
+                            </div>
+                            <div style={{ fontSize: "11px", color: mutedText, marginTop: "2px" }}>
+                              🪑 {details.dispensedCounter}
+                            </div>
+                            {details.dispensedAt && (
+                              <div style={{ fontSize: "10.5px", color: mutedText }}>
+                                🕒 {new Date(details.dispensedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Status */}
+                          <td style={{ padding: "11px 12px", textAlign: "center", verticalAlign: "middle" }}>
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "3px 9px",
+                                borderRadius: "8px",
+                                fontSize: "10.5px",
+                                fontWeight: 800,
+                                letterSpacing: "0.4px",
+                                background: isComplete
+                                  ? (isDark ? "rgba(16, 185, 129, 0.2)" : "#ECFDF5")
+                                  : (isDark ? "rgba(245, 158, 11, 0.2)" : "#FEF3C7"),
+                                color: isComplete ? "#10B981" : "#D97706",
+                                border: isComplete
+                                  ? (isDark ? "1px solid rgba(16, 185, 129, 0.4)" : "1px solid #A7F3D0")
+                                  : (isDark ? "1px solid rgba(245, 158, 11, 0.4)" : "1px solid #FDE68A"),
+                              }}
+                            >
+                              {isComplete ? (isHi ? "पूर्ण" : "COMPLETED") : (isHi ? "प्रगति में" : "IN PROGRESS")}
+                            </span>
+                          </td>
+
+                          {/* Actions */}
+                          <td style={{ padding: "11px 12px", textAlign: "right", verticalAlign: "middle" }}>
+                            <div style={{ display: "flex", justifyContent: "flex-end", gap: "6px" }}>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedVisitModal(visit)}
+                                style={{
+                                  padding: "5px 9px",
+                                  borderRadius: "7px",
+                                  border: cardBorder,
+                                  background: isDark ? "#1E293B" : "#F8FAFC",
+                                  color: textColor,
+                                  fontSize: "11px",
+                                  fontWeight: 700,
+                                  cursor: "pointer",
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "4px",
+                                }}
+                                title={isHi ? "पूर्ण विज़िट विवरण देखें" : "View Visit Details"}
+                              >
+                                <Eye size={12} color="#0284C7" />
+                                <span>{isHi ? "विवरण" : "Details"}</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handlePrintVisitPrescription(visit)}
+                                style={{
+                                  padding: "5px 9px",
+                                  borderRadius: "7px",
+                                  border: "none",
+                                  background: "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)",
+                                  color: "#FFFFFF",
+                                  fontSize: "11px",
+                                  fontWeight: 700,
+                                  cursor: "pointer",
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "4px",
+                                  boxShadow: "0 2px 6px rgba(2, 132, 199, 0.25)",
+                                }}
+                                title={isHi ? "डॉक्टर पर्चा प्रिंट करें" : "Print Doctor Prescription"}
+                              >
+                                <Printer size={12} />
+                                <span>Rx</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handlePrintVisitEnvelopeLabel(visit)}
+                                style={{
+                                  padding: "5px 8px",
+                                  borderRadius: "7px",
+                                  border: cardBorder,
+                                  background: isDark ? "#1E293B" : "#F8FAFC",
+                                  color: textColor,
+                                  fontSize: "11px",
+                                  fontWeight: 700,
+                                  cursor: "pointer",
+                                }}
+                                title={isHi ? "दवा लिफाफा लेबल प्रिंट करें" : "Print Medicine Packet Label"}
+                              >
+                                Label
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* Footer Branding */}
-      <Footer
-        branding={hospitalBranding}
-        hospitalName={brandName}
-        language={language}
-        onShowEmergency={() => {}}
-      />
+      {/* Patient Visit Dossier Modal */}
+      {selectedVisitModal && (
+        (() => {
+          const visit = selectedVisitModal;
+          const details = parseVisitDetails(visit);
+          return (
+            <div
+              style={{
+                position: "fixed",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                background: "rgba(0, 0, 0, 0.7)",
+                backdropFilter: "blur(6px)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                zIndex: 99999,
+                padding: "20px",
+              }}
+              onClick={() => setSelectedVisitModal(null)}
+            >
+              <div
+                style={{
+                  background: cardBg,
+                  border: isDark ? "1px solid rgba(255, 255, 255, 0.18)" : "1px solid #CBD5E1",
+                  borderRadius: "20px",
+                  maxWidth: "760px",
+                  width: "100%",
+                  maxHeight: "90vh",
+                  overflowY: "auto",
+                  padding: "26px",
+                  boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)",
+                  color: textColor,
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Modal Header */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", borderBottom: cardBorder, paddingBottom: "16px", marginBottom: "18px" }}>
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                      <span style={{ background: isDark ? "rgba(2, 132, 199, 0.2)" : "#E0F2FE", color: "#0284C7", padding: "3px 10px", borderRadius: "8px", fontSize: "13px", fontWeight: 900, fontFamily: "monospace" }}>
+                        Token #{visit.token_number || visit.ticket_id}
+                      </span>
+                      <h2 style={{ margin: 0, fontSize: "20px", fontWeight: 900 }}>
+                        {visit.patient_name}
+                      </h2>
+                      <span style={{ fontSize: "11px", fontWeight: 800, padding: "2px 8px", borderRadius: "6px", background: (visit.status || "").toLowerCase() === "completed" ? (isDark ? "rgba(16, 185, 129, 0.2)" : "#ECFDF5") : (isDark ? "rgba(245, 158, 11, 0.2)" : "#FEF3C7"), color: (visit.status || "").toLowerCase() === "completed" ? "#10B981" : "#D97706" }}>
+                        {(visit.status || "VISIT").toUpperCase()}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: "12px", color: mutedText, marginTop: "6px" }}>
+                      {visit.age ? `${visit.age} years old` : ""} {visit.gender ? `• ${visit.gender}` : ""} {visit.phone ? `• Phone: ${visit.phone}` : ""} • Date: {visit.queue_date || (visit.created_at ? new Date(visit.created_at).toLocaleDateString() : "Today")}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedVisitModal(null)}
+                    style={{
+                      background: isDark ? "#1E293B" : "#F1F5F9",
+                      border: "none",
+                      borderRadius: "10px",
+                      width: "32px",
+                      height: "32px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      cursor: "pointer",
+                      color: mutedText,
+                      fontWeight: "bold",
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Clinical Overview Grid */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px", marginBottom: "18px" }}>
+                  <div style={{ background: isDark ? "#1E293B" : "#F8FAFC", border: cardBorder, borderRadius: "12px", padding: "12px 14px" }}>
+                    <div style={{ fontSize: "10.5px", fontWeight: 800, color: mutedText, textTransform: "uppercase" }}>
+                      {isHi ? "परामर्श चिकित्सक" : "Attending Doctor"}
+                    </div>
+                    <div style={{ fontSize: "13.5px", fontWeight: 800, color: textColor, marginTop: "4px" }}>
+                      👨‍⚕️ {details.doctorName}
+                    </div>
+                    <div style={{ fontSize: "11px", color: mutedText, marginTop: "2px" }}>
+                      {visit.origin_department || "Consultation OPD"}
+                    </div>
+                  </div>
+
+                  <div style={{ background: isDark ? "#1E293B" : "#F8FAFC", border: cardBorder, borderRadius: "12px", padding: "12px 14px" }}>
+                    <div style={{ fontSize: "10.5px", fontWeight: 800, color: mutedText, textTransform: "uppercase" }}>
+                      {isHi ? "चिकित्सीय निदान (डायग्नोसिस)" : "Clinical Diagnosis"}
+                    </div>
+                    <div style={{ fontSize: "13.5px", fontWeight: 800, color: "#0284C7", marginTop: "4px" }}>
+                      🩺 {details.diagnosis}
+                    </div>
+                    <div style={{ fontSize: "11px", color: mutedText, marginTop: "2px" }}>
+                      {visit.medical_condition || "OPD Case"}
+                    </div>
+                  </div>
+
+                  <div style={{ background: isDark ? "#1E293B" : "#F8FAFC", border: cardBorder, borderRadius: "12px", padding: "12px 14px" }}>
+                    <div style={{ fontSize: "10.5px", fontWeight: 800, color: mutedText, textTransform: "uppercase" }}>
+                      {isHi ? "दवा वितरण सत्यापन" : "Dispensation Audit"}
+                    </div>
+                    <div style={{ fontSize: "13.5px", fontWeight: 800, color: "#10B981", marginTop: "4px" }}>
+                      ✓ {details.dispensedBy}
+                    </div>
+                    <div style={{ fontSize: "11px", color: mutedText, marginTop: "2px" }}>
+                      🪑 {details.dispensedCounter}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Transfer Pathway Timeline if available */}
+                {Array.isArray(visit.transfer_stages) && visit.transfer_stages.length > 1 && (
+                  <div style={{ marginBottom: "18px", padding: "12px 16px", borderRadius: "12px", background: isDark ? "rgba(2, 132, 199, 0.12)" : "#F0F9FF", border: isDark ? "1px solid rgba(2, 132, 199, 0.25)" : "1px solid #BAE6FD" }}>
+                    <div style={{ fontSize: "11px", fontWeight: 800, color: "#0284C7", textTransform: "uppercase", marginBottom: "6px" }}>
+                      🔄 {isHi ? "मरीज़ ट्रांसफर मार्ग" : "Multi-Stage Care Pathway"}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", fontSize: "12px", fontWeight: 700 }}>
+                      {visit.transfer_stages.map((stg, stgIdx) => (
+                        <React.Fragment key={stgIdx}>
+                          <span style={{ background: isDark ? "#0F172A" : "#FFFFFF", border: cardBorder, padding: "3px 10px", borderRadius: "6px" }}>
+                            Stage {stgIdx + 1}: {stg.department} ({stg.status})
+                          </span>
+                          {stgIdx < visit.transfer_stages.length - 1 && <span>➔</span>}
+                        </React.Fragment>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Prescribed Medicines Section */}
+                <div style={{ marginBottom: "18px" }}>
+                  <div style={{ fontSize: "13px", fontWeight: 800, marginBottom: "8px", display: "flex", alignItems: "center", gap: "6px" }}>
+                    <Pill size={14} color="#0284C7" />
+                    <span>{isHi ? "निर्धारित दवाएं व खुराक अनुसूची" : "Prescribed Medications & Dosage Schedule"}</span>
+                    <span style={{ fontSize: "11px", fontWeight: 700, background: isDark ? "rgba(2, 132, 199, 0.2)" : "#E0F2FE", color: "#0284C7", padding: "1px 6px", borderRadius: "4px" }}>
+                      {details.medicines.length}
+                    </span>
+                  </div>
+
+                  {details.medicines.length > 0 ? (
+                    <div style={{ border: cardBorder, borderRadius: "12px", overflow: "hidden" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+                        <thead>
+                          <tr style={{ background: isDark ? "#1E293B" : "#F1F5F9", borderBottom: cardBorder }}>
+                            <th style={{ padding: "8px 12px", textAlign: "left", fontWeight: 800, color: mutedText }}>#</th>
+                            <th style={{ padding: "8px 12px", textAlign: "left", fontWeight: 800, color: mutedText }}>MEDICINE NAME</th>
+                            <th style={{ padding: "8px 12px", textAlign: "left", fontWeight: 800, color: mutedText }}>DOSAGE</th>
+                            <th style={{ padding: "8px 12px", textAlign: "left", fontWeight: 800, color: mutedText }}>FREQUENCY</th>
+                            <th style={{ padding: "8px 12px", textAlign: "left", fontWeight: 800, color: mutedText }}>DURATION</th>
+                            <th style={{ padding: "8px 12px", textAlign: "left", fontWeight: 800, color: mutedText }}>INSTRUCTIONS</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {details.medicines.map((m, mIdx) => (
+                            <tr key={mIdx} style={{ borderBottom: isDark ? "1px solid #1E293B" : "1px solid #F1F5F9" }}>
+                              <td style={{ padding: "8px 12px", fontWeight: 700, color: mutedText }}>{mIdx + 1}</td>
+                              <td style={{ padding: "8px 12px", fontWeight: 800, color: textColor }}>{m.name}</td>
+                              <td style={{ padding: "8px 12px", color: textColor }}>{m.dosage || "-"}</td>
+                              <td style={{ padding: "8px 12px", fontWeight: 700, color: "#0284C7" }}>{m.frequency || "-"}</td>
+                              <td style={{ padding: "8px 12px", color: textColor }}>{m.duration || "-"}</td>
+                              <td style={{ padding: "8px 12px", color: mutedText }}>{m.instructions || "-"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div style={{ padding: "14px", borderRadius: "10px", background: isDark ? "#1E293B" : "#F8FAFC", border: cardBorder, fontSize: "12px", color: mutedText, fontStyle: "italic" }}>
+                      {isHi ? "इस विज़िट के लिए कोई दवा प्रविष्टि दर्ज नहीं है।" : "No specific medication items recorded for this visit."}
+                    </div>
+                  )}
+                </div>
+
+                {/* Doctor Advice & Follow-up */}
+                {(details.advice || details.followUp) && (
+                  <div style={{ marginBottom: "20px", display: "grid", gridTemplateColumns: details.advice && details.followUp ? "1fr 1fr" : "1fr", gap: "12px" }}>
+                    {details.advice && (
+                      <div style={{ padding: "12px 14px", borderRadius: "12px", background: isDark ? "#1E293B" : "#F8FAFC", border: cardBorder }}>
+                        <div style={{ fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase" }}>
+                          📋 {isHi ? "चिकित्सक सलाह" : "Doctor Advice"}
+                        </div>
+                        <div style={{ fontSize: "12px", color: textColor, marginTop: "4px" }}>
+                          {details.advice}
+                        </div>
+                      </div>
+                    )}
+                    {details.followUp && (
+                      <div style={{ padding: "12px 14px", borderRadius: "12px", background: isDark ? "#1E293B" : "#F8FAFC", border: cardBorder }}>
+                        <div style={{ fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase" }}>
+                          📅 {isHi ? "फॉलो-अप परामर्श" : "Follow-up Consultation"}
+                        </div>
+                        <div style={{ fontSize: "12px", color: textColor, marginTop: "4px" }}>
+                          {details.followUp}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", paddingTop: "14px", borderTop: cardBorder }}>
+                  <button
+                    type="button"
+                    onClick={() => handlePrintVisitEnvelopeLabel(visit)}
+                    style={{
+                      padding: "8px 14px",
+                      borderRadius: "10px",
+                      border: cardBorder,
+                      background: isDark ? "#1E293B" : "#F8FAFC",
+                      color: textColor,
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                    }}
+                  >
+                    <Printer size={13} />
+                    <span>{isHi ? "लिफाफा लेबल प्रिंट" : "Print Envelope Label"}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handlePrintVisitPrescription(visit)}
+                    style={{
+                      padding: "8px 16px",
+                      borderRadius: "10px",
+                      border: "none",
+                      background: "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)",
+                      color: "#FFFFFF",
+                      fontSize: "12px",
+                      fontWeight: 800,
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      boxShadow: "0 2px 8px rgba(2, 132, 199, 0.35)",
+                    }}
+                  >
+                    <Printer size={13} />
+                    <span>{isHi ? "डॉक्टर पर्चा प्रिंट करें" : "Print Full Prescription"}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedVisitModal(null)}
+                    style={{
+                      padding: "8px 14px",
+                      borderRadius: "10px",
+                      border: cardBorder,
+                      background: isDark ? "#0F172A" : "#FFFFFF",
+                      color: textColor,
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {isHi ? "बंद करें" : "Close"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()
+      )}
+
+      {/* Footer Branding with Compact Margin */}
+      <div style={{ marginTop: "10px" }}>
+        <Footer
+          branding={hospitalBranding}
+          hospitalName={brandName}
+          language={language}
+          currentUser={currentUser}
+          onShowEmergency={() => {}}
+        />
+      </div>
     </div>
   );
 }

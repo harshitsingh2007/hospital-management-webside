@@ -36,8 +36,8 @@ async function verifyHospitalAccess(hospitalCode, user) {
     return !!hospital;
   }
 
-  // 2. Hospital Admin / Doctor / Staff: employee record attached to this hospital
-  if (role === "admin" || role === "doctor" || role === "staff" || role === "receptionist") {
+  // 2. Hospital Admin / Doctor / Staff / Pharmacist: employee record attached to this hospital
+  if (role === "admin" || role === "doctor" || role === "staff" || role === "receptionist" || role === "pharmacist" || role === "nurse" || role === "technician") {
     const emp = await prisma.employees.findFirst({
       where: {
         user_id: user.id,

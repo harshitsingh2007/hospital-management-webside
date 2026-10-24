@@ -163,6 +163,8 @@ export default function AccessDeniedGuard({ requiredRole, pageName, currentUser,
             onClick={() => {
               if (userRole === "super_admin" || userRole === "superadmin") {
                 navigateTo("superadmin");
+              } else if (isUserPharmacist) {
+                navigateTo("pharmacy");
               } else if (userRole === "doctor" || userRole === "physician") {
                 navigateTo("doctor");
               } else if (["staff", "receptionist", "nurse"].includes(userRole)) {
@@ -176,6 +178,9 @@ export default function AccessDeniedGuard({ requiredRole, pageName, currentUser,
             {(() => {
               if (userRole === "super_admin" || userRole === "superadmin") {
                 return language === "hi" ? "सुपर एडमिन पोर्टल पर जाएं" : "Go to Super Admin Portal";
+              }
+              if (isUserPharmacist) {
+                return language === "hi" ? "फार्मेसी स्टेशन पर जाएं" : "Go to Pharmacy Station";
               }
               if (userRole === "doctor" || userRole === "physician") {
                 return language === "hi" ? "डॉक्टर परामर्श डेस्क पर जाएं" : "Go to Doctor Consult Desk";

@@ -1,5 +1,5 @@
 import React from "react";
-import { t, getCategoryLabel, getStatusLabel, formatCleanText } from "../../utils/i18n";
+import { t, getCategoryLabel, getStatusLabel, formatCleanText, cleanAdviceText } from "../../utils/i18n";
 import FamilyMemberSwitcher from "./FamilyMemberSwitcher";
 import HistorySummary from "../patient-history/HistorySummary";
 import { standaloneCardStyle } from "./patientStyles";
@@ -585,16 +585,20 @@ export default function VisitHistoryTab({
                               </div>
                             )}
 
-                            {rx.advice && (
-                              <div style={{ fontSize: "12px", color: "var(--patient-tag-color, #0369A1)", marginTop: "4px", fontStyle: "italic" }}>
-                                <strong>{language === "hi" ? "सलाह" : "Advice"}:</strong> "{rx.advice}"
-                              </div>
-                            )}
+                            {(() => {
+                              const cleanAdv = cleanAdviceText(rx.advice);
+                              if (!cleanAdv) return null;
+                              return (
+                                <div style={{ fontSize: "12px", color: "var(--patient-tag-color, #0369A1)", marginTop: "4px", fontStyle: "italic" }}>
+                                  <strong>{language === "hi" ? "सलाह" : "Advice"}:</strong> "{cleanAdv}"
+                                </div>
+                              );
+                            })()}
 
-                            {rx.lab_tests && rx.lab_tests !== "no" && (
+                            {rx.lab_tests && rx.lab_tests !== "no" && !String(rx.lab_tests).trim().startsWith("{") && (
                               <div style={{ fontSize: "12px", color: "var(--patient-tag-color, #0369A1)", marginTop: "2px", display: "inline-flex", alignItems: "center", gap: "5px" }}>
                                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 2v7.527a2 2 0 0 1-.211.896L4.72 20.55a1 1 0 0 0 .9 1.45h12.76a1 1 0 0 0 .9-1.45l-5.069-10.127A2 2 0 0 1 14 9.527V2"/><path d="M8.5 2h7"/><path d="M7 16h10"/></svg>
-                                <span><strong>{language === "hi" ? "जाँच" : "Tests"}:</strong> {rx.lab_tests}</span>
+                                <span><strong>{language === "hi" ? "जाँच" : "Tests"}:</strong> {formatCleanText(rx.lab_tests, language)}</span>
                               </div>
                             )}
                           </div>
@@ -859,16 +863,20 @@ export default function VisitHistoryTab({
                               </div>
                             )}
 
-                            {rx.advice && (
-                              <div style={{ fontSize: "12px", color: "var(--patient-tag-color, #0369A1)", marginTop: "4px", fontStyle: "italic" }}>
-                                <strong>{language === "hi" ? "सलाह" : "Advice"}:</strong> "{rx.advice}"
-                              </div>
-                            )}
+                            {(() => {
+                              const cleanAdv = cleanAdviceText(rx.advice);
+                              if (!cleanAdv) return null;
+                              return (
+                                <div style={{ fontSize: "12px", color: "var(--patient-tag-color, #0369A1)", marginTop: "4px", fontStyle: "italic" }}>
+                                  <strong>{language === "hi" ? "सलाह" : "Advice"}:</strong> "{cleanAdv}"
+                                </div>
+                              );
+                            })()}
 
-                            {rx.lab_tests && rx.lab_tests !== "no" && (
+                            {rx.lab_tests && rx.lab_tests !== "no" && !String(rx.lab_tests).trim().startsWith("{") && (
                               <div style={{ fontSize: "12px", color: "var(--patient-tag-color, #0369A1)", marginTop: "2px", display: "inline-flex", alignItems: "center", gap: "5px" }}>
                                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 2v7.527a2 2 0 0 1-.211.896L4.72 20.55a1 1 0 0 0 .9 1.45h12.76a1 1 0 0 0 .9-1.45l-5.069-10.127A2 2 0 0 1 14 9.527V2"/><path d="M8.5 2h7"/><path d="M7 16h10"/></svg>
-                                <span><strong>{language === "hi" ? "जाँच" : "Tests"}:</strong> {rx.lab_tests}</span>
+                                <span><strong>{language === "hi" ? "जाँच" : "Tests"}:</strong> {formatCleanText(rx.lab_tests, language)}</span>
                               </div>
                             )}
                           </div>

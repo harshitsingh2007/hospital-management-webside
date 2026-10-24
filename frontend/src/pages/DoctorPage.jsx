@@ -267,9 +267,7 @@ export default function DoctorPage({
   const clinicalHeldTickets = (heldTickets || []).filter(
     (t) => (t.service_category || "").toLowerCase() !== "pharmacy"
   );
-  const pharmacyWaitingCount = (queueSnapshot || []).filter(
-    (t) => (t.service_category || "").toLowerCase() === "pharmacy"
-  ).length;
+
 
   const primaryServing = clinicalServingTickets.length > 0 ? clinicalServingTickets[0] : null;
 
@@ -1079,9 +1077,7 @@ export default function DoctorPage({
               title: isToPharma ? (language === "hi" ? "फार्मेसी में प्रेषित ✓" : "Patient Routed to Pharmacy ✓") : null,
               message: successMsg,
               type: "success",
-              actionText: isToPharma ? (language === "hi" ? "फार्मेसी स्टेशन खोलें ➔" : "Open Pharmacy Station ➔") : null,
-              onAction: isToPharma ? () => navigateTo("pharmacy") : null,
-            }, "success", 9000);
+            }, "success", 5000);
             if (refreshData) refreshData();
             fetchTenantAppointments();
             setTimeout(() => {
@@ -2477,62 +2473,7 @@ export default function DoctorPage({
                 </div>
               )}
 
-              {/* Pharmacy Handoff Quick Banner */}
-              {pharmacyWaitingCount > 0 && (
-                <div
-                  style={{
-                    marginBottom: "16px",
-                    padding: "12px 16px",
-                    borderRadius: "14px",
-                    background: isDark ? "rgba(5, 150, 105, 0.18)" : "#ECFDF5",
-                    border: isDark ? "1.5px solid #059669" : "1.5px solid #A7F3D0",
-                    color: isDark ? "#6EE7B7" : "#065F46",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: "12px",
-                    flexWrap: "wrap",
-                    boxShadow: "0 2px 8px rgba(5, 150, 105, 0.1)",
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                    <span style={{ fontSize: "20px" }}>💊</span>
-                    <div>
-                      <div style={{ fontWeight: 800, fontSize: "13px" }}>
-                        {language === "hi"
-                          ? `फार्मेसी स्टेशन: ${pharmacyWaitingCount} दवा पर्चियां वितरण हेतु कतार में हैं`
-                          : `Pharmacy Station: ${pharmacyWaitingCount} prescription(s) waiting for medicine dispensing`}
-                      </div>
-                      <div style={{ fontSize: "11px", opacity: 0.85, marginTop: "1px" }}>
-                        {language === "hi"
-                          ? "परामर्श के बाद मरीज़ काउंटर पर दवा लेने पहुंच रहे हैं।"
-                          : "Transferred consultation patients are in line at the Pharmacy Counter."}
-                      </div>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => navigateTo("pharmacy")}
-                    style={{
-                      padding: "7px 15px",
-                      borderRadius: "10px",
-                      border: "none",
-                      background: "linear-gradient(135deg, #059669 0%, #047857 100%)",
-                      color: "#FFFFFF",
-                      fontSize: "12px",
-                      fontWeight: 800,
-                      cursor: "pointer",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "6px",
-                      boxShadow: "0 2px 8px rgba(5, 150, 105, 0.3)",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    <span>{language === "hi" ? "फार्मेसी स्टेशन खोलें ➔" : "Open Pharmacy Station ➔"}</span>
-                  </button>
-                </div>
-              )}
+
 
               {/* Now Serving List */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", flexWrap: "wrap", gap: "8px" }}>

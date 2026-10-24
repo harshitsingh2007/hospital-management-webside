@@ -144,6 +144,33 @@ async function findPatientIdentity({
 }
 
 /**
+ * Safely extracts human-readable clinical advice / notes.
+ * Recursively unwraps JSON objects, parses strings, and discards empty/container JSON.
+ */
+function extractCleanAdvice(val) {
+  if (!val) return "";
+  if (typeof val === "object") {
+    return extractCleanAdvice(val.advice || val.clinical_notes || "");
+  }
+  let str = String(val).trim();
+  while (
+    (str.startsWith('"') && str.endsWith('"')) ||
+    (str.startsWith("'") && str.endsWith("'"))
+  ) {
+    str = str.slice(1, -1).trim();
+  }
+  if (str.startsWith("{") || str.startsWith("[")) {
+    try {
+      const obj = JSON.parse(str);
+      return extractCleanAdvice(obj.advice || obj.clinical_notes || "");
+    } catch (e) {
+      return "";
+    }
+  }
+  return str.replace(/_/g, " ");
+}
+
+/**
  * Parses raw prescription string/JSON into clean structured object.
  */
 function parseStructuredPrescription(rawRx, defaultDiagnosis = "") {
@@ -163,7 +190,7 @@ function parseStructuredPrescription(rawRx, defaultDiagnosis = "") {
       diagnosis: rawRx.diagnosis || defaultDiagnosis || "General Consultation",
       medicines: Array.isArray(rawRx.medicines) ? rawRx.medicines : [],
       lab_tests: rawRx.lab_tests || rawRx.lab_tests_json || "",
-      advice: rawRx.advice || "",
+      advice: extractCleanAdvice(rawRx.advice || rawRx.clinical_notes || ""),
       follow_up: rawRx.follow_up || "",
       doctor_name: rawRx.doctor_name || "",
       prescribed_at: rawRx.prescribed_at || null,
@@ -178,7 +205,7 @@ function parseStructuredPrescription(rawRx, defaultDiagnosis = "") {
       diagnosis: defaultDiagnosis || "General Consultation",
       medicines: [],
       lab_tests: "",
-      advice: String(rawRx),
+      advice: extractCleanAdvice(rawRx),
       follow_up: "",
       doctor_name: "",
     };
@@ -306,7 +333,7 @@ async function getPatientVisitHistory(patientId, hospitalId = null, options = {}
       hospital_name: t.hospitals?.name || "Hospital Facility",
       doctor_name: rx.doctor_name || "Dr. Staff Desk",
       diagnosis: rx.diagnosis || (t.medical_condition ? t.medical_condition.replace(/_/g, " ") : "Clinical Assessment"),
-      clinical_notes: rx.advice || t.prescription_notes || "",
+      clinical_notes: rx.advice || "",
       advice: rx.advice || "",
       status: t.status,
       prescription: {
@@ -535,26 +562,44 @@ async function recordCompletedVisit({
   if (!ticket_id) return null;
   const hid = await resolveHospitalId(hospital_id);
 
-  // If patient_id not provided, look up from ticket
+  // If patient_id or existing prescription not provided, look up from ticket
   let pId = patient_id;
-  if (!pId) {
-    const tkt = await prisma.tickets.findUnique({
-      where: { ticket_id: String(ticket_id).trim() },
-      select: { patient_id: true },
-    });
-    if (tkt) pId = tkt.patient_id;
+  let existingRx = {};
+  const tkt = await prisma.tickets.findUnique({
+    where: { ticket_id: String(ticket_id).trim() },
+    select: { patient_id: true, prescription_notes: true, medical_condition: true, served_by_doctor_name: true },
+  });
+  if (tkt) {
+    if (!pId) pId = tkt.patient_id;
+    if (tkt.prescription_notes) {
+      try {
+        const parsed = JSON.parse(tkt.prescription_notes);
+        if (parsed && typeof parsed === "object") existingRx = parsed;
+      } catch (e) {}
+    }
   }
 
   if (!pId) return null;
 
+  const resolvedMedicines = (Array.isArray(medicines) && medicines.length > 0)
+    ? medicines
+    : (Array.isArray(existingRx.medicines) ? existingRx.medicines : []);
+  const resolvedDiag = diagnosis || existingRx.diagnosis || tkt?.medical_condition || "Consultation Completed";
+  const resolvedDoc = (doctor_name && doctor_name !== "Dr. Staff Desk")
+    ? doctor_name
+    : (existingRx.doctor_name || tkt?.served_by_doctor_name || doctor_name || "Attending Doctor");
+  const resolvedAdvice = extractCleanAdvice(advice || clinical_notes || existingRx.advice || existingRx.clinical_notes || "");
+  const resolvedLab = lab_tests || existingRx.lab_tests || "";
+  const resolvedFollowUp = follow_up || existingRx.follow_up || "";
+
   // Build prescription payload
   const prescriptionPayload = {
-    doctor_name,
-    diagnosis: diagnosis || "Consultation Completed",
-    medicines: Array.isArray(medicines) ? medicines : [],
-    lab_tests: lab_tests || "",
-    advice: advice || clinical_notes || "",
-    follow_up: follow_up || "",
+    doctor_name: resolvedDoc,
+    diagnosis: resolvedDiag,
+    medicines: resolvedMedicines,
+    lab_tests: resolvedLab,
+    advice: resolvedAdvice,
+    follow_up: resolvedFollowUp,
     prescribed_at: new Date().toISOString(),
   };
 

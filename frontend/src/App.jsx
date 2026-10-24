@@ -422,13 +422,13 @@ export default function App() {
 
       if ((r === "super_admin" || r === "superadmin") && activePage === "patient") {
         navigateTo("superadmin");
-      } else if (r === "pharmacist" && activePage === "patient") {
+      } else if (isPharmacist && (activePage === "patient" || activePage === "doctor" || activePage === "staff")) {
         navigateTo("pharmacy");
       } else if ((r === "doctor" || r === "physician") && activePage === "patient") {
         navigateTo("doctor");
-      } else if (["staff", "receptionist", "nurse"].includes(r) && activePage === "patient") {
+      } else if (["staff", "receptionist", "nurse"].includes(r) && !isPharmacist && activePage === "patient") {
         navigateTo("staff");
-      } else if (["admin"].includes(r) && activePage === "patient") {
+      } else if (["admin"].includes(r) && !isPharmacist && activePage === "patient") {
         navigateTo("doctor");
       }
     }
@@ -971,11 +971,11 @@ export default function App() {
   const isPharmacist = ["pharmacist", "pharmacy"].includes(userRole) || userDept === "pharmacy";
   const isPharmacistAccess = Boolean(currentUser) && (isSuperAdmin || isPharmacist);
   const isPatientOrGuest = !currentUser || userRole === "user" || userRole === "patient";
-  const isDoctorAccess = Boolean(currentUser) && (
-    ["doctor", "physician", "admin"].includes(userRole) || isSuperAdmin
+  const isDoctorAccess = Boolean(currentUser) && !isPharmacist && (
+    ["doctor", "physician", "admin"].includes(userRole) || (isSuperAdmin && !isPharmacist)
   );
-  const isStaffAccess = Boolean(currentUser) && (
-    ["staff", "receptionist", "nurse", "admin"].includes(userRole) || isSuperAdmin
+  const isStaffAccess = Boolean(currentUser) && !isPharmacist && (
+    ["staff", "receptionist", "nurse", "admin"].includes(userRole) || (isSuperAdmin && !isPharmacist)
   );
   const canAccessDbInspector =
     Boolean(currentUser) &&

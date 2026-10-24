@@ -49,7 +49,7 @@ export default function SuperAdminSidebar({
             const next = !prev;
             try {
                 localStorage.setItem("ai_queue_superadmin_sidebar_pinned", String(next));
-            } catch (e) {}
+            } catch (e) { }
             return next;
         });
     };
@@ -235,3 +235,4 @@ export default function SuperAdminSidebar({
         </aside>
     );
 }
+

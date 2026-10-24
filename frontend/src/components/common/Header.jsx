@@ -130,7 +130,7 @@ export default function Header({
     if (onToggleTheme) onToggleTheme(nextTheme);
   };
 
-  const isDarkHeader = theme === "dark" && (activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "admin");
+  const isDarkHeader = theme === "dark" && (activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "admin" || activePage === "pharmacy" || activePage === "doctor");
 
   // Multi-Hospital Facility Active Display
   const [hospitalsList, setHospitalsList] = useState([]);
@@ -270,8 +270,8 @@ export default function Header({
   const userDept = (currentUser?.department || currentUser?.primary_department || "").toLowerCase().trim();
   const isPharmacist = ["pharmacist", "pharmacy"].includes(userRole) || userDept === "pharmacy";
   const isPharmacistAccess = Boolean(currentUser) && (isSuperAdmin || isPharmacist);
-  const isDoctorAccess = Boolean(currentUser) && (["doctor", "physician", "admin"].includes(userRole) || isSuperAdmin);
-  const isStaffAccess = Boolean(currentUser) && (["staff", "receptionist", "nurse", "admin"].includes(userRole) || isSuperAdmin);
+  const isDoctorAccess = Boolean(currentUser) && !isPharmacist && (["doctor", "physician", "admin"].includes(userRole) || (isSuperAdmin && !isPharmacist));
+  const isStaffAccess = Boolean(currentUser) && !isPharmacist && (["staff", "receptionist", "nurse", "admin"].includes(userRole) || (isSuperAdmin && !isPharmacist));
   const isStaffOrDoctor = ["admin", "doctor", "staff", "receptionist", "pharmacist", "physician"].includes(userRole);
   const isPatientOrGuest = !currentUser || userRole === "user" || userRole === "patient";
 
@@ -898,99 +898,78 @@ export default function Header({
 
         {/* 2. Center: Quick Hospital Support & Emergency Hotline or Staff Desk Switcher */}
         <nav className="header-center-nav">
-          {/* Clinical & Staff Desk Switcher Bar (Doctor Desk, Pharmacy Station, Reception Desk) */}
+          {/* Clinical & Staff Desk Switcher Bar (Pharmacy Station, Reception Desk) */}
           {!isPatientOrGuest && (
-            <div
-              className="header-desk-switcher-bar"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "6px",
-                background: isDarkHeader ? "rgba(30, 41, 59, 0.75)" : "rgba(241, 245, 249, 0.88)",
-                padding: "4px 6px",
-                borderRadius: "14px",
-                border: isDarkHeader ? "1px solid rgba(51, 65, 85, 0.8)" : "1px solid rgba(226, 232, 240, 0.95)",
-                boxShadow: "0 2px 8px rgba(0, 0, 0, 0.04)",
-              }}
-            >
-              {/* Doctor Consultation Desk */}
-              {(isDoctorAccess || isSuperAdmin) && (
-                <button
-                  type="button"
-                  onClick={() => navigateTo("doctor")}
-                  className={`header-nav-btn ${activePage === "doctor" ? "active" : ""}`}
-                  style={{
-                    padding: "6px 14px",
-                    borderRadius: "10px",
-                    fontSize: "12px",
-                    fontWeight: activePage === "doctor" ? 800 : 700,
-                    cursor: "pointer",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "6px",
-                    border: activePage === "doctor" ? "1.5px solid #0284C7" : undefined,
-                    background: activePage === "doctor" ? (isDarkHeader ? "rgba(2, 132, 199, 0.3)" : "#E0F2FE") : undefined,
-                    color: activePage === "doctor" ? (isDarkHeader ? "#38BDF8" : "#0284C7") : undefined,
-                  }}
-                  title={language === "hi" ? "डॉक्टर ओपीडी परामर्श डेस्क" : "Doctor OPD Consultation Desk"}
-                >
-                  <span style={{ fontSize: "14px" }}>🩺</span>
-                  <span>{language === "hi" ? "डॉक्टर डेस्क" : "Doctor Desk"}</span>
-                </button>
-              )}
+            Boolean(
+              ((isPharmacistAccess || isSuperAdmin) && activePage !== "doctor" && !["doctor", "physician"].includes(userRole)) ||
+              ((isStaffAccess || isSuperAdmin) && !isPharmacist)
+            ) && (
+              <div
+                className="header-desk-switcher-bar"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  background: isDarkHeader ? "rgba(30, 41, 59, 0.75)" : "rgba(241, 245, 249, 0.88)",
+                  padding: "4px 6px",
+                  borderRadius: "14px",
+                  border: isDarkHeader ? "1px solid rgba(51, 65, 85, 0.8)" : "1px solid rgba(226, 232, 240, 0.95)",
+                  boxShadow: "0 2px 8px rgba(0, 0, 0, 0.04)",
+                }}
+              >
+                {/* Pharmacy Dispensing Station (Never shown on Doctor Portal or for Doctor users) */}
+                {(isPharmacistAccess || isSuperAdmin) && activePage !== "doctor" && !["doctor", "physician"].includes(userRole) && (
+                  <button
+                    type="button"
+                    onClick={() => navigateTo("pharmacy")}
+                    className={`header-nav-btn ${activePage === "pharmacy" ? "active" : ""}`}
+                    style={{
+                      padding: "6px 14px",
+                      borderRadius: "10px",
+                      fontSize: "12px",
+                      fontWeight: activePage === "pharmacy" ? 800 : 700,
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      border: activePage === "pharmacy" ? "1.5px solid #059669" : undefined,
+                      background: activePage === "pharmacy" ? (isDarkHeader ? "rgba(16, 185, 129, 0.25)" : "#D1FAE5") : undefined,
+                      color: activePage === "pharmacy" ? (isDarkHeader ? "#34D399" : "#059669") : undefined,
+                    }}
+                    title={language === "hi" ? "अस्पताल फार्मेसी एवं दवा वितरण स्टेशन" : "Hospital Pharmacy & Medication Dispensing Station"}
+                  >
+                    <span style={{ fontSize: "14px" }}>💊</span>
+                    <span>{language === "hi" ? "फार्मेसी स्टेशन" : "Pharmacy Station"}</span>
+                  </button>
+                )}
 
-              {/* Pharmacy Dispensing Station */}
-              {(isPharmacistAccess || isSuperAdmin) && (
-                <button
-                  type="button"
-                  onClick={() => navigateTo("pharmacy")}
-                  className={`header-nav-btn ${activePage === "pharmacy" ? "active" : ""}`}
-                  style={{
-                    padding: "6px 14px",
-                    borderRadius: "10px",
-                    fontSize: "12px",
-                    fontWeight: activePage === "pharmacy" ? 800 : 700,
-                    cursor: "pointer",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "6px",
-                    border: activePage === "pharmacy" ? "1.5px solid #059669" : undefined,
-                    background: activePage === "pharmacy" ? (isDarkHeader ? "rgba(16, 185, 129, 0.25)" : "#D1FAE5") : undefined,
-                    color: activePage === "pharmacy" ? (isDarkHeader ? "#34D399" : "#059669") : undefined,
-                  }}
-                  title={language === "hi" ? "अस्पताल फार्मेसी एवं दवा वितरण स्टेशन" : "Hospital Pharmacy & Medication Dispensing Station"}
-                >
-                  <span style={{ fontSize: "14px" }}>💊</span>
-                  <span>{language === "hi" ? "फार्मेसी स्टेशन" : "Pharmacy Station"}</span>
-                </button>
-              )}
-
-              {/* Reception Desk */}
-              {(isStaffAccess || isSuperAdmin) && (
-                <button
-                  type="button"
-                  onClick={() => navigateTo("staff")}
-                  className={`header-nav-btn ${activePage === "staff" ? "active" : ""}`}
-                  style={{
-                    padding: "6px 14px",
-                    borderRadius: "10px",
-                    fontSize: "12px",
-                    fontWeight: activePage === "staff" ? 800 : 700,
-                    cursor: "pointer",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "6px",
-                    border: activePage === "staff" ? "1.5px solid #6366F1" : undefined,
-                    background: activePage === "staff" ? (isDarkHeader ? "rgba(99, 102, 241, 0.25)" : "#EEF2FF") : undefined,
-                    color: activePage === "staff" ? (isDarkHeader ? "#A5B4FC" : "#4F46E5") : undefined,
-                  }}
-                  title={language === "hi" ? "मरीज़ पंजीकरण एवं फ्रंट डेस्क" : "Patient Registration & Front Desk Reception"}
-                >
-                  <span style={{ fontSize: "14px" }}>📋</span>
-                  <span>{language === "hi" ? "रिसेप्शन डेस्क" : "Reception Desk"}</span>
-                </button>
-              )}
-            </div>
+                {/* Reception Desk (Hidden for Pharmacy Staff) */}
+                {(isStaffAccess || isSuperAdmin) && !isPharmacist && (
+                  <button
+                    type="button"
+                    onClick={() => navigateTo("staff")}
+                    className={`header-nav-btn ${activePage === "staff" ? "active" : ""}`}
+                    style={{
+                      padding: "6px 14px",
+                      borderRadius: "10px",
+                      fontSize: "12px",
+                      fontWeight: activePage === "staff" ? 800 : 700,
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      border: activePage === "staff" ? "1.5px solid #6366F1" : undefined,
+                      background: activePage === "staff" ? (isDarkHeader ? "rgba(99, 102, 241, 0.25)" : "#EEF2FF") : undefined,
+                      color: activePage === "staff" ? (isDarkHeader ? "#A5B4FC" : "#4F46E5") : undefined,
+                    }}
+                    title={language === "hi" ? "मरीज़ पंजीकरण एवं फ्रंट डेस्क" : "Patient Registration & Front Desk Reception"}
+                  >
+                    <span style={{ fontSize: "14px" }}>📋</span>
+                    <span>{language === "hi" ? "रिसेप्शन डेस्क" : "Reception Desk"}</span>
+                  </button>
+                )}
+              </div>
+            )
           )}
 
           {/* Emergency 24/7 Hotline Button (Visible only on Patient Portal, hidden on Doctor/Staff & Admin Portals) */}
@@ -1045,8 +1024,8 @@ export default function Header({
 
         {/* 3. Right: Theme Toggle (User Portal Only), Language Selector & Patient Profile Dropdown */}
         <div style={{ display: "flex", alignItems: "center", gap: "8px", position: "relative", flexShrink: 0 }}>
-          {/* Theme Toggle Switch (Available for Patient, Super Admin & Doctor/Reception Portals) */}
-          {(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "admin") && (
+          {/* Theme Toggle Switch (Available across all portals including Pharmacy and Doctor) */}
+          {(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "admin" || activePage === "pharmacy" || activePage === "doctor") && (
             <button
               type="button"
               onClick={handleToggleTheme}
@@ -1316,8 +1295,8 @@ export default function Header({
                     </>
                   )}
 
-                  {/* Staff Workspace Direct Links */}
-                  {isPharmacistAccess && (
+                  {/* Staff Workspace Direct Links (Pharmacy hidden on Doctor portal and for Doctor roles) */}
+                  {isPharmacist && activePage !== "doctor" && !["doctor", "physician"].includes(userRole) && (
                     <button
                       type="button"
                       className={`header-dropdown-item ${activePage === "pharmacy" ? "active" : ""}`}
@@ -1330,7 +1309,7 @@ export default function Header({
                       <span>{language === "hi" ? "फार्मेसी वितरण वर्कस्टेशन" : "Pharmacy Dispensing Portal"}</span>
                     </button>
                   )}
-                  {(isSuperAdmin || ["doctor", "physician"].includes(userRole)) && (
+                  {(((isSuperAdmin && !isPharmacist) || (["doctor", "physician"].includes(userRole) && !isPharmacist))) && (
                     <button
                       type="button"
                       className={`header-dropdown-item ${activePage === "doctor" ? "active" : ""}`}

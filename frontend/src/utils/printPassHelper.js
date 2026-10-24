@@ -5,7 +5,7 @@
  * Opens the native browser print / "Save as PDF" dialog with zero external dependencies.
  */
 
-import { t, getCategoryLabel, getStatusLabel, formatSymptomLabel, formatRiskLabel, formatCleanText } from "./i18n";
+import { t, getCategoryLabel, getStatusLabel, formatSymptomLabel, formatRiskLabel, formatCleanText, cleanAdviceText } from "./i18n";
 
 /**
  * Triggers the browser print/PDF dialog using a dedicated hidden iframe.
@@ -87,15 +87,16 @@ function formatRxHtml(rxNotes, lang = "en") {
       });
       html += `</ul>`;
     }
-    if (parsed.advice) {
-      const cleanAdvice = String(parsed.advice).replace(/_/g, " ");
-      html += `<div style="font-size: 11px; color: #15803D; margin-top: 3px; font-style: italic;"><strong>Advice:</strong> ${cleanAdvice}</div>`;
+    const cleanAdv = cleanAdviceText(parsed.advice || parsed.clinical_notes || "");
+    if (cleanAdv) {
+      html += `<div style="font-size: 11px; color: #15803D; margin-top: 3px; font-style: italic;"><strong>Advice:</strong> ${cleanAdv}</div>`;
     }
     html += `</div>`;
     return html;
   }
 
-  const rawClean = typeof rxNotes === "string" ? rxNotes.replace(/_/g, " ") : JSON.stringify(rxNotes);
+  const rawClean = cleanAdviceText(rxNotes);
+  if (!rawClean) return "";
   return `<p class="rx-text">"${rawClean}"</p>`;
 }
 
@@ -696,7 +697,7 @@ export function normalizeRxData(rxData, lang = "en") {
     instructions: m.instructions ? formatCleanText(m.instructions, lang) : "After food",
   }));
   const labTests = parsed.lab_tests ? formatCleanText(parsed.lab_tests, lang) : "";
-  const advice = parsed.advice ? String(parsed.advice).replace(/_/g, " ") : "";
+  const advice = cleanAdviceText(parsed.advice || parsed.clinical_notes || "");
   const followUp = parsed.follow_up ? formatCleanText(parsed.follow_up, lang) : "";
   const prescribedAt = parsed.prescribed_at || new Date().toISOString();
   const phone = parsed.phone || "";

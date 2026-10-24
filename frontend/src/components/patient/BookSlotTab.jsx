@@ -761,6 +761,14 @@ export default function BookSlotTab({
                     </option>
                   ))}
                 </select>
+                <div style={{ fontSize: "11px", color: "var(--patient-text-sub, #64748B)", marginTop: "5px", display: "flex", alignItems: "center", gap: "5px", lineHeight: 1.35 }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#0284C7" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                  <span>
+                    {language === "hi"
+                      ? "दवाइयों के लिए डॉक्टर परामर्श के बाद टोकन स्वतः फार्मेसी काउंटर में स्थानांतरित होगा।"
+                      : "Prescriptions are automatically transferred to Pharmacy after doctor consultation."}
+                  </span>
+                </div>
               </div>
               <div>
                 <label className="form-field-label">
