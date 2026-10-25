@@ -1,19 +1,3 @@
-/**
- * PharmacyPage.jsx
- * ----------------
- * Dedicated Hospital Pharmacy Dispensing Station & Clinical Workstation.
- * Strictly restricted to authorized Pharmacy Staff and Licensed Pharmacists.
- *
- * Capabilities:
- * 1. Live Pharmacy Queue Stream (real-time tickets routed to pharmacy).
- * 2. Serving Counter Terminal with Interactive Medication Dispensing Checklist.
- * 3. Dosage timing breakdown (Morning / Noon / Night) & calculated total quantity.
- * 4. 1-Click Printable Medicine Packet Envelope Sticker / Label (`printDispensingLabelSlip`).
- * 5. 1-Click Doctor E-Prescription Slip Viewer / Re-printer (`printPrescriptionSlip`).
- * 6. Automated Public Loudspeaker Voice Announcements (`announceTicketVoice`).
- * 7. Prescription Search, Lookup & Audit Archive.
- * 8. Theme support (Medical Ocean Blue / Pharmaceutical Emerald, Dark & Light).
- */
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { API_BASE, HOSPITAL_CONFIG } from "../config/hospitalConfig";
@@ -50,7 +34,8 @@ import {
   Calendar,
   Download,
   Eye,
-  Activity
+  Activity,
+  Phone
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -86,7 +71,7 @@ export default function PharmacyPage({
     try {
       const saved = localStorage.getItem("ai_queue_theme");
       if (saved === "dark" || saved === "light") return saved;
-    } catch (_) {}
+    } catch (_) { }
     return theme || "light";
   });
 
@@ -125,7 +110,7 @@ export default function PharmacyPage({
         document.body.style.color = "#0F172A";
       }
       window.dispatchEvent(new CustomEvent("theme_changed", { detail: nextTheme }));
-    } catch (_) {}
+    } catch (_) { }
     if (setTheme) setTheme(nextTheme);
   };
 
@@ -137,7 +122,7 @@ export default function PharmacyPage({
     try {
       const saved = localStorage.getItem("pharmacy_active_counter");
       if (saved) return saved;
-    } catch (_) {}
+    } catch (_) { }
     return "Pharma Desk-1";
   });
 
@@ -152,7 +137,7 @@ export default function PharmacyPage({
         try {
           const token = localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || currentUser?.token;
           if (token) headers["Authorization"] = `Bearer ${token}`;
-        } catch (_) {}
+        } catch (_) { }
 
         const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${effectiveHospitalCode}/desks`, {
           headers,
@@ -197,7 +182,7 @@ export default function PharmacyPage({
             setActiveCounter(myDesk.desk_name);
             try {
               localStorage.setItem("pharmacy_active_counter", myDesk.desk_name);
-            } catch (_) {}
+            } catch (_) { }
           } else if (candidateList.length > 0) {
             setSelectedDesk(candidateList[0]);
             setActiveCounter((prev) => {
@@ -233,8 +218,8 @@ export default function PharmacyPage({
         const assignedLabel = isMyDesk
           ? (isHi ? " ★ (आपका आवंटित डेस्क)" : " ★ (Your Assigned Desk)")
           : d.assigned_employee_name
-          ? ` (${d.assigned_employee_name})`
-          : "";
+            ? ` (${d.assigned_employee_name})`
+            : "";
         return {
           id: `desk_${d.id}`,
           deskId: d.id,
@@ -255,13 +240,19 @@ export default function PharmacyPage({
   }, [hospitalDesks, assignedDesk, isHi]);
 
   // Pharmacist Duty Status: "ACTIVE" | "ON_BREAK" | "SHIFT_ENDED"
+  const userStorageKey = currentUser?.email || currentUser?.id || "default";
+
   const [pharmaDutyStatus, setPharmaDutyStatus] = useState(() => {
     try {
+      const savedUser = localStorage.getItem(`pharma_duty_status_${userStorageKey}`);
+      if (savedUser && ["ACTIVE", "ON_BREAK", "SHIFT_ENDED"].includes(savedUser)) {
+        return savedUser;
+      }
       const saved = localStorage.getItem("pharma_duty_status");
       if (saved && ["ACTIVE", "ON_BREAK", "SHIFT_ENDED"].includes(saved)) {
         return saved;
       }
-    } catch (_) {}
+    } catch (_) { }
     return "ACTIVE";
   });
   const [showDutyDropdown, setShowDutyDropdown] = useState(false);
@@ -270,9 +261,102 @@ export default function PharmacyPage({
   const handleUpdateDutyStatus = useCallback((status) => {
     setPharmaDutyStatus(status);
     try {
+      localStorage.setItem(`pharma_duty_status_${userStorageKey}`, status);
       localStorage.setItem("pharma_duty_status", status);
-    } catch (_) {}
-  }, []);
+    } catch (_) { }
+
+    const targetUserId = currentUser?.id || currentUser?.user_id;
+    const targetEmail = currentUser?.email;
+    const targetName = currentUser?.name || currentUser?.username || "Head Pharmacist";
+
+    const payload = {
+      tenant_id: effectiveHospitalCode || tenantId,
+      doctor_id: targetUserId,
+      staff_id: targetUserId,
+      user_id: targetUserId,
+      doctor_email: targetEmail,
+      staff_email: targetEmail,
+      email: targetEmail,
+      doctor_name: targetName,
+      staff_name: targetName,
+      name: targetName,
+      role: "pharmacist",
+      status: status, // "ACTIVE" | "ON_BREAK" | "SHIFT_ENDED"
+      break_type: status === "ON_BREAK" ? "tea" : null,
+    };
+
+    // Emit live over socket to instantly update Super Admin and all terminals
+    if (socketRef && socketRef.current) {
+      socketRef.current.emit("update_doctor_duty_status", payload);
+      socketRef.current.emit("update_staff_duty_status", payload);
+    }
+
+    // Persist to backend PostgreSQL database
+    fetch(`${API_BASE}/api/v1/doctor/duty-status`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        ...(currentUser?.email ? { "X-User-Email": currentUser.email } : {}),
+      },
+      body: JSON.stringify(payload),
+    }).catch(() => { });
+  }, [currentUser, effectiveHospitalCode, tenantId, socketRef, userStorageKey]);
+
+  // Sync duty status from backend server on mount
+  useEffect(() => {
+    const pharmaId = currentUser?.id || currentUser?.user_id || currentUser?.email;
+    if (!pharmaId) return;
+
+    fetch(`${API_BASE}/api/v1/doctor/duty-status/${encodeURIComponent(pharmaId)}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.status === "success" && d.duty && d.duty.status) {
+          const s = d.duty.status;
+          const mapped = s === "OFF_DUTY" ? "SHIFT_ENDED" : s;
+          if (["ACTIVE", "ON_BREAK", "SHIFT_ENDED"].includes(mapped)) {
+            setPharmaDutyStatus(mapped);
+            try {
+              localStorage.setItem(`pharma_duty_status_${userStorageKey}`, mapped);
+              localStorage.setItem("pharma_duty_status", mapped);
+            } catch (_) { }
+          }
+        }
+      })
+      .catch(() => { });
+  }, [currentUser, userStorageKey]);
+
+  // Socket listener for duty status updates
+  useEffect(() => {
+    if (!socketRef || !socketRef.current) return;
+    const s = socketRef.current;
+    const handleDutyChange = (data) => {
+      if (!data) return;
+      const targetId = data.doctor_id || data.staff_id || data.user_id;
+      const targetEmail = data.doctor_email || data.staff_email || data.email;
+      const matchesMe =
+        (targetId && currentUser?.id && String(targetId) === String(currentUser.id)) ||
+        (targetEmail && currentUser?.email && String(targetEmail).toLowerCase() === String(currentUser.email).toLowerCase());
+
+      if (matchesMe && data.duty && data.duty.status) {
+        const rawStatus = data.duty.status;
+        const mapped = rawStatus === "OFF_DUTY" ? "SHIFT_ENDED" : rawStatus;
+        if (["ACTIVE", "ON_BREAK", "SHIFT_ENDED"].includes(mapped)) {
+          setPharmaDutyStatus(mapped);
+          try {
+            localStorage.setItem(`pharma_duty_status_${userStorageKey}`, mapped);
+            localStorage.setItem("pharma_duty_status", mapped);
+          } catch (_) { }
+        }
+      }
+    };
+
+    s.on("doctor_duty_status_changed", handleDutyChange);
+    s.on("staff_duty_status_changed", handleDutyChange);
+    return () => {
+      s.off("doctor_duty_status_changed", handleDutyChange);
+      s.off("staff_duty_status_changed", handleDutyChange);
+    };
+  }, [socketRef, currentUser, userStorageKey]);
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -327,7 +411,44 @@ export default function PharmacyPage({
   const [visitsSummary, setVisitsSummary] = useState({});
   const [loadingVisits, setLoadingVisits] = useState(false);
   const [visitSearchQuery, setVisitSearchQuery] = useState("");
-  const [visitFilterDept, setVisitFilterDept] = useState("pharmacy"); // "pharmacy" | "all" | "today" | "completed"
+
+  // Local calendar date string helper (YYYY-MM-DD)
+  const getLocalDateStr = useCallback((d = new Date()) => {
+    try {
+      const dateObj = typeof d === "string" || typeof d === "number" ? new Date(d) : d;
+      if (isNaN(dateObj.getTime())) return "";
+      const year = dateObj.getFullYear();
+      const month = String(dateObj.getMonth() + 1).padStart(2, "0");
+      const day = String(dateObj.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    } catch (_) {
+      return "";
+    }
+  }, []);
+
+  const getTodayDateStr = useCallback(() => getLocalDateStr(new Date()), [getLocalDateStr]);
+
+  const getYesterdayDateStr = useCallback(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return getLocalDateStr(d);
+  }, [getLocalDateStr]);
+
+  // Date filtering mode: "today" | "yesterday" | "date_wise" | "all"
+  const [visitDateFilter, setVisitDateFilter] = useState("today");
+
+  // Custom date selection for "date_wise" filter (defaults to today)
+  const [customVisitDate, setCustomVisitDate] = useState(() => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  });
+
+  // Status filter: "all" | "completed" | "in_progress"
+  const [visitStatusFilter, setVisitStatusFilter] = useState("all");
+
   const [selectedVisitModal, setSelectedVisitModal] = useState(null);
 
   // Fetch Patient Visit History from Backend
@@ -340,7 +461,7 @@ export default function PharmacyPage({
       try {
         const token = localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || currentUser?.token;
         if (token) headers["Authorization"] = `Bearer ${token}`;
-      } catch (_) {}
+      } catch (_) { }
 
       const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${effectiveHospitalCode}/visits?limit=500`, {
         headers,
@@ -372,8 +493,12 @@ export default function PharmacyPage({
         advice: "",
         followUp: "",
         dispensedBy: "",
+        dispensedById: "",
+        dispensedByEmail: "",
         dispensedCounter: "",
+        dispensedCounterId: "",
         dispensedAt: null,
+        isPharmaVisit: false,
       };
     }
 
@@ -383,7 +508,10 @@ export default function PharmacyPage({
     let advice = "";
     let followUp = "";
     let dispensedBy = "";
+    let dispensedById = "";
+    let dispensedByEmail = "";
     let dispensedCounter = "";
+    let dispensedCounterId = "";
     let dispensedAt = null;
 
     const stages = Array.isArray(visit.transfer_stages) ? visit.transfer_stages : [];
@@ -397,6 +525,11 @@ export default function PharmacyPage({
       return c.includes("pharm");
     });
 
+    const isPharmaVisit = Boolean(
+      (visit.dept_code || visit.department || "").toLowerCase().includes("pharm") ||
+      pharmaStage
+    );
+
     const notesToParse = consultStage?.notes || visit.prescription_notes || "";
     if (notesToParse) {
       try {
@@ -405,25 +538,31 @@ export default function PharmacyPage({
           const jsonMatch = raw.match(/\{[\s\S]*\}/);
           if (jsonMatch) raw = jsonMatch[0];
           const parsed = JSON.parse(raw);
-          doctorName = parsed.doctor_name || "";
+          doctorName = parsed.doctor_name || doctorName;
           diagnosis = parsed.diagnosis || diagnosis;
           if (Array.isArray(parsed.medicines)) medicines = parsed.medicines;
-          advice = parsed.advice || "";
-          followUp = parsed.follow_up || "";
-          dispensedBy = parsed.dispensed_by || "";
-          dispensedCounter = parsed.dispensing_counter || "";
-          dispensedAt = parsed.dispensed_at || null;
+          advice = parsed.advice || advice;
+          followUp = parsed.follow_up || followUp;
+          dispensedBy = parsed.dispensed_by || dispensedBy;
+          dispensedById = parsed.dispensed_by_id || dispensedById;
+          dispensedByEmail = parsed.dispensed_by_email || dispensedByEmail;
+          dispensedCounter = parsed.dispensing_counter || dispensedCounter;
+          dispensedCounterId = parsed.dispensed_counter_id || dispensedCounterId;
+          dispensedAt = parsed.dispensed_at || dispensedAt;
         } else if (typeof raw === "object") {
-          doctorName = raw.doctor_name || "";
+          doctorName = raw.doctor_name || doctorName;
           diagnosis = raw.diagnosis || diagnosis;
           if (Array.isArray(raw.medicines)) medicines = raw.medicines;
-          advice = raw.advice || "";
-          followUp = raw.follow_up || "";
-          dispensedBy = raw.dispensed_by || "";
-          dispensedCounter = raw.dispensing_counter || "";
-          dispensedAt = raw.dispensed_at || null;
+          advice = raw.advice || advice;
+          followUp = raw.follow_up || followUp;
+          dispensedBy = raw.dispensed_by || dispensedBy;
+          dispensedById = raw.dispensed_by_id || dispensedById;
+          dispensedByEmail = raw.dispensed_by_email || dispensedByEmail;
+          dispensedCounter = raw.dispensing_counter || dispensedCounter;
+          dispensedCounterId = raw.dispensed_counter_id || dispensedCounterId;
+          dispensedAt = raw.dispensed_at || dispensedAt;
         }
-      } catch (_) {}
+      } catch (_) { }
     }
 
     if (pharmaStage?.notes) {
@@ -434,10 +573,14 @@ export default function PharmacyPage({
           if (jsonMatch) rawP = jsonMatch[0];
           const parsedP = JSON.parse(rawP);
           if (parsedP.dispensed_by) dispensedBy = parsedP.dispensed_by;
+          if (parsedP.dispensed_by_id) dispensedById = parsedP.dispensed_by_id;
+          if (parsedP.dispensed_by_email) dispensedByEmail = parsedP.dispensed_by_email;
           if (parsedP.dispensing_counter) dispensedCounter = parsedP.dispensing_counter;
+          if (parsedP.dispensed_counter_id) dispensedCounterId = parsedP.dispensed_counter_id;
           if (parsedP.dispensed_at) dispensedAt = parsedP.dispensed_at;
+          if (Array.isArray(parsedP.medicines) && medicines.length === 0) medicines = parsedP.medicines;
         }
-      } catch (_) {}
+      } catch (_) { }
     }
 
     if (!doctorName && consultStage?.served_by) {
@@ -446,6 +589,15 @@ export default function PharmacyPage({
     if (!dispensedBy && pharmaStage?.served_by) {
       dispensedBy = pharmaStage.served_by;
     }
+    if (!dispensedBy && visit.served_by && isPharmaVisit) {
+      dispensedBy = visit.served_by;
+    }
+    if (!dispensedCounter && pharmaStage?.counter) {
+      dispensedCounter = pharmaStage.counter;
+    }
+    if (!dispensedCounter && pharmaStage?.desk_name) {
+      dispensedCounter = pharmaStage.desk_name;
+    }
 
     return {
       doctorName: doctorName || "Attending Physician",
@@ -453,28 +605,157 @@ export default function PharmacyPage({
       medicines,
       advice,
       followUp,
-      dispensedBy: dispensedBy || (pharmaStage?.status === "completed" ? (currentUser?.name || "Pharmacy Staff") : "Dispensed"),
-      dispensedCounter: dispensedCounter || (pharmaStage ? activeCounter : "Pharmacy Desk"),
+      dispensedBy: dispensedBy || (pharmaStage?.status === "completed" ? (currentUser?.name || "Pharmacy Staff") : "Pharmacy Staff"),
+      dispensedById,
+      dispensedByEmail,
+      dispensedCounter: dispensedCounter || (pharmaStage ? (activeCounter || "Pharma Desk") : "Pharma Desk"),
+      dispensedCounterId,
       dispensedAt: dispensedAt || pharmaStage?.serve_end_time || null,
+      isPharmaVisit,
     };
   }, [activeCounter, currentUser?.name]);
 
-  // Filtered visits computation
-  const filteredVisits = useMemo(() => {
-    let list = patientVisits;
-    if (visitFilterDept === "pharmacy") {
-      list = list.filter((v) => {
-        const dept = (v.dept_code || v.department || "").toLowerCase();
-        const hasPharmaStage = Array.isArray(v.transfer_stages) && v.transfer_stages.some((s) => (s.dept_code || s.department || "").toLowerCase().includes("pharm"));
-        return dept.includes("pharm") || hasPharmaStage;
-      });
-    } else if (visitFilterDept === "completed") {
-      list = list.filter((v) => (v.status || "").toLowerCase() === "completed");
-    } else if (visitFilterDept === "today") {
-      const today = new Date().toISOString().split("T")[0];
-      list = list.filter((v) => (v.queue_date || "").startsWith(today) || (v.created_at || "").startsWith(today));
+  // Check if a visit was consulted / dispensed exclusively by the logged-in pharmacist ("My Only")
+  const checkConsultMatch = useCallback((visit, details) => {
+    // 1. Mandatory requirement: visit must belong to Pharmacy
+    const hasPharmaDept = (visit.dept_code || visit.department || "").toLowerCase().includes("pharm");
+    const pharmaStage = Array.isArray(visit.transfer_stages) && visit.transfer_stages.find((s) => {
+      const c = (s.dept_code || s.department || "").toLowerCase();
+      return c.includes("pharm");
+    });
+    if (!hasPharmaDept && !pharmaStage) return false;
+
+    // Pharmacist personal identifiers ("his only")
+    const myName = (currentUser?.name || "").trim().toLowerCase();
+    const myUsername = (currentUser?.username || "").trim().toLowerCase();
+    const myEmail = (currentUser?.email || "").trim().toLowerCase();
+    const myId = String(currentUser?.id || currentUser?.user_id || currentUser?.employee_id || "").trim().toLowerCase();
+
+    const dispBy = (details.dispensedBy || "").trim().toLowerCase();
+    const dispById = String(details.dispensedById || "").trim().toLowerCase();
+    const dispByEmail = (details.dispensedByEmail || "").trim().toLowerCase();
+    const servedBy = (pharmaStage?.served_by || visit.served_by || "").trim().toLowerCase();
+
+    return Boolean(
+      (myName && (dispBy.includes(myName) || myName.includes(dispBy) || servedBy.includes(myName) || myName.includes(servedBy))) ||
+      (myUsername && (dispBy.includes(myUsername) || myUsername.includes(dispBy) || servedBy.includes(myUsername) || myUsername.includes(servedBy))) ||
+      (myEmail && (dispByEmail === myEmail || dispBy.includes(myEmail) || servedBy.includes(myEmail))) ||
+      (myId && (dispById === myId))
+    );
+  }, [
+    currentUser?.employee_id,
+    currentUser?.id,
+    currentUser?.user_id,
+    currentUser?.name,
+    currentUser?.username,
+    currentUser?.email,
+  ]);
+
+  // Check if a visit matches the target date filter
+  const checkVisitDateMatch = useCallback((visit, details, dateFilter, customDate) => {
+    if (dateFilter === "all") return true;
+
+    // Collect all candidate date representations in local YYYY-MM-DD
+    const dates = new Set();
+
+    if (visit.queue_date) {
+      const qd = String(visit.queue_date).split("T")[0].trim();
+      if (qd) dates.add(qd);
     }
 
+    if (details.dispensedAt) {
+      const dStr = getLocalDateStr(details.dispensedAt);
+      if (dStr) dates.add(dStr);
+    }
+
+    if (visit.created_at) {
+      const dStr = getLocalDateStr(visit.created_at);
+      if (dStr) dates.add(dStr);
+    }
+
+    if (Array.isArray(visit.transfer_stages)) {
+      const pStage = visit.transfer_stages.find((s) => (s.dept_code || s.department || "").toLowerCase().includes("pharm"));
+      if (pStage?.serve_end_time) {
+        const dStr = getLocalDateStr(pStage.serve_end_time);
+        if (dStr) dates.add(dStr);
+      }
+      if (pStage?.created_at) {
+        const dStr = getLocalDateStr(pStage.created_at);
+        if (dStr) dates.add(dStr);
+      }
+    }
+
+    const todayStr = getTodayDateStr();
+    const yesterdayStr = getYesterdayDateStr();
+
+    if (dateFilter === "today") {
+      return dates.has(todayStr);
+    }
+    if (dateFilter === "yesterday") {
+      return dates.has(yesterdayStr);
+    }
+    if (dateFilter === "date_wise") {
+      if (!customDate) return true;
+      return dates.has(customDate);
+    }
+    return true;
+  }, [getLocalDateStr, getTodayDateStr, getYesterdayDateStr]);
+
+  // All pharmacy visits matching "My Only" consultation records
+  const pharmaScopedVisits = useMemo(() => {
+    return patientVisits.filter((v) => {
+      const details = parseVisitDetails(v);
+      return checkConsultMatch(v, details);
+    });
+  }, [patientVisits, parseVisitDetails, checkConsultMatch]);
+
+  // Telemetry counts for dates and statuses based on current scope
+  const dateCounts = useMemo(() => {
+    let today = 0;
+    let yesterday = 0;
+    let custom = 0;
+    let completed = 0;
+
+    const todayStr = getTodayDateStr();
+    const yesterdayStr = getYesterdayDateStr();
+
+    pharmaScopedVisits.forEach((v) => {
+      const details = parseVisitDetails(v);
+      const isComplete = (v.status || "").toLowerCase() === "completed";
+      if (isComplete) completed++;
+
+      if (checkVisitDateMatch(v, details, "today", todayStr)) today++;
+      if (checkVisitDateMatch(v, details, "yesterday", yesterdayStr)) yesterday++;
+      if (customVisitDate && checkVisitDateMatch(v, details, "date_wise", customVisitDate)) custom++;
+    });
+
+    return {
+      all: pharmaScopedVisits.length,
+      today,
+      yesterday,
+      custom,
+      completed,
+    };
+  }, [pharmaScopedVisits, parseVisitDetails, checkVisitDateMatch, getTodayDateStr, getYesterdayDateStr, customVisitDate]);
+
+  // Filtered visits computation
+  const filteredVisits = useMemo(() => {
+    let list = pharmaScopedVisits;
+
+    // 1. Date filter: today | yesterday | date_wise | all
+    list = list.filter((v) => {
+      const details = parseVisitDetails(v);
+      return checkVisitDateMatch(v, details, visitDateFilter, customVisitDate);
+    });
+
+    // 2. Status filter: all | completed | in_progress
+    if (visitStatusFilter === "completed") {
+      list = list.filter((v) => (v.status || "").toLowerCase() === "completed");
+    } else if (visitStatusFilter === "in_progress") {
+      list = list.filter((v) => (v.status || "").toLowerCase() !== "completed");
+    }
+
+    // 3. Search query
     if (!visitSearchQuery.trim()) return list;
     const q = visitSearchQuery.toLowerCase().trim();
     return list.filter((v) => {
@@ -484,10 +765,29 @@ export default function PharmacyPage({
       const details = parseVisitDetails(v);
       const doc = (details.doctorName || "").toLowerCase();
       const diag = (details.diagnosis || "").toLowerCase();
+      const dispensedBy = (details.dispensedBy || "").toLowerCase();
+      const counter = (details.dispensedCounter || "").toLowerCase();
       const medMatch = details.medicines.some((m) => (m.name || "").toLowerCase().includes(q));
-      return name.includes(q) || token.includes(q) || phone.includes(q) || doc.includes(q) || diag.includes(q) || medMatch;
+      return (
+        name.includes(q) ||
+        token.includes(q) ||
+        phone.includes(q) ||
+        doc.includes(q) ||
+        diag.includes(q) ||
+        dispensedBy.includes(q) ||
+        counter.includes(q) ||
+        medMatch
+      );
     });
-  }, [patientVisits, visitFilterDept, visitSearchQuery, parseVisitDetails]);
+  }, [
+    pharmaScopedVisits,
+    parseVisitDetails,
+    checkVisitDateMatch,
+    visitDateFilter,
+    customVisitDate,
+    visitStatusFilter,
+    visitSearchQuery,
+  ]);
 
   // Export visit logs to Excel
   const handleExportVisitsExcel = () => {
@@ -727,8 +1027,11 @@ export default function PharmacyPage({
       const completionPayload = {
         ...rxNotes,
         dispensed_by: currentUser?.name || currentUser?.username || "Head Pharmacist",
+        dispensed_by_id: currentUser?.id || currentUser?.user_id || currentUser?.employee_id || "",
+        dispensed_by_email: currentUser?.email || "",
         dispensed_at: new Date().toISOString(),
         dispensing_counter: activeCounter,
+        dispensed_counter_id: assignedDesk?.id || "",
         all_verified: unverifiedCount === 0,
       };
 
@@ -761,6 +1064,8 @@ export default function PharmacyPage({
       );
 
       setActiveServingTicket(null);
+      // Immediately refresh visit history so newly completed record is listed
+      fetchPatientVisits();
     } catch (e) {
       showToast(`Error completing dispensing: ${e.message}`, "error");
     } finally {
@@ -1081,7 +1386,8 @@ export default function PharmacyPage({
                   letterSpacing: "0.5px",
                 }}
               >
-                🪑 {isHi ? "डेस्क / काउंटर" : "Desk / Counter"}:
+                <Building2 size={12} style={{ display: "inline-block", verticalAlign: "middle", marginRight: "4px" }} />
+                {isHi ? "डेस्क / काउंटर" : "Desk / Counter"}:
               </span>
               <span
                 style={{
@@ -1105,8 +1411,8 @@ export default function PharmacyPage({
                     pharmaDutyStatus === "ACTIVE"
                       ? "linear-gradient(135deg, #10B981 0%, #059669 100%)"
                       : pharmaDutyStatus === "ON_BREAK"
-                      ? "linear-gradient(135deg, #F59E0B 0%, #D97706 100%)"
-                      : "linear-gradient(135deg, #EF4444 0%, #DC2626 100%)",
+                        ? "linear-gradient(135deg, #F59E0B 0%, #D97706 100%)"
+                        : "linear-gradient(135deg, #EF4444 0%, #DC2626 100%)",
                   color: "#FFFFFF",
                   border: "none",
                   borderRadius: "12px",
@@ -1121,8 +1427,8 @@ export default function PharmacyPage({
                     pharmaDutyStatus === "ACTIVE"
                       ? "0 4px 14px rgba(16, 185, 129, 0.35)"
                       : pharmaDutyStatus === "ON_BREAK"
-                      ? "0 4px 14px rgba(245, 158, 11, 0.35)"
-                      : "0 4px 14px rgba(239, 68, 68, 0.35)",
+                        ? "0 4px 14px rgba(245, 158, 11, 0.35)"
+                        : "0 4px 14px rgba(239, 68, 68, 0.35)",
                   transition: "all 0.2s ease",
                 }}
                 title={isHi ? "ड्यूटी स्थिति बदलें (सक्रिय, ब्रेक, शिफ्ट समाप्त)" : "Select Duty Status (Active on Duty, On Tea Break, Shift Ended)"}
@@ -1132,8 +1438,8 @@ export default function PharmacyPage({
                   {pharmaDutyStatus === "ACTIVE"
                     ? (isHi ? "ड्यूटी पर सक्रिय" : "Active on Duty")
                     : pharmaDutyStatus === "ON_BREAK"
-                    ? (isHi ? "अवकाश पर" : "On Tea Break")
-                    : (isHi ? "शिफ्ट समाप्त" : "Shift Ended")}
+                      ? (isHi ? "अवकाश पर" : "On Tea Break")
+                      : (isHi ? "शिफ्ट समाप्त" : "Shift Ended")}
                 </span>
                 <span style={{ fontSize: "9px", opacity: 0.85, marginLeft: "2px" }}>▼</span>
               </button>
@@ -1242,19 +1548,19 @@ export default function PharmacyPage({
               {activeServingTicket
                 ? `#${activeServingTicket.ticket_id}`
                 : pharmaDutyStatus === "SHIFT_ENDED"
-                ? (isHi ? "शिफ्ट समाप्त" : "Shift Ended")
-                : pharmaDutyStatus === "ON_BREAK"
-                ? (isHi ? "अवकाश" : "On Break")
-                : (isHi ? "काउंटर तैयार" : "Ready")}
+                  ? (isHi ? "शिफ्ट समाप्त" : "Shift Ended")
+                  : pharmaDutyStatus === "ON_BREAK"
+                    ? (isHi ? "अवकाश" : "On Break")
+                    : (isHi ? "काउंटर तैयार" : "Ready")}
             </div>
             <div style={{ fontSize: "11px", opacity: 0.8, marginTop: "2px" }}>
               {activeServingTicket
                 ? activeServingTicket.name
                 : pharmaDutyStatus === "SHIFT_ENDED"
-                ? (isHi ? "काउंटर सेवा बंद है" : "Counter offline / closed")
-                : pharmaDutyStatus === "ON_BREAK"
-                ? (isHi ? "अवकाश पर (कॉलिंग रुकी है)" : "Dispensing paused")
-                : (isHi ? `${activeCounter} उपलब्ध` : `${activeCounter} ready`)}
+                  ? (isHi ? "काउंटर सेवा बंद है" : "Counter offline / closed")
+                  : pharmaDutyStatus === "ON_BREAK"
+                    ? (isHi ? "अवकाश पर (कॉलिंग रुकी है)" : "Dispensing paused")
+                    : (isHi ? `${activeCounter} उपलब्ध` : `${activeCounter} ready`)}
             </div>
           </div>
 
@@ -1323,11 +1629,11 @@ export default function PharmacyPage({
             <span>
               {pharmaDutyStatus === "SHIFT_ENDED"
                 ? (isHi
-                    ? "शिफ्ट समाप्त (Shift Ended): फार्मेसी काउंटर सेवा आज के लिए बंद है। मरीज़ कॉलिंग रुकी है।"
-                    : "Shift Ended: Pharmacy counter service is closed. Patient calling is paused.")
+                  ? "शिफ्ट समाप्त (Shift Ended): फार्मेसी काउंटर सेवा आज के लिए बंद है। मरीज़ कॉलिंग रुकी है।"
+                  : "Shift Ended: Pharmacy counter service is closed. Patient calling is paused.")
                 : (isHi
-                    ? "चाय / अल्पाहार अवकाश: काउंटर कॉलिंग अस्थायी रूप से रुकी है।"
-                    : "On Tea Break: Counter dispensing is temporarily paused.")}
+                  ? "चाय / अल्पाहार अवकाश: काउंटर कॉलिंग अस्थायी रूप से रुकी है।"
+                  : "On Tea Break: Counter dispensing is temporarily paused.")}
             </span>
           </div>
           <button
@@ -1412,7 +1718,7 @@ export default function PharmacyPage({
               color: activeTab === "history" ? "#FFFFFF" : "#0284C7",
             }}
           >
-            {patientVisits.length}
+            {pharmaScopedVisits.length}
           </span>
         </button>
       </div>
@@ -1441,15 +1747,17 @@ export default function PharmacyPage({
                           <span style={{ fontSize: "18px", fontWeight: 800, color: textColor }}>
                             {ticket.name}
                           </span>
-                          <span style={{ background: isDark ? "rgba(2, 132, 199, 0.2)" : "#E0F2FE", color: highlightPrimary, padding: "3px 10px", borderRadius: "8px", fontSize: "11px", fontWeight: 800, display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                            🪑 {activeCounter}
+                          <span style={{ background: isDark ? "rgba(2, 132, 199, 0.2)" : "#E0F2FE", color: highlightPrimary, padding: "3px 10px", borderRadius: "8px", fontSize: "11px", fontWeight: 800, display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                            <Building2 size={11} />
+                            <span>{activeCounter}</span>
                           </span>
                         </div>
                         <div style={{ fontSize: "12px", color: mutedText, marginTop: "4px" }}>
                           {ticket.age || 30} years old • {ticket.gender || "Patient"} • Phone: <strong>{ticket.phone || "Not provided"}</strong>
                         </div>
-                        <div style={{ fontSize: "11.5px", color: "#0284C7", fontWeight: 700, marginTop: "4px" }}>
-                          👨‍⚕️ Prescribed by: <strong>{rxNotes.doctor_name || "Consultant Doctor"}</strong> ({rxNotes.doctor_department || "OPD"})
+                        <div style={{ fontSize: "11.5px", color: "#0284C7", fontWeight: 700, marginTop: "4px", display: "flex", alignItems: "center", gap: "5px" }}>
+                          <Stethoscope size={13} />
+                          <span>Prescribed by: <strong>{rxNotes.doctor_name || "Consultant Doctor"}</strong> ({rxNotes.doctor_department || "OPD"})</span>
                           {rxNotes.prescribed_at ? ` • ${new Date(rxNotes.prescribed_at).toLocaleTimeString()}` : ""}
                         </div>
                       </div>
@@ -1478,27 +1786,6 @@ export default function PharmacyPage({
                           <span>{isHi ? "लाउडस्पीकर" : "Re-Announce"}</span>
                         </button>
 
-                        <button
-                          type="button"
-                          onClick={() => handlePrintEnvelopeLabel(ticket)}
-                          style={{
-                            padding: "7px 12px",
-                            borderRadius: "10px",
-                            border: "1.5px solid #0284C7",
-                            background: isDark ? "rgba(2, 132, 199, 0.18)" : "#F0F9FF",
-                            color: isDark ? "#38BDF8" : "#0369A1",
-                            fontSize: "12px",
-                            fontWeight: 800,
-                            cursor: "pointer",
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "5px",
-                          }}
-                          title="Print Patient Medication Envelope Label Sticker"
-                        >
-                          <Printer size={13} />
-                          <span>{isHi ? "दवा पैकेट लेबल" : "Print Envelope Label"}</span>
-                        </button>
 
                         <button
                           type="button"
@@ -1645,11 +1932,13 @@ export default function PharmacyPage({
 
                                     {/* Timing schedule badge pills */}
                                     <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "6px", flexWrap: "wrap" }}>
-                                      <span style={{ fontSize: "11px", fontWeight: 800, color: "#D97706", background: isDark ? "rgba(245, 158, 11, 0.15)" : "#FEF3C7", padding: "2px 8px", borderRadius: "6px" }}>
-                                        ⏱️ {med.frequency || "1-0-1"}
+                                      <span style={{ fontSize: "11px", fontWeight: 800, color: "#D97706", background: isDark ? "rgba(245, 158, 11, 0.15)" : "#FEF3C7", padding: "2px 8px", borderRadius: "6px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                                        <Clock size={11} />
+                                        <span>{med.frequency || "1-0-1"}</span>
                                       </span>
-                                      <span style={{ fontSize: "11px", fontWeight: 700, color: "#059669", background: isDark ? "rgba(16, 185, 129, 0.15)" : "#D1FAE5", padding: "2px 8px", borderRadius: "6px" }}>
-                                        🍽️ {med.instructions || (isHi ? "भोजन के बाद" : "After food")}
+                                      <span style={{ fontSize: "11px", fontWeight: 700, color: "#059669", background: isDark ? "rgba(16, 185, 129, 0.15)" : "#D1FAE5", padding: "2px 8px", borderRadius: "6px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                                        <Info size={11} />
+                                        <span>{med.instructions || (isHi ? "भोजन के बाद" : "After food")}</span>
                                       </span>
                                     </div>
                                   </div>
@@ -1705,26 +1994,6 @@ export default function PharmacyPage({
                       </button>
 
                       <div style={{ display: "flex", gap: "10px" }}>
-                        <button
-                          type="button"
-                          onClick={() => handlePrintEnvelopeLabel(ticket)}
-                          style={{
-                            background: isDark ? "#1E293B" : "#F8FAFC",
-                            border: cardBorder,
-                            color: textColor,
-                            borderRadius: "10px",
-                            padding: "9px 16px",
-                            fontSize: "12.5px",
-                            fontWeight: 800,
-                            cursor: "pointer",
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "6px",
-                          }}
-                        >
-                          <Printer size={14} color="#0284C7" />
-                          <span>{isHi ? "पैकेट लेबल प्रिंट" : "Print Label Slip"}</span>
-                        </button>
 
                         <button
                           type="button"
@@ -1920,8 +2189,9 @@ export default function PharmacyPage({
                         </div>
 
                         <div style={{ marginTop: "10px", paddingTop: "10px", borderTop: isDark ? "1px solid #334155" : "1px solid #E2E8F0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <div style={{ fontSize: "11.5px", color: mutedText }}>
-                            👨‍⚕️ {rxNotes?.doctor_name || "Doctor"}
+                          <div style={{ fontSize: "11.5px", color: mutedText, display: "flex", alignItems: "center", gap: "4px" }}>
+                            <User size={12} color={mutedText} />
+                            <span>{rxNotes?.doctor_name || "Doctor"}</span>
                           </div>
                           <div style={{ fontSize: "11.5px", fontWeight: 800, color: "#0284C7", display: "inline-flex", alignItems: "center", gap: "4px" }}>
                             <Pill size={12} />
@@ -2099,22 +2369,6 @@ export default function PharmacyPage({
                         <div style={{ display: "flex", justifyContent: "flex-end", gap: "6px" }}>
                           <button
                             type="button"
-                            onClick={() => handlePrintEnvelopeLabel(t)}
-                            style={{
-                              padding: "4px 8px",
-                              borderRadius: "6px",
-                              border: cardBorder,
-                              background: isDark ? "#1E293B" : "#F8FAFC",
-                              color: textColor,
-                              fontSize: "11px",
-                              fontWeight: 700,
-                              cursor: "pointer",
-                            }}
-                          >
-                            Label
-                          </button>
-                          <button
-                            type="button"
                             onClick={() => handlePrintFullPrescription(t)}
                             style={{
                               padding: "4px 8px",
@@ -2163,15 +2417,15 @@ export default function PharmacyPage({
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                  {isHi ? "कुल मरीज़ विज़िट" : "Total Visits Recorded"}
+                  {isHi ? "मेरे कुल परामर्श" : "My Consultations Total"}
                 </span>
                 <History size={16} color="#0284C7" />
               </div>
               <div style={{ fontSize: "28px", fontWeight: 900, color: textColor, marginTop: "6px" }}>
-                {visitsSummary?.total_patients_visited_all_time || patientVisits.length}
+                {dateCounts.all}
               </div>
               <div style={{ fontSize: "11px", color: mutedText, marginTop: "2px" }}>
-                {isHi ? "अस्पताल में सभी विभागों के मरीज़" : "All departments footfall log"}
+                {isHi ? "आपके द्वारा परामर्शित कुल मरीज़" : "Total patients consulted & dispensed by you"}
               </div>
             </div>
 
@@ -2186,19 +2440,15 @@ export default function PharmacyPage({
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                  {isHi ? "फार्मेसी पूर्ण विज़िट" : "Pharmacy Dispensed"}
+                  {isHi ? "आज के परामर्श" : "Today's Consultations"}
                 </span>
-                <Pill size={16} color="#10B981" />
+                <Calendar size={16} color="#10B981" />
               </div>
               <div style={{ fontSize: "28px", fontWeight: 900, color: "#10B981", marginTop: "6px" }}>
-                {patientVisits.filter((v) => {
-                  const d = (v.dept_code || v.department || "").toLowerCase();
-                  const hasPharma = Array.isArray(v.transfer_stages) && v.transfer_stages.some((s) => (s.dept_code || s.department || "").toLowerCase().includes("pharm"));
-                  return d.includes("pharm") || hasPharma;
-                }).length}
+                {dateCounts.today}
               </div>
               <div style={{ fontSize: "11px", color: mutedText, marginTop: "2px" }}>
-                {isHi ? "फार्मेसी में दवा प्राप्त की" : "Prescriptions processed & fulfilled"}
+                {isHi ? "आज परामर्शित व दवा प्राप्त मरीज़" : "Consulted & dispensed today"}
               </div>
             </div>
 
@@ -2213,77 +2463,307 @@ export default function PharmacyPage({
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                  {isHi ? "सफलतापूर्वक पूर्ण" : "Completed Consultations"}
+                  {isHi ? "कल के परामर्श" : "Yesterday's Consultations"}
+                </span>
+                <Clock size={16} color="#F59E0B" />
+              </div>
+              <div style={{ fontSize: "28px", fontWeight: 900, color: "#F59E0B", marginTop: "6px" }}>
+                {dateCounts.yesterday}
+              </div>
+              <div style={{ fontSize: "11px", color: mutedText, marginTop: "2px" }}>
+                {isHi ? "कल परामर्शित व दवा प्राप्त मरीज़" : "Consulted & dispensed yesterday"}
+              </div>
+            </div>
+
+            <div
+              style={{
+                background: cardBg,
+                border: cardBorder,
+                borderRadius: "16px",
+                padding: "16px 20px",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.02)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  {isHi ? "पूर्ण दवा वितरण" : "Completed Dispensing"}
                 </span>
                 <CheckCircle2 size={16} color="#0284C7" />
               </div>
               <div style={{ fontSize: "28px", fontWeight: 900, color: textColor, marginTop: "6px" }}>
-                {visitsSummary?.all_time_completed || patientVisits.filter((v) => (v.status || "").toLowerCase() === "completed").length}
+                {dateCounts.completed}
               </div>
               <div style={{ fontSize: "11px", color: mutedText, marginTop: "2px" }}>
-                {isHi ? "सफल परामर्श व उपचारित" : "Visits successfully closed"}
-              </div>
-            </div>
-
-            <div
-              style={{
-                background: cardBg,
-                border: cardBorder,
-                borderRadius: "16px",
-                padding: "16px 20px",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.02)",
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                  {isHi ? "आज के मरीज़" : "Today's Patient Footfall"}
-                </span>
-                <Calendar size={16} color="#F59E0B" />
-              </div>
-              <div style={{ fontSize: "28px", fontWeight: 900, color: "#F59E0B", marginTop: "6px" }}>
-                {visitsSummary?.today_patients_visited || 0}
-              </div>
-              <div style={{ fontSize: "11px", color: mutedText, marginTop: "2px" }}>
-                {isHi ? "आज अस्पताल में पंजीकृत" : "Registered across hospital today"}
+                {isHi ? "सफल दवा वितरण व पर्चा ऑडिट" : "Prescriptions fulfilled & closed"}
               </div>
             </div>
           </div>
 
           {/* Main Table Card */}
           <div style={{ background: cardBg, border: cardBorder, borderRadius: "18px", padding: "24px" }}>
-            {/* Toolbar */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", flexWrap: "wrap", gap: "14px" }}>
+            {/* Header Title & Pharmacist Identity */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "12px" }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: "17px", fontWeight: 800, color: textColor, display: "flex", alignItems: "center", gap: "8px" }}>
                   <History size={18} color="#0284C7" />
-                  <span>{isHi ? "मरीज़ विज़िट एवं दवा वितरण इतिहास" : "Patient Visit & Dispensing History"}</span>
+                  <span>{isHi ? "मेरे मरीज़ विज़िट एवं दवा परामर्श इतिहास" : "My Patient Visit & Dispensing History"}</span>
                 </h3>
                 <p style={{ margin: "4px 0 0 0", fontSize: "12px", color: mutedText }}>
                   {isHi
-                    ? "अस्पताल में आए सभी मरीजों के परामर्श, निदान, लिखी गई दवाएं और वितरण का संपूर्ण ऑडिट रिकॉर्ड।"
-                    : "Comprehensive audit records of patient visits, clinical diagnoses, doctor prescriptions, and pharmacy dispensations."}
+                    ? "केवल आपके द्वारा परामर्शित एवं दवा वितरित किए गए मरीज़ों का संपूर्ण ऑडिट रिकॉर्ड।"
+                    : "Audit records for patients consulted and dispensed exclusively by you."}
                 </p>
               </div>
 
-              {/* Search, Filter, Excel Export & Refresh Controls */}
-              <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+              {/* Personal Pharmacist Indicator Badge */}
+              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <span
+                  style={{
+                    background: isDark ? "rgba(2, 132, 199, 0.2)" : "#E0F2FE",
+                    border: isDark ? "1px solid rgba(2, 132, 199, 0.4)" : "1px solid #BAE6FD",
+                    color: "#0284C7",
+                    padding: "5px 12px",
+                    borderRadius: "8px",
+                    fontSize: "12px",
+                    fontWeight: 800,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "6px",
+                  }}
+                  title={isHi ? "केवल आपका व्यक्तिगत परामर्श डेटा प्रदर्शित है" : "Displaying your consulted patient data only"}
+                >
+                  <User size={13} />
+                  <span>{currentUser?.name || currentUser?.username || (isHi ? "मेरा परामर्श रिकॉर्ड" : "My Consultations Only")}</span>
+                </span>
+              </div>
+            </div>
+
+            {/* Filter Controls Bar */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: "20px",
+                flexWrap: "wrap",
+                gap: "12px",
+                padding: "12px 14px",
+                borderRadius: "14px",
+                background: isDark ? "#0B1120" : "#F8FAFC",
+                border: cardBorder,
+              }}
+            >
+              {/* Date Filter Buttons & Date Picker */}
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                <span style={{ fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", letterSpacing: "0.5px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                  <Calendar size={13} color="#0284C7" />
+                  <span>{isHi ? "दिनांक:" : "Date:"}</span>
+                </span>
+
+                <div style={{ display: "inline-flex", background: isDark ? "#1E293B" : "#E2E8F0", padding: "3px", borderRadius: "10px", alignItems: "center", gap: "3px" }}>
+                  {/* Today Button */}
+                  <button
+                    type="button"
+                    onClick={() => setVisitDateFilter("today")}
+                    style={{
+                      padding: "5px 12px",
+                      borderRadius: "7px",
+                      border: "none",
+                      background: visitDateFilter === "today" ? "#10B981" : "transparent",
+                      color: visitDateFilter === "today" ? "#FFFFFF" : textColor,
+                      fontSize: "11.5px",
+                      fontWeight: 800,
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    <span>{isHi ? "आज" : "Today"}</span>
+                    <span
+                      style={{
+                        background: visitDateFilter === "today" ? "rgba(255,255,255,0.25)" : (isDark ? "rgba(255,255,255,0.08)" : "#CBD5E1"),
+                        color: visitDateFilter === "today" ? "#FFFFFF" : mutedText,
+                        padding: "1px 6px",
+                        borderRadius: "5px",
+                        fontSize: "10px",
+                        fontWeight: 900,
+                      }}
+                    >
+                      {dateCounts.today}
+                    </span>
+                  </button>
+
+                  {/* Yesterday Button */}
+                  <button
+                    type="button"
+                    onClick={() => setVisitDateFilter("yesterday")}
+                    style={{
+                      padding: "5px 12px",
+                      borderRadius: "7px",
+                      border: "none",
+                      background: visitDateFilter === "yesterday" ? "#F59E0B" : "transparent",
+                      color: visitDateFilter === "yesterday" ? "#FFFFFF" : textColor,
+                      fontSize: "11.5px",
+                      fontWeight: 800,
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    <span>{isHi ? "कल" : "Yesterday"}</span>
+                    <span
+                      style={{
+                        background: visitDateFilter === "yesterday" ? "rgba(255,255,255,0.25)" : (isDark ? "rgba(255,255,255,0.08)" : "#CBD5E1"),
+                        color: visitDateFilter === "yesterday" ? "#FFFFFF" : mutedText,
+                        padding: "1px 6px",
+                        borderRadius: "5px",
+                        fontSize: "10px",
+                        fontWeight: 900,
+                      }}
+                    >
+                      {dateCounts.yesterday}
+                    </span>
+                  </button>
+
+                  {/* Date Wise Button */}
+                  <button
+                    type="button"
+                    onClick={() => setVisitDateFilter("date_wise")}
+                    style={{
+                      padding: "5px 12px",
+                      borderRadius: "7px",
+                      border: "none",
+                      background: visitDateFilter === "date_wise" ? "#0284C7" : "transparent",
+                      color: visitDateFilter === "date_wise" ? "#FFFFFF" : textColor,
+                      fontSize: "11.5px",
+                      fontWeight: 800,
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    <span>{isHi ? "तिथि अनुसार" : "Date Wise"}</span>
+                    {visitDateFilter === "date_wise" && (
+                      <span
+                        style={{
+                          background: "rgba(255,255,255,0.25)",
+                          color: "#FFFFFF",
+                          padding: "1px 6px",
+                          borderRadius: "5px",
+                          fontSize: "10px",
+                          fontWeight: 900,
+                        }}
+                      >
+                        {dateCounts.custom}
+                      </span>
+                    )}
+                  </button>
+
+                  {/* All Dates Button */}
+                  <button
+                    type="button"
+                    onClick={() => setVisitDateFilter("all")}
+                    style={{
+                      padding: "5px 12px",
+                      borderRadius: "7px",
+                      border: "none",
+                      background: visitDateFilter === "all" ? (isDark ? "#475569" : "#64748B") : "transparent",
+                      color: visitDateFilter === "all" ? "#FFFFFF" : textColor,
+                      fontSize: "11.5px",
+                      fontWeight: 800,
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    <span>{isHi ? "सभी तिथियां" : "All Dates"}</span>
+                    <span
+                      style={{
+                        background: visitDateFilter === "all" ? "rgba(255,255,255,0.25)" : (isDark ? "rgba(255,255,255,0.08)" : "#CBD5E1"),
+                        color: visitDateFilter === "all" ? "#FFFFFF" : mutedText,
+                        padding: "1px 6px",
+                        borderRadius: "5px",
+                        fontSize: "10px",
+                        fontWeight: 900,
+                      }}
+                    >
+                      {dateCounts.all}
+                    </span>
+                  </button>
+                </div>
+
+                {/* Date Picker Input */}
+                <input
+                  type="date"
+                  value={customVisitDate}
+                  onChange={(e) => {
+                    setCustomVisitDate(e.target.value);
+                    setVisitDateFilter("date_wise");
+                  }}
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: "9px",
+                    border: visitDateFilter === "date_wise" ? "1.5px solid #0284C7" : cardBorder,
+                    background: isDark ? "#1E293B" : "#FFFFFF",
+                    color: textColor,
+                    fontSize: "11.5px",
+                    fontWeight: 700,
+                    outline: "none",
+                    cursor: "pointer",
+                    boxShadow: visitDateFilter === "date_wise" ? "0 0 0 2px rgba(2, 132, 199, 0.25)" : "none",
+                  }}
+                  title={isHi ? "कस्टम तिथि का चयन करें" : "Pick custom date"}
+                />
+              </div>
+
+              {/* Status, Search, Excel & Refresh Controls */}
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                {/* Status Dropdown */}
+                <select
+                  value={visitStatusFilter}
+                  onChange={(e) => setVisitStatusFilter(e.target.value)}
+                  style={{
+                    padding: "7px 11px",
+                    borderRadius: "9px",
+                    border: cardBorder,
+                    background: isDark ? "#1E293B" : "#FFFFFF",
+                    color: textColor,
+                    fontSize: "11.5px",
+                    fontWeight: 700,
+                    outline: "none",
+                    cursor: "pointer",
+                  }}
+                >
+                  <option value="all">{isHi ? "सभी स्थितियां" : "All Status"}</option>
+                  <option value="completed">{isHi ? "केवल पूर्ण वितरण" : "Completed Only"}</option>
+                  <option value="in_progress">{isHi ? "प्रगति में" : "In Progress"}</option>
+                </select>
+
                 {/* Search Box */}
                 <div style={{ position: "relative" }}>
-                  <Search size={14} color={mutedText} style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)" }} />
+                  <Search size={13} color={mutedText} style={{ position: "absolute", left: "11px", top: "50%", transform: "translateY(-50%)" }} />
                   <input
                     type="text"
-                    placeholder={isHi ? "मरीज़, टोकन, फोन, डॉक्टर या दवा खोजें..." : "Search patient, token, phone, doctor or medicine..."}
+                    placeholder={isHi ? "मरीज़, टोकन, डॉक्टर, दवा..." : "Search patient, token, doctor, medicine..."}
                     value={visitSearchQuery}
                     onChange={(e) => setVisitSearchQuery(e.target.value)}
                     style={{
-                      padding: "8px 12px 8px 34px",
-                      borderRadius: "10px",
+                      padding: "7px 10px 7px 30px",
+                      borderRadius: "9px",
                       border: cardBorder,
-                      background: isDark ? "#1E293B" : "#F8FAFC",
+                      background: isDark ? "#1E293B" : "#FFFFFF",
                       color: textColor,
-                      fontSize: "12.5px",
+                      fontSize: "11.5px",
                       outline: "none",
-                      width: "260px",
+                      width: "190px",
                     }}
                   />
                   {visitSearchQuery && (
@@ -2292,42 +2772,20 @@ export default function PharmacyPage({
                       onClick={() => setVisitSearchQuery("")}
                       style={{
                         position: "absolute",
-                        right: "10px",
+                        right: "8px",
                         top: "50%",
                         transform: "translateY(-50%)",
                         background: "none",
                         border: "none",
                         color: mutedText,
                         cursor: "pointer",
-                        fontSize: "12px",
+                        fontSize: "11px",
                       }}
                     >
                       ✕
                     </button>
                   )}
                 </div>
-
-                {/* Filter Dropdown */}
-                <select
-                  value={visitFilterDept}
-                  onChange={(e) => setVisitFilterDept(e.target.value)}
-                  style={{
-                    padding: "8px 12px",
-                    borderRadius: "10px",
-                    border: cardBorder,
-                    background: isDark ? "#1E293B" : "#F8FAFC",
-                    color: textColor,
-                    fontSize: "12px",
-                    fontWeight: 700,
-                    outline: "none",
-                    cursor: "pointer",
-                  }}
-                >
-                  <option value="pharmacy">{isHi ? "फार्मेसी विज़िट (दवा वितरण)" : "Pharmacy Dispensed"}</option>
-                  <option value="all">{isHi ? "सभी अस्पताल विज़िट" : "All Hospital Visits"}</option>
-                  <option value="completed">{isHi ? "केवल पूर्ण विज़िट" : "Completed Only"}</option>
-                  <option value="today">{isHi ? "आज के मरीज़" : "Today's Visits"}</option>
-                </select>
 
                 {/* Export to Excel */}
                 <button
@@ -2337,19 +2795,19 @@ export default function PharmacyPage({
                     background: isDark ? "rgba(16, 185, 129, 0.18)" : "#ECFDF5",
                     border: isDark ? "1px solid rgba(16, 185, 129, 0.4)" : "1px solid #A7F3D0",
                     color: "#10B981",
-                    borderRadius: "10px",
-                    padding: "8px 14px",
-                    fontSize: "12px",
+                    borderRadius: "9px",
+                    padding: "7px 12px",
+                    fontSize: "11.5px",
                     fontWeight: 800,
                     cursor: "pointer",
                     display: "inline-flex",
                     alignItems: "center",
-                    gap: "6px",
+                    gap: "5px",
                   }}
-                  title={isHi ? "एक्सेल फ़ाइल में डाउनलोड करें" : "Download as Excel Sheet"}
+                  title={isHi ? "फ़िल्टर किए गए रिकॉर्ड्स एक्सेल में डाउनलोड करें" : "Download filtered records to Excel"}
                 >
                   <Download size={13} />
-                  <span>{isHi ? "एक्सेल निर्यात" : "Export Excel"}</span>
+                  <span>{isHi ? "एक्सेल" : "Excel"}</span>
                 </button>
 
                 {/* Refresh */}
@@ -2358,21 +2816,21 @@ export default function PharmacyPage({
                   onClick={fetchPatientVisits}
                   disabled={loadingVisits}
                   style={{
-                    background: cardBg,
+                    background: isDark ? "#1E293B" : "#FFFFFF",
                     border: cardBorder,
                     color: textColor,
-                    borderRadius: "10px",
-                    padding: "8px 12px",
-                    fontSize: "12px",
+                    borderRadius: "9px",
+                    padding: "7px 11px",
+                    fontSize: "11.5px",
                     fontWeight: 700,
                     cursor: loadingVisits ? "wait" : "pointer",
                     display: "inline-flex",
                     alignItems: "center",
-                    gap: "6px",
+                    gap: "5px",
                   }}
-                  title="Reload visit history"
+                  title="Reload patient visit history"
                 >
-                  <RefreshCw size={13} className={loadingVisits ? "spin-icon" : ""} />
+                  <RefreshCw size={12} className={loadingVisits ? "spin-icon" : ""} />
                   <span>{isHi ? "रिफ्रेश" : "Refresh"}</span>
                 </button>
               </div>
@@ -2390,27 +2848,69 @@ export default function PharmacyPage({
               <div style={{ textAlign: "center", padding: "48px 20px", color: mutedText, background: isDark ? "#0B1120" : "#F8FAFC", borderRadius: "14px", border: cardBorder }}>
                 <History size={36} color={mutedText} style={{ margin: "0 auto 12px auto", opacity: 0.5 }} />
                 <div style={{ fontSize: "15px", fontWeight: 800, color: textColor }}>
-                  {isHi ? "कोई विज़िट रिकॉर्ड नहीं मिला" : "No visit records found"}
+                  {isHi ? "कोई विज़िट रिकॉर्ड नहीं मिला" : "No consultation records found"}
                 </div>
-                <div style={{ fontSize: "12px", marginTop: "4px" }}>
+                <div style={{ fontSize: "12px", marginTop: "6px", maxWidth: "460px", margin: "6px auto 0 auto", lineHeight: "1.5" }}>
                   {visitSearchQuery
                     ? (isHi ? `'${visitSearchQuery}' से मेल खाता कोई रिकॉर्ड नहीं मिला।` : `No records match search '${visitSearchQuery}'.`)
-                    : (isHi ? "इस फ़िल्टर में अभी कोई मरीज़ दर्ज नहीं है।" : "No patient visits recorded under this filter.")}
+                    : visitDateFilter === "today"
+                      ? (isHi ? "आज के लिए कोई परामर्शित मरीज़ दर्ज नहीं है। आप 'कल', 'तिथि अनुसार' या 'सभी तिथियां' चुन सकते हैं।" : "No consultations recorded for today. You can switch to Yesterday or All Dates.")
+                      : visitDateFilter === "yesterday"
+                        ? (isHi ? "कल के लिए कोई परामर्शित मरीज़ दर्ज नहीं है।" : "No consultations recorded for yesterday.")
+                        : (isHi ? "इस फ़िल्टर या तिथि में कोई मरीज़ दर्ज नहीं है।" : "No patient visits recorded under this filter or date.")}
                 </div>
+                {visitDateFilter !== "all" && dateCounts.all > 0 && (
+                  <div style={{ marginTop: "14px", display: "flex", justifyContent: "center", gap: "8px" }}>
+                    <button
+                      type="button"
+                      onClick={() => setVisitDateFilter("all")}
+                      style={{
+                        background: "#0284C7",
+                        color: "#FFFFFF",
+                        border: "none",
+                        borderRadius: "8px",
+                        padding: "6px 14px",
+                        fontSize: "12px",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {isHi ? `सभी तिथियां देखें (${dateCounts.all})` : `View All Dates (${dateCounts.all})`}
+                    </button>
+                    {visitDateFilter !== "yesterday" && dateCounts.yesterday > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setVisitDateFilter("yesterday")}
+                        style={{
+                          background: isDark ? "#1E293B" : "#E2E8F0",
+                          color: textColor,
+                          border: cardBorder,
+                          borderRadius: "8px",
+                          padding: "6px 14px",
+                          fontSize: "12px",
+                          fontWeight: 700,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {isHi ? `कल के परामर्श (${dateCounts.yesterday})` : `View Yesterday (${dateCounts.yesterday})`}
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             ) : (
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12.5px" }}>
+              <div style={{ overflowX: "auto", borderRadius: "12px", border: cardBorder }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
                   <thead>
-                    <tr style={{ background: isDark ? "#1E293B" : "#F1F5F9", borderBottom: cardBorder }}>
-                      <th style={{ padding: "11px 12px", textAlign: "left", fontWeight: 800, color: mutedText }}>TOKEN / DATE</th>
-                      <th style={{ padding: "11px 12px", textAlign: "left", fontWeight: 800, color: mutedText }}>PATIENT INFO</th>
-                      <th style={{ padding: "11px 12px", textAlign: "left", fontWeight: 800, color: mutedText }}>CARE PATHWAY</th>
-                      <th style={{ padding: "11px 12px", textAlign: "left", fontWeight: 800, color: mutedText }}>DOCTOR & DIAGNOSIS</th>
-                      <th style={{ padding: "11px 12px", textAlign: "left", fontWeight: 800, color: mutedText }}>PRESCRIBED MEDICINES</th>
-                      <th style={{ padding: "11px 12px", textAlign: "left", fontWeight: 800, color: mutedText }}>DISPENSING AUDIT</th>
-                      <th style={{ padding: "11px 12px", textAlign: "center", fontWeight: 800, color: mutedText }}>STATUS</th>
-                      <th style={{ padding: "11px 12px", textAlign: "right", fontWeight: 800, color: mutedText }}>ACTIONS</th>
+                    <tr style={{ background: isDark ? "#0F172A" : "#F8FAFC", borderBottom: cardBorder }}>
+                      <th style={{ padding: "12px 14px", textAlign: "left", fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em" }}>Token / Date</th>
+                      <th style={{ padding: "12px 14px", textAlign: "left", fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em" }}>Patient Info</th>
+                      <th style={{ padding: "12px 14px", textAlign: "left", fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em" }}>Care Pathway</th>
+                      <th style={{ padding: "12px 14px", textAlign: "left", fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em" }}>Doctor & Diagnosis</th>
+                      <th style={{ padding: "12px 14px", textAlign: "left", fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em" }}>Prescribed Medicines</th>
+                      <th style={{ padding: "12px 14px", textAlign: "left", fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em" }}>Dispensing Audit</th>
+                      <th style={{ padding: "12px 14px", textAlign: "center", fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em" }}>Status</th>
+                      <th style={{ padding: "12px 14px", textAlign: "right", fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em" }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2419,6 +2919,8 @@ export default function PharmacyPage({
                       const isComplete = (visit.status || "").toLowerCase() === "completed";
                       const dateDisplay = visit.queue_date || (visit.created_at ? new Date(visit.created_at).toLocaleDateString() : "Today");
                       const timeDisplay = visit.created_at ? new Date(visit.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+                      const originDept = (visit.origin_department || "OPD").replace(/General Consultation\s*\(OPD\)/i, "OPD").replace(/Pharmacy\s*&\s*Medicine/i, "Pharmacy");
+                      const destDept = (visit.department || "Pharmacy").replace(/Pharmacy\s*&\s*Medicine/i, "Pharmacy");
 
                       return (
                         <tr
@@ -2426,147 +2928,230 @@ export default function PharmacyPage({
                           style={{
                             borderBottom: isDark ? "1px solid #1E293B" : "1px solid #F1F5F9",
                             background: vIdx % 2 === 0 ? "transparent" : (isDark ? "rgba(255,255,255,0.015)" : "rgba(0,0,0,0.01)"),
+                            transition: "background 0.15s ease",
                           }}
                         >
                           {/* Token & Date */}
-                          <td style={{ padding: "11px 12px", verticalAlign: "middle" }}>
-                            <div style={{ display: "inline-block", background: isDark ? "rgba(2, 132, 199, 0.2)" : "#E0F2FE", color: "#0284C7", padding: "2px 8px", borderRadius: "6px", fontWeight: 900, fontFamily: "monospace", fontSize: "12px" }}>
+                          <td style={{ padding: "12px 14px", verticalAlign: "middle" }}>
+                            <div
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                background: isDark ? "rgba(2, 132, 199, 0.15)" : "#F0F9FF",
+                                border: isDark ? "1px solid rgba(2, 132, 199, 0.3)" : "1px solid #BAE6FD",
+                                color: isDark ? "#38BDF8" : "#0284C7",
+                                padding: "3px 8px",
+                                borderRadius: "6px",
+                                fontWeight: 700,
+                                fontFamily: "monospace",
+                                fontSize: "12px",
+                              }}
+                            >
                               #{visit.token_number || visit.ticket_id}
                             </div>
                             <div style={{ fontSize: "11px", color: mutedText, marginTop: "4px", display: "flex", alignItems: "center", gap: "4px" }}>
-                              <Calendar size={11} />
-                              <span>{dateDisplay} {timeDisplay ? `• ${timeDisplay}` : ""}</span>
+                              <Calendar size={11} color={mutedText} />
+                              <span>{dateDisplay}</span>
+                              {timeDisplay && (
+                                <>
+                                  <span style={{ opacity: 0.4 }}>•</span>
+                                  <span>{timeDisplay}</span>
+                                </>
+                              )}
                             </div>
                           </td>
 
                           {/* Patient Info */}
-                          <td style={{ padding: "11px 12px", verticalAlign: "middle" }}>
-                            <div style={{ fontWeight: 800, color: textColor, fontSize: "13px" }}>
+                          <td style={{ padding: "12px 14px", verticalAlign: "middle" }}>
+                            <div style={{ fontWeight: 700, color: textColor, fontSize: "13px", letterSpacing: "-0.2px" }}>
                               {visit.patient_name}
                             </div>
-                            <div style={{ fontSize: "11.5px", color: mutedText, marginTop: "2px" }}>
-                              {visit.age ? `${visit.age}y` : "Age N/A"} • {visit.gender || "Patient"}
+                            <div style={{ fontSize: "11px", color: mutedText, marginTop: "2px", display: "flex", alignItems: "center", gap: "5px" }}>
+                              <span>{visit.age ? `${visit.age}y` : "Age N/A"}</span>
+                              <span style={{ opacity: 0.4 }}>•</span>
+                              <span style={{ textTransform: "capitalize" }}>{visit.gender || "Patient"}</span>
                             </div>
                             {visit.phone && (
-                              <div style={{ fontSize: "11px", color: mutedText, fontFamily: "monospace" }}>
-                                📞 {visit.phone}
+                              <div style={{ fontSize: "11px", color: mutedText, marginTop: "2px", display: "flex", alignItems: "center", gap: "4px" }}>
+                                <Phone size={10} color={mutedText} />
+                                <span style={{ fontFamily: "monospace" }}>{visit.phone}</span>
                               </div>
                             )}
                           </td>
 
                           {/* Care Pathway */}
-                          <td style={{ padding: "11px 12px", verticalAlign: "middle" }}>
-                            <div style={{ fontSize: "11.5px", fontWeight: 700, color: textColor }}>
-                              {visit.origin_department || "OPD"} ➔ {visit.department || "Pharmacy"}
+                          <td style={{ padding: "12px 14px", verticalAlign: "middle" }}>
+                            <div style={{ display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "11.5px", fontWeight: 600 }}>
+                              <span style={{ color: textColor }}>{originDept}</span>
+                              <ArrowRight size={11} color={mutedText} />
+                              <span style={{ color: "#0284C7", fontWeight: 700 }}>{destDept}</span>
                             </div>
                             {visit.service_duration_minutes ? (
-                              <div style={{ fontSize: "11px", color: mutedText, marginTop: "2px" }}>
-                                ⏱️ {visit.service_duration_minutes} min total
+                              <div style={{ fontSize: "11px", color: mutedText, marginTop: "3px", display: "flex", alignItems: "center", gap: "4px" }}>
+                                <Clock size={10} color={mutedText} />
+                                <span>{visit.service_duration_minutes} min duration</span>
                               </div>
                             ) : null}
                           </td>
 
                           {/* Doctor & Diagnosis */}
-                          <td style={{ padding: "11px 12px", verticalAlign: "middle" }}>
-                            <div style={{ fontWeight: 700, color: textColor, fontSize: "12px" }}>
-                              👨‍⚕️ {details.doctorName}
+                          <td style={{ padding: "12px 14px", verticalAlign: "middle" }}>
+                            <div style={{ fontWeight: 600, color: textColor, fontSize: "12px", display: "flex", alignItems: "center", gap: "5px" }}>
+                              <User size={12} color="#0284C7" />
+                              <span>{details.doctorName || "OPD Doctor"}</span>
                             </div>
-                            <div style={{ fontSize: "11px", color: "#0284C7", fontWeight: 700, marginTop: "2px" }}>
-                              🩺 {details.diagnosis}
-                            </div>
+                            {details.diagnosis && (
+                              <div style={{ marginTop: "4px" }}>
+                                <span
+                                  style={{
+                                    display: "inline-block",
+                                    maxWidth: "180px",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                    fontSize: "11px",
+                                    fontWeight: 600,
+                                    color: isDark ? "#93C5FD" : "#1D4ED8",
+                                    background: isDark ? "rgba(59, 130, 246, 0.12)" : "#EFF6FF",
+                                    border: isDark ? "1px solid rgba(59, 130, 246, 0.25)" : "1px solid #DBEAFE",
+                                    padding: "2px 7px",
+                                    borderRadius: "5px",
+                                  }}
+                                  title={details.diagnosis}
+                                >
+                                  {details.diagnosis}
+                                </span>
+                              </div>
+                            )}
                           </td>
 
                           {/* Prescribed Medicines */}
-                          <td style={{ padding: "11px 12px", verticalAlign: "middle" }}>
+                          <td style={{ padding: "12px 14px", verticalAlign: "middle" }}>
                             {details.medicines && details.medicines.length > 0 ? (
-                              <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                                <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                                <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", maxWidth: "240px" }}>
                                   {details.medicines.slice(0, 2).map((m, mIdx) => (
                                     <span
                                       key={mIdx}
                                       style={{
-                                        background: isDark ? "rgba(2, 132, 199, 0.2)" : "#F0F9FF",
-                                        border: isDark ? "1px solid rgba(2, 132, 199, 0.35)" : "1px solid #BAE6FD",
-                                        color: "#0284C7",
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: "4px",
+                                        background: isDark ? "rgba(255, 255, 255, 0.05)" : "#F8FAFC",
+                                        border: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #E2E8F0",
+                                        color: textColor,
                                         padding: "2px 7px",
-                                        borderRadius: "6px",
-                                        fontSize: "10.5px",
-                                        fontWeight: 700,
+                                        borderRadius: "5px",
+                                        fontSize: "11px",
+                                        fontWeight: 600,
                                       }}
                                     >
-                                      💊 {m.name} {m.dosage ? `(${m.dosage})` : ""}
+                                      <Pill size={10} color="#0284C7" />
+                                      <span>{m.name}</span>
+                                      {m.dosage && (
+                                        <span style={{ color: mutedText, fontSize: "10px", fontWeight: 500 }}>
+                                          · {m.dosage}
+                                        </span>
+                                      )}
                                     </span>
                                   ))}
                                   {details.medicines.length > 2 && (
-                                    <span style={{ fontSize: "10.5px", color: mutedText, fontWeight: 700, alignSelf: "center" }}>
+                                    <span
+                                      style={{
+                                        fontSize: "10.5px",
+                                        color: "#0284C7",
+                                        fontWeight: 700,
+                                        background: isDark ? "rgba(2, 132, 199, 0.15)" : "#E0F2FE",
+                                        padding: "2px 6px",
+                                        borderRadius: "5px",
+                                        alignSelf: "center",
+                                      }}
+                                      title={details.medicines.slice(2).map((m) => m.name).join(", ")}
+                                    >
                                       +{details.medicines.length - 2} more
                                     </span>
                                   )}
                                 </div>
                               </div>
                             ) : (
-                              <span style={{ fontSize: "11px", color: mutedText, fontStyle: "italic" }}>
-                                {isHi ? "कोई दवा नहीं" : "No meds listed"}
-                              </span>
+                              <span style={{ fontSize: "11.5px", color: mutedText }}>—</span>
                             )}
                           </td>
 
                           {/* Dispensing Audit */}
-                          <td style={{ padding: "11px 12px", verticalAlign: "middle" }}>
-                            <div style={{ fontSize: "11.5px", fontWeight: 700, color: textColor }}>
-                              👤 {details.dispensedBy}
+                          <td style={{ padding: "12px 14px", verticalAlign: "middle" }}>
+                            <div style={{ fontSize: "11.5px", fontWeight: 700, color: textColor, display: "flex", alignItems: "center", gap: "4px" }}>
+                              <CheckCircle2 size={11} color="#10B981" />
+                              <span>{details.dispensedBy}</span>
                             </div>
-                            <div style={{ fontSize: "11px", color: mutedText, marginTop: "2px" }}>
-                              🪑 {details.dispensedCounter}
-                            </div>
+                            {details.dispensedCounter && (
+                              <div style={{ fontSize: "11px", color: mutedText, marginTop: "2px", display: "flex", alignItems: "center", gap: "4px" }}>
+                                <Building2 size={10} color={mutedText} />
+                                <span>{details.dispensedCounter}</span>
+                              </div>
+                            )}
                             {details.dispensedAt && (
-                              <div style={{ fontSize: "10.5px", color: mutedText }}>
-                                🕒 {new Date(details.dispensedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                              <div style={{ fontSize: "10.5px", color: mutedText, marginTop: "2px", display: "flex", alignItems: "center", gap: "4px" }}>
+                                <Clock size={10} color={mutedText} />
+                                <span>{new Date(details.dispensedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
                               </div>
                             )}
                           </td>
 
                           {/* Status */}
-                          <td style={{ padding: "11px 12px", textAlign: "center", verticalAlign: "middle" }}>
+                          <td style={{ padding: "12px 14px", textAlign: "center", verticalAlign: "middle" }}>
                             <span
                               style={{
-                                display: "inline-block",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "5px",
                                 padding: "3px 9px",
-                                borderRadius: "8px",
-                                fontSize: "10.5px",
-                                fontWeight: 800,
-                                letterSpacing: "0.4px",
+                                borderRadius: "6px",
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                letterSpacing: "0.2px",
                                 background: isComplete
-                                  ? (isDark ? "rgba(16, 185, 129, 0.2)" : "#ECFDF5")
-                                  : (isDark ? "rgba(245, 158, 11, 0.2)" : "#FEF3C7"),
-                                color: isComplete ? "#10B981" : "#D97706",
+                                  ? (isDark ? "rgba(16, 185, 129, 0.15)" : "#ECFDF5")
+                                  : (isDark ? "rgba(245, 158, 11, 0.15)" : "#FFFBEB"),
+                                color: isComplete ? "#059669" : "#D97706",
                                 border: isComplete
-                                  ? (isDark ? "1px solid rgba(16, 185, 129, 0.4)" : "1px solid #A7F3D0")
-                                  : (isDark ? "1px solid rgba(245, 158, 11, 0.4)" : "1px solid #FDE68A"),
+                                  ? (isDark ? "1px solid rgba(16, 185, 129, 0.3)" : "1px solid #A7F3D0")
+                                  : (isDark ? "1px solid rgba(245, 158, 11, 0.3)" : "1px solid #FDE68A"),
                               }}
                             >
-                              {isComplete ? (isHi ? "पूर्ण" : "COMPLETED") : (isHi ? "प्रगति में" : "IN PROGRESS")}
+                              <span
+                                style={{
+                                  width: "6px",
+                                  height: "6px",
+                                  borderRadius: "50%",
+                                  background: isComplete ? "#10B981" : "#F59E0B",
+                                }}
+                              />
+                              <span>{isComplete ? (isHi ? "पूर्ण" : "Completed") : (isHi ? "प्रगति में" : "In Progress")}</span>
                             </span>
                           </td>
 
                           {/* Actions */}
-                          <td style={{ padding: "11px 12px", textAlign: "right", verticalAlign: "middle" }}>
+                          <td style={{ padding: "12px 14px", textAlign: "right", verticalAlign: "middle" }}>
                             <div style={{ display: "flex", justifyContent: "flex-end", gap: "6px" }}>
                               <button
                                 type="button"
                                 onClick={() => setSelectedVisitModal(visit)}
                                 style={{
-                                  padding: "5px 9px",
-                                  borderRadius: "7px",
+                                  padding: "5px 10px",
+                                  borderRadius: "6px",
                                   border: cardBorder,
-                                  background: isDark ? "#1E293B" : "#F8FAFC",
+                                  background: isDark ? "#1E293B" : "#FFFFFF",
                                   color: textColor,
                                   fontSize: "11px",
-                                  fontWeight: 700,
+                                  fontWeight: 600,
                                   cursor: "pointer",
                                   display: "inline-flex",
                                   alignItems: "center",
                                   gap: "4px",
+                                  boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+                                  transition: "all 0.15s ease",
                                 }}
                                 title={isHi ? "पूर्ण विज़िट विवरण देखें" : "View Visit Details"}
                               >
@@ -2578,41 +3163,24 @@ export default function PharmacyPage({
                                 type="button"
                                 onClick={() => handlePrintVisitPrescription(visit)}
                                 style={{
-                                  padding: "5px 9px",
-                                  borderRadius: "7px",
+                                  padding: "5px 10px",
+                                  borderRadius: "6px",
                                   border: "none",
-                                  background: "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)",
+                                  background: "#0284C7",
                                   color: "#FFFFFF",
                                   fontSize: "11px",
-                                  fontWeight: 700,
+                                  fontWeight: 600,
                                   cursor: "pointer",
                                   display: "inline-flex",
                                   alignItems: "center",
                                   gap: "4px",
-                                  boxShadow: "0 2px 6px rgba(2, 132, 199, 0.25)",
+                                  boxShadow: "0 1px 3px rgba(2, 132, 199, 0.25)",
+                                  transition: "all 0.15s ease",
                                 }}
                                 title={isHi ? "डॉक्टर पर्चा प्रिंट करें" : "Print Doctor Prescription"}
                               >
                                 <Printer size={12} />
                                 <span>Rx</span>
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => handlePrintVisitEnvelopeLabel(visit)}
-                                style={{
-                                  padding: "5px 8px",
-                                  borderRadius: "7px",
-                                  border: cardBorder,
-                                  background: isDark ? "#1E293B" : "#F8FAFC",
-                                  color: textColor,
-                                  fontSize: "11px",
-                                  fontWeight: 700,
-                                  cursor: "pointer",
-                                }}
-                                title={isHi ? "दवा लिफाफा लेबल प्रिंट करें" : "Print Medicine Packet Label"}
-                              >
-                                Label
                               </button>
                             </div>
                           </td>
@@ -2711,8 +3279,9 @@ export default function PharmacyPage({
                     <div style={{ fontSize: "10.5px", fontWeight: 800, color: mutedText, textTransform: "uppercase" }}>
                       {isHi ? "परामर्श चिकित्सक" : "Attending Doctor"}
                     </div>
-                    <div style={{ fontSize: "13.5px", fontWeight: 800, color: textColor, marginTop: "4px" }}>
-                      👨‍⚕️ {details.doctorName}
+                    <div style={{ fontSize: "13.5px", fontWeight: 800, color: textColor, marginTop: "4px", display: "flex", alignItems: "center", gap: "6px" }}>
+                      <User size={13} color="#0284C7" />
+                      <span>{details.doctorName}</span>
                     </div>
                     <div style={{ fontSize: "11px", color: mutedText, marginTop: "2px" }}>
                       {visit.origin_department || "Consultation OPD"}
@@ -2723,8 +3292,9 @@ export default function PharmacyPage({
                     <div style={{ fontSize: "10.5px", fontWeight: 800, color: mutedText, textTransform: "uppercase" }}>
                       {isHi ? "चिकित्सीय निदान (डायग्नोसिस)" : "Clinical Diagnosis"}
                     </div>
-                    <div style={{ fontSize: "13.5px", fontWeight: 800, color: "#0284C7", marginTop: "4px" }}>
-                      🩺 {details.diagnosis}
+                    <div style={{ fontSize: "13.5px", fontWeight: 800, color: "#0284C7", marginTop: "4px", display: "flex", alignItems: "center", gap: "6px" }}>
+                      <Stethoscope size={13} color="#0284C7" />
+                      <span>{details.diagnosis}</span>
                     </div>
                     <div style={{ fontSize: "11px", color: mutedText, marginTop: "2px" }}>
                       {visit.medical_condition || "OPD Case"}
@@ -2735,11 +3305,13 @@ export default function PharmacyPage({
                     <div style={{ fontSize: "10.5px", fontWeight: 800, color: mutedText, textTransform: "uppercase" }}>
                       {isHi ? "दवा वितरण सत्यापन" : "Dispensation Audit"}
                     </div>
-                    <div style={{ fontSize: "13.5px", fontWeight: 800, color: "#10B981", marginTop: "4px" }}>
-                      ✓ {details.dispensedBy}
+                    <div style={{ fontSize: "13.5px", fontWeight: 800, color: "#10B981", marginTop: "4px", display: "flex", alignItems: "center", gap: "6px" }}>
+                      <CheckCircle2 size={13} color="#10B981" />
+                      <span>{details.dispensedBy}</span>
                     </div>
-                    <div style={{ fontSize: "11px", color: mutedText, marginTop: "2px" }}>
-                      🪑 {details.dispensedCounter}
+                    <div style={{ fontSize: "11px", color: mutedText, marginTop: "2px", display: "flex", alignItems: "center", gap: "5px" }}>
+                      <Building2 size={11} color={mutedText} />
+                      <span>{details.dispensedCounter}</span>
                     </div>
                   </div>
                 </div>
@@ -2747,8 +3319,9 @@ export default function PharmacyPage({
                 {/* Transfer Pathway Timeline if available */}
                 {Array.isArray(visit.transfer_stages) && visit.transfer_stages.length > 1 && (
                   <div style={{ marginBottom: "18px", padding: "12px 16px", borderRadius: "12px", background: isDark ? "rgba(2, 132, 199, 0.12)" : "#F0F9FF", border: isDark ? "1px solid rgba(2, 132, 199, 0.25)" : "1px solid #BAE6FD" }}>
-                    <div style={{ fontSize: "11px", fontWeight: 800, color: "#0284C7", textTransform: "uppercase", marginBottom: "6px" }}>
-                      🔄 {isHi ? "मरीज़ ट्रांसफर मार्ग" : "Multi-Stage Care Pathway"}
+                    <div style={{ fontSize: "11px", fontWeight: 800, color: "#0284C7", textTransform: "uppercase", marginBottom: "6px", display: "flex", alignItems: "center", gap: "5px" }}>
+                      <RefreshCw size={12} />
+                      <span>{isHi ? "मरीज़ ट्रांसफर मार्ग" : "Multi-Stage Care Pathway"}</span>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", fontSize: "12px", fontWeight: 700 }}>
                       {visit.transfer_stages.map((stg, stgIdx) => (
@@ -2756,7 +3329,7 @@ export default function PharmacyPage({
                           <span style={{ background: isDark ? "#0F172A" : "#FFFFFF", border: cardBorder, padding: "3px 10px", borderRadius: "6px" }}>
                             Stage {stgIdx + 1}: {stg.department} ({stg.status})
                           </span>
-                          {stgIdx < visit.transfer_stages.length - 1 && <span>➔</span>}
+                          {stgIdx < visit.transfer_stages.length - 1 && <ArrowRight size={11} color={mutedText} />}
                         </React.Fragment>
                       ))}
                     </div>
@@ -2835,26 +3408,6 @@ export default function PharmacyPage({
 
                 {/* Action Buttons */}
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", paddingTop: "14px", borderTop: cardBorder }}>
-                  <button
-                    type="button"
-                    onClick={() => handlePrintVisitEnvelopeLabel(visit)}
-                    style={{
-                      padding: "8px 14px",
-                      borderRadius: "10px",
-                      border: cardBorder,
-                      background: isDark ? "#1E293B" : "#F8FAFC",
-                      color: textColor,
-                      fontSize: "12px",
-                      fontWeight: 700,
-                      cursor: "pointer",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "6px",
-                    }}
-                  >
-                    <Printer size={13} />
-                    <span>{isHi ? "लिफाफा लेबल प्रिंट" : "Print Envelope Label"}</span>
-                  </button>
 
                   <button
                     type="button"
@@ -2908,7 +3461,7 @@ export default function PharmacyPage({
           hospitalName={brandName}
           language={language}
           currentUser={currentUser}
-          onShowEmergency={() => {}}
+          onShowEmergency={() => { }}
         />
       </div>
     </div>

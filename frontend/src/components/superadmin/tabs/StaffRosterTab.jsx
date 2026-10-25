@@ -189,7 +189,7 @@ export default function StaffRosterTab({
         const s = (e.status || "").toLowerCase();
         const isBreak = d === "ON_BREAK" || s === "on_break";
         const isEmergency = d === "EMERGENCY_ROUND" || s === "emergency_round";
-        const isShiftEnded = d === "OFF_DUTY" || s === "off_duty";
+        const isShiftEnded = d === "OFF_DUTY" || d === "SHIFT_ENDED" || s === "off_duty" || s === "shift_ended";
         return (s === "active" || d === "ACTIVE") && !isBreak && !isEmergency && !isShiftEnded;
     }).length;
 
@@ -202,7 +202,7 @@ export default function StaffRosterTab({
         const s = (emp.status || "").toLowerCase();
         const isBreak = d === "ON_BREAK" || s === "on_break";
         const isEmergency = d === "EMERGENCY_ROUND" || s === "emergency_round";
-        const isShiftEnded = d === "OFF_DUTY" || s === "off_duty";
+        const isShiftEnded = d === "OFF_DUTY" || d === "SHIFT_ENDED" || s === "off_duty" || s === "shift_ended";
         const isActive = (s === "active" || d === "ACTIVE") && !isBreak && !isEmergency && !isShiftEnded;
 
         // Status filter
@@ -214,6 +214,7 @@ export default function StaffRosterTab({
         if (roleFilter !== "all") {
             const r = (emp.role || "").toLowerCase();
             if (roleFilter === "doctor" && !r.includes("doc")) return false;
+            if (roleFilter === "pharmacist" && !r.includes("pharma")) return false;
             if (roleFilter === "receptionist" && !r.includes("rec") && !r.includes("desk")) return false;
             if (roleFilter === "nurse" && !r.includes("nur")) return false;
             if (roleFilter === "admin" && !r.includes("admin")) return false;
@@ -824,6 +825,7 @@ export default function StaffRosterTab({
                     {[
                         { id: "all", label: isHi ? "सभी भूमिकाएं" : "All Roles" },
                         { id: "doctor", label: isHi ? "डॉक्टर" : "Doctors" },
+                        { id: "pharmacist", label: isHi ? "फार्मासिस्ट" : "Pharmacists" },
                         { id: "receptionist", label: isHi ? "डेस्क" : "Desk" },
                         { id: "nurse", label: isHi ? "नर्स" : "Nurses" },
                         { id: "admin", label: isHi ? "एडमिन" : "Admins" },
@@ -965,7 +967,7 @@ export default function StaffRosterTab({
                                                 const s = (emp.status || "").toLowerCase();
                                                 const isOnBreak = d === "ON_BREAK" || s === "on_break";
                                                 const isEmergency = d === "EMERGENCY_ROUND" || s === "emergency_round";
-                                                const isShiftEnded = d === "OFF_DUTY" || s === "off_duty";
+                                                const isShiftEnded = d === "OFF_DUTY" || d === "SHIFT_ENDED" || s === "off_duty" || s === "shift_ended";
                                                 const isActiveOnline = (s === "active" || d === "ACTIVE") && !isOnBreak && !isEmergency && !isShiftEnded;
 
                                                 if (isOnBreak) {
@@ -1093,7 +1095,7 @@ export default function StaffRosterTab({
                                                 {(() => {
                                                     const d = (emp.duty_status || "").toUpperCase();
                                                     const s = (emp.status || "").toLowerCase();
-                                                    const isOnDuty = (s === "active" || d === "ACTIVE" || d === "ON_BREAK" || s === "on_break" || d === "EMERGENCY_ROUND" || s === "emergency_round") && d !== "OFF_DUTY" && s !== "off_duty";
+                                                    const isOnDuty = (s === "active" || d === "ACTIVE" || d === "ON_BREAK" || s === "on_break" || d === "EMERGENCY_ROUND" || s === "emergency_round") && d !== "OFF_DUTY" && d !== "SHIFT_ENDED" && s !== "off_duty" && s !== "shift_ended";
 
                                                     return (
                                                         <button

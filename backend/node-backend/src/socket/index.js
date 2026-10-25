@@ -305,13 +305,26 @@ function initSocket(server, corsOrigin = "*") {
       }
     });
 
-    // update_doctor_duty_status
-    socket.on("update_doctor_duty_status", async (data = {}) => {
+    // update_doctor_duty_status & update_staff_duty_status
+    const handleDutyStatusUpdate = async (data = {}) => {
       try {
         const tenantId = data.tenant_id || "city-hospital-01";
-        const docIdentifier = data.doctor_id || data.doctor_email || socket.user?.id || socket.user?.email;
+        const targetUserId = data.doctor_id || data.staff_id || data.user_id || socket.user?.id;
+        const targetEmail = data.doctor_email || data.staff_email || data.email || socket.user?.email;
+        const targetName = data.doctor_name || data.staff_name || data.name || socket.user?.name;
+
+        const docIdentifier =
+          data.doctor_id ||
+          data.staff_id ||
+          data.user_id ||
+          data.doctor_email ||
+          data.staff_email ||
+          data.email ||
+          socket.user?.id ||
+          socket.user?.email;
+
         if (!docIdentifier) {
-          socket.emit("error", { message: "Doctor identifier required to update duty status." });
+          socket.emit("error", { message: "Staff/Doctor identifier required to update duty status." });
           return;
         }
 
@@ -319,38 +332,63 @@ function initSocket(server, corsOrigin = "*") {
           status: data.status,
           break_type: data.break_type,
           note: data.note,
-          doctor_name: data.doctor_name || socket.user?.name,
-          userId: data.doctor_id || socket.user?.id,
-          email: data.doctor_email || socket.user?.email,
+          doctor_name: targetName,
+          userId: targetUserId,
+          email: targetEmail,
         });
 
         const broadcastPayload = {
-          doctor_id: data.doctor_id || socket.user?.id,
-          doctor_email: data.doctor_email || socket.user?.email,
-          doctor_name: data.doctor_name || updated.doctor_name,
+          doctor_id: targetUserId,
+          staff_id: targetUserId,
+          user_id: targetUserId,
+          doctor_email: targetEmail,
+          staff_email: targetEmail,
+          email: targetEmail,
+          doctor_name: targetName || updated.doctor_name,
+          staff_name: targetName || updated.doctor_name,
+          name: targetName || updated.doctor_name,
           duty: updated,
           tenant_id: tenantId,
         };
 
         io.to(tenantId).emit("doctor_duty_status_changed", broadcastPayload);
         io.emit("doctor_duty_status_changed", broadcastPayload);
+        io.to(tenantId).emit("staff_duty_status_changed", broadcastPayload);
+        io.emit("staff_duty_status_changed", broadcastPayload);
         io.emit("hospital_data_changed", { tenant_id: tenantId || "all", type: "duty_status_update" });
         socket.emit("doctor_duty_status_confirmed", broadcastPayload);
+        socket.emit("staff_duty_status_confirmed", broadcastPayload);
       } catch (err) {
         socket.emit("error", { message: `Duty status update failed: ${err.message}` });
       }
-    });
+    };
 
-    // get_doctor_duty_status
-    socket.on("get_doctor_duty_status", async (data = {}) => {
+    socket.on("update_doctor_duty_status", handleDutyStatusUpdate);
+    socket.on("update_staff_duty_status", handleDutyStatusUpdate);
+
+    // get_doctor_duty_status & get_staff_duty_status
+    const handleGetDutyStatus = async (data = {}) => {
       try {
-        const docIdentifier = data.doctor_id || data.doctor_email || socket.user?.id || socket.user?.email;
+        const docIdentifier =
+          data.doctor_id ||
+          data.staff_id ||
+          data.user_id ||
+          data.doctor_email ||
+          data.staff_email ||
+          data.email ||
+          socket.user?.id ||
+          socket.user?.email;
+
         if (docIdentifier) {
           const duty = getDoctorDutyStatus(docIdentifier, docIdentifier);
-          socket.emit("doctor_duty_status_current", { duty, doctor_id: docIdentifier });
+          socket.emit("doctor_duty_status_current", { duty, doctor_id: docIdentifier, staff_id: docIdentifier });
+          socket.emit("staff_duty_status_current", { duty, doctor_id: docIdentifier, staff_id: docIdentifier });
         }
       } catch (e) {}
-    });
+    };
+
+    socket.on("get_doctor_duty_status", handleGetDutyStatus);
+    socket.on("get_staff_duty_status", handleGetDutyStatus);
 
     // Send initial snapshot non-blockingly
     (async () => {

@@ -70,7 +70,7 @@ export default function PatientPage({
     try {
       const s = localStorage.getItem("ai_queue_user");
       if (s) savedUser = JSON.parse(s);
-    } catch (e) {}
+    } catch (e) { }
     const eff = currentUser || savedUser;
 
     const self = {
@@ -103,7 +103,7 @@ export default function PatientPage({
           }
         }
       }
-    } catch (e) {}
+    } catch (e) { }
 
     return [self];
   };
@@ -150,7 +150,7 @@ export default function PatientPage({
     try {
       const storageKey = `family_members_${currentUser ? (currentUser.username || currentUser.email) : "guest"}`;
       localStorage.setItem(storageKey, JSON.stringify(fullList));
-    } catch (e) {}
+    } catch (e) { }
   };
 
   const fetchFamilyMembersList = useCallback(() => {
@@ -158,7 +158,7 @@ export default function PatientPage({
     try {
       const s = localStorage.getItem("ai_queue_user");
       if (s) savedUser = JSON.parse(s);
-    } catch (e) {}
+    } catch (e) { }
     const effUser = currentUser || savedUser;
 
     const ident = (effUser && (effUser.email || effUser.username)) || localStorage.getItem("last_patient_name") || "";
@@ -209,7 +209,7 @@ export default function PatientPage({
           keysToSave.forEach((k) => {
             try {
               localStorage.setItem(`family_members_${k}`, JSON.stringify(fullList));
-            } catch (e) {}
+            } catch (e) { }
           });
         }
       })
@@ -254,7 +254,7 @@ export default function PatientPage({
           if (act && act.ticket_id) {
             parsed["self"] = act;
           }
-        } catch (e) {}
+        } catch (e) { }
       }
       return parsed;
     } catch (e) {
@@ -270,7 +270,7 @@ export default function PatientPage({
       if (saved) {
         setFamilyTickets(JSON.parse(saved));
       }
-    } catch (e) {}
+    } catch (e) { }
   }, [currentUser]);
 
   // Real-time synchronization for family profiles and tickets across tabs and portals
@@ -311,7 +311,7 @@ export default function PatientPage({
           }
         };
       }
-    } catch (e) {}
+    } catch (e) { }
 
     const handleFamMembersSync = (e) => {
       if (e?.detail && Array.isArray(e.detail) && e.detail.length > 0) {
@@ -363,14 +363,14 @@ export default function PatientPage({
               return fullList;
             });
           }
-        } catch (err) {}
+        } catch (err) { }
       } else if (e.key && e.key.startsWith("family_tickets_") && e.newValue) {
         try {
           const parsed = JSON.parse(e.newValue);
           if (parsed && typeof parsed === "object") {
             setFamilyTickets((prev) => ({ ...prev, ...parsed }));
           }
-        } catch (err) {}
+        } catch (err) { }
       }
     };
 
@@ -430,7 +430,7 @@ export default function PatientPage({
         try {
           const ticketStorageKey = `family_tickets_${currentUser ? (currentUser.username || currentUser.email) : "guest"}`;
           localStorage.setItem(ticketStorageKey, JSON.stringify(updated));
-        } catch (e) {}
+        } catch (e) { }
         window.dispatchEvent(new CustomEvent("family_tickets_updated", { detail: updated }));
       }
       return changed ? updated : prev;
@@ -446,7 +446,7 @@ export default function PatientPage({
       if (selectedMemberId === "self") {
         try {
           localStorage.removeItem("ai_queue_active_ticket");
-        } catch (e) {}
+        } catch (e) { }
       }
       if (tId) {
         removeTicketFromFamilyTickets(tId);
@@ -466,20 +466,20 @@ export default function PatientPage({
 
       const candidate = selectedMemberId === "self"
         ? (() => {
-            const raw = familyTickets["self"] || (() => {
-              try {
-                const s = localStorage.getItem("ai_queue_active_ticket");
-                return s ? JSON.parse(s) : null;
-              } catch (e) { return null; }
-            })();
-            if (!raw) return null;
-            const rawName = String(raw.name || "").toLowerCase().trim();
-            if (depNames.includes(rawName) || (raw.family_member_id && raw.family_member_id !== "self")) {
-              try { localStorage.removeItem("ai_queue_active_ticket"); } catch (e) {}
-              return null;
-            }
-            return raw;
-          })()
+          const raw = familyTickets["self"] || (() => {
+            try {
+              const s = localStorage.getItem("ai_queue_active_ticket");
+              return s ? JSON.parse(s) : null;
+            } catch (e) { return null; }
+          })();
+          if (!raw) return null;
+          const rawName = String(raw.name || "").toLowerCase().trim();
+          if (depNames.includes(rawName) || (raw.family_member_id && raw.family_member_id !== "self")) {
+            try { localStorage.removeItem("ai_queue_active_ticket"); } catch (e) { }
+            return null;
+          }
+          return raw;
+        })()
         : (familyTickets[selectedMemberId] || (selectedMember?.name ? familyTickets[`name_${selectedMember.name.toLowerCase().trim()}`] : null) || null);
 
       if (candidate && candidate.ticket_id && isLiveTicketStatus(candidate)) {
@@ -499,7 +499,7 @@ export default function PatientPage({
                     .then((qr) => {
                       if (setTicketQrData) setTicketQrData(qr);
                     })
-                    .catch(() => {});
+                    .catch(() => { });
                 }
               } else {
                 candidateCheckInProgressRef.current = null;
@@ -508,7 +508,7 @@ export default function PatientPage({
                 if (selectedMemberId === "self") {
                   try {
                     localStorage.removeItem("ai_queue_active_ticket");
-                  } catch (e) {}
+                  } catch (e) { }
                 }
               }
             }
@@ -659,7 +659,7 @@ export default function PatientPage({
         const saved = localStorage.getItem("ai_queue_current_hospital");
         if (saved) return saved.trim();
       }
-    } catch (e) {}
+    } catch (e) { }
     return tenantId || currentHospitalTenant || currentUser?.hospital_code || "city-hospital-01";
   });
 
@@ -681,7 +681,7 @@ export default function PatientPage({
             setFacilityAnalytics(d);
           }
         })
-        .catch(() => {});
+        .catch(() => { });
 
       fetch(`${API_BASE}/api/v1/plugin/queue/${encodeURIComponent(targetCode)}`)
         .then((r) => r.json())
@@ -690,7 +690,7 @@ export default function PatientPage({
             setFacilityQueue(d.snapshot);
           }
         })
-        .catch(() => {});
+        .catch(() => { });
     };
 
     fetchTelemetry();
@@ -764,9 +764,9 @@ export default function PatientPage({
   const availableDepartments = useMemo(() => {
     const list = hospitalDepartments.length > 0
       ? hospitalDepartments.map((d) => ({
-          id: d.dept_code || d.code || String(d.id),
-          label: d.name,
-        }))
+        id: d.dept_code || d.code || String(d.id),
+        label: d.name,
+      }))
       : HOSPITAL_CONFIG.categories;
 
     // Clinical Workflow Rule: Pharmacy is a fulfillment stage routed by doctor prescription, NOT a direct patient booking/walk-in entry
@@ -812,14 +812,14 @@ export default function PatientPage({
       .then((d) => {
         if (d && !d.error) setFacilityAnalytics(d);
       })
-      .catch(() => {});
+      .catch(() => { });
 
     fetch(`${API_BASE}/api/v1/plugin/queue/${encodeURIComponent(cleanCode)}`)
       .then((r) => r.json())
       .then((d) => {
         if (d && Array.isArray(d.snapshot)) setFacilityQueue(d.snapshot);
       })
-      .catch(() => {});
+      .catch(() => { });
 
     try {
       if (typeof window !== "undefined") {
@@ -829,7 +829,7 @@ export default function PatientPage({
         window.history.replaceState({}, "", url.toString());
       }
       window.dispatchEvent(new CustomEvent("hospital_changed", { detail: cleanCode }));
-    } catch (e) {}
+    } catch (e) { }
 
     if (onSwitchHospital) {
       onSwitchHospital(cleanCode, hospName);
@@ -869,7 +869,7 @@ export default function PatientPage({
       }
       const d = new Date(val);
       if (!isNaN(d.getTime())) return d.toISOString();
-    } catch (e) {}
+    } catch (e) { }
     return new Date().toISOString();
   };
 
@@ -889,7 +889,7 @@ export default function PatientPage({
       }
       const d = new Date(dateVal);
       if (!isNaN(d.getTime())) return d.toLocaleDateString();
-    } catch (e) {}
+    } catch (e) { }
     return String(dateVal);
   };
 
@@ -913,7 +913,7 @@ export default function PatientPage({
         } catch (e) {
           try {
             parsed = JSON.parse(JSON.parse(prescriptionNotes));
-          } catch (e2) {}
+          } catch (e2) { }
         }
       } else {
         try {
@@ -923,7 +923,7 @@ export default function PatientPage({
           } else if (typeof direct === "string" && direct.trim().startsWith("{")) {
             parsed = JSON.parse(direct);
           }
-        } catch (e) {}
+        } catch (e) { }
       }
     }
 
@@ -949,7 +949,7 @@ export default function PatientPage({
             if (stg.prescription_notes) {
               stgRx = typeof stg.prescription_notes === "object" ? stg.prescription_notes : JSON.parse(stg.prescription_notes);
             }
-          } catch (e) {}
+          } catch (e) { }
           if (stgRx) {
             if (Array.isArray(stgRx.medicines)) {
               stgRx.medicines.forEach((m) => {
@@ -1121,7 +1121,7 @@ export default function PatientPage({
     if (aptTimeSlot && isSlotPast(aptTimeSlot)) {
       setAptTimeSlot("");
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aptDate, bookingDateBounds]);
 
   const fetchUserAppointments = useCallback((overrideName) => {
@@ -1337,7 +1337,7 @@ export default function PatientPage({
             try {
               const ticketStorageKey = `family_tickets_${currentUser ? (currentUser.username || currentUser.email) : "guest"}`;
               localStorage.setItem(ticketStorageKey, JSON.stringify(updated));
-            } catch (e) {}
+            } catch (e) { }
             return updated;
           });
         }
@@ -1350,7 +1350,7 @@ export default function PatientPage({
             if (setTicketQrData) setTicketQrData(null);
             try {
               localStorage.removeItem("ai_queue_active_ticket");
-            } catch (e) {}
+            } catch (e) { }
             removeTicketFromFamilyTickets(matching.ticket_id);
           }
         }
@@ -1378,7 +1378,7 @@ export default function PatientPage({
               if (setTicketQrData) setTicketQrData(null);
               try {
                 localStorage.removeItem("ai_queue_active_ticket");
-              } catch (e) {}
+              } catch (e) { }
               removeTicketFromFamilyTickets(d.ticket.ticket_id);
               fetchUserTicketHistory();
               fetchUserAppointments();
@@ -1387,7 +1387,7 @@ export default function PatientPage({
             }
           }
         })
-        .catch(() => {});
+        .catch(() => { });
     };
 
     // Relaxed 30s fallback interval (WebSockets handle live turn calls, completion, holds in real-time)
@@ -1633,7 +1633,7 @@ export default function PatientPage({
               const str = typeof stg.prescription_notes === "object" ? stg.prescription_notes : JSON.parse(stg.prescription_notes);
               rx = str;
             }
-          } catch (e) {}
+          } catch (e) { }
 
           if (rx) {
             if (rx.diagnosis && rx.diagnosis !== "Clinical Consultation" && rx.diagnosis !== "General OPD") mergedDiag = rx.diagnosis;
@@ -1743,7 +1743,7 @@ export default function PatientPage({
           if (rx?.diagnosis && rx.diagnosis !== "Clinical Consultation") {
             diagnosesSet.add(rx.diagnosis);
           }
-        } catch (e) {}
+        } catch (e) { }
       }
     });
 
@@ -1933,14 +1933,14 @@ export default function PatientPage({
         if (activeTicket?.ticket_id === tid) {
           setActiveTicket(null);
           if (setTicketQrData) setTicketQrData(null);
-          try { localStorage.removeItem("ai_queue_active_ticket"); } catch (e) {}
+          try { localStorage.removeItem("ai_queue_active_ticket"); } catch (e) { }
         }
         removeTicketFromFamilyTickets(tid);
         if (isMyTicket) debounceFetchTicketHistory();
       } else if (t && isLiveTicketStatus(t)) {
         if (activeTicket?.ticket_id === tid || activeTicket?.ticket_id === data?.original_ticket?.ticket_id) {
           setActiveTicket((prev) => ({ ...prev, ...t }));
-          try { localStorage.setItem("ai_queue_active_ticket", JSON.stringify(t)); } catch (e) {}
+          try { localStorage.setItem("ai_queue_active_ticket", JSON.stringify(t)); } catch (e) { }
         }
         if (isMyTicket) {
           // Update in familyTickets map
@@ -2020,14 +2020,14 @@ export default function PatientPage({
 
     const memTicket = memId === "self"
       ? (() => {
-          const cand = familyTickets["self"];
-          if (!cand) return null;
-          const candName = String(cand.name || "").toLowerCase().trim();
-          if (depNames.includes(candName) || (cand.family_member_id && cand.family_member_id !== "self")) {
-            return null;
-          }
-          return cand;
-        })()
+        const cand = familyTickets["self"];
+        if (!cand) return null;
+        const candName = String(cand.name || "").toLowerCase().trim();
+        if (depNames.includes(candName) || (cand.family_member_id && cand.family_member_id !== "self")) {
+          return null;
+        }
+        return cand;
+      })()
       : (familyTickets[memId] || familyTickets[String(memId)] || (member.name ? (familyTickets[`name_${member.name.toLowerCase().trim()}`] || familyTickets[member.name.toLowerCase().trim()]) : null));
 
     if (memTicket && isLiveTicketStatus(memTicket)) {
@@ -2068,7 +2068,7 @@ export default function PatientPage({
                     const ticketStorageKey = `family_tickets_${currentUser ? (currentUser.username || currentUser.email) : "guest"}`;
                     localStorage.setItem(ticketStorageKey, JSON.stringify(updated));
                     window.dispatchEvent(new CustomEvent("family_tickets_updated", { detail: updated }));
-                  } catch (e) {}
+                  } catch (e) { }
                   return updated;
                 });
                 fetch(`${API_BASE}/api/v1/plugin/ticket-qr/${live.ticket_id}`)
@@ -2083,7 +2083,7 @@ export default function PatientPage({
             if (memId === "self") {
               try {
                 localStorage.removeItem("ai_queue_active_ticket");
-              } catch (e) {}
+              } catch (e) { }
             }
           })
           .catch(() => {
@@ -2092,7 +2092,7 @@ export default function PatientPage({
             if (memId === "self") {
               try {
                 localStorage.removeItem("ai_queue_active_ticket");
-              } catch (e) {}
+              } catch (e) { }
             }
           });
       } else {
@@ -2101,7 +2101,7 @@ export default function PatientPage({
         if (memId === "self") {
           try {
             localStorage.removeItem("ai_queue_active_ticket");
-          } catch (e) {}
+          } catch (e) { }
         }
       }
     }
@@ -2340,7 +2340,7 @@ export default function PatientPage({
           if (selectedMemberId === "self") {
             localStorage.setItem("ai_queue_active_ticket", JSON.stringify(t));
           }
-        } catch (e) {}
+        } catch (e) { }
 
         // Record ticket in family tickets map under active member
         setFamilyTickets((prev) => {
@@ -2355,7 +2355,7 @@ export default function PatientPage({
           try {
             const ticketStorageKey = `family_tickets_${currentUser ? (currentUser.username || currentUser.email) : "guest"}`;
             localStorage.setItem(ticketStorageKey, JSON.stringify(updated));
-          } catch (e) {}
+          } catch (e) { }
           window.dispatchEvent(new CustomEvent("family_tickets_updated", { detail: updated }));
           return updated;
         });
@@ -2377,7 +2377,7 @@ export default function PatientPage({
             bc.postMessage({ type: "TICKET_CREATED", ticket: t, tenant_id: tenantId });
             bc.close();
           }
-        } catch (e) {}
+        } catch (e) { }
       } else {
         const err = await res.json();
         if (res.status === 409 && (err.ticket || err.existing_ticket)) {
@@ -2388,7 +2388,7 @@ export default function PatientPage({
             try {
               const ticketStorageKey = `family_tickets_${currentUser ? (currentUser.username || currentUser.email) : "guest"}`;
               localStorage.setItem(ticketStorageKey, JSON.stringify(updated));
-            } catch (e) {}
+            } catch (e) { }
             window.dispatchEvent(new CustomEvent("family_tickets_updated", { detail: updated }));
             return updated;
           });
@@ -2396,7 +2396,7 @@ export default function PatientPage({
             fetch(`${API_BASE}/api/v1/plugin/ticket-qr/${exist.ticket_id}`)
               .then((rqr) => rqr.json())
               .then((qr) => setTicketQrData(qr))
-              .catch(() => {});
+              .catch(() => { });
           }
         }
         const msg = typeof err.detail === "string" ? err.detail : Array.isArray(err.detail) ? err.detail.map((d) => d.msg || JSON.stringify(d)).join(", ") : (err.message || "Failed to issue ticket.");
@@ -2478,7 +2478,7 @@ export default function PatientPage({
         showToast(successMsg, "success");
         try {
           localStorage.setItem("last_patient_name", name);
-        } catch (e) {}
+        } catch (e) { }
         setUserAppointments((prev) => [
           aptWithDept,
           ...prev.filter((a) => a.appointment_id !== data.appointment.appointment_id),
@@ -2516,7 +2516,7 @@ export default function PatientPage({
 
     // Check-In Window and Ticket Expiration Validation
     const targetApt = (userAppointments || []).find((a) => a.appointment_id === targetId) ||
-                      (activeAppointments || []).find((a) => a.appointment_id === targetId);
+      (activeAppointments || []).find((a) => a.appointment_id === targetId);
     if (targetApt) {
       const timing = getAppointmentTiming(targetApt);
       if (timing) {
@@ -2596,7 +2596,7 @@ export default function PatientPage({
         if (selectedMemberId === "self") {
           try {
             localStorage.setItem("ai_queue_active_ticket", JSON.stringify(t));
-          } catch (e) {}
+          } catch (e) { }
         }
 
         // Record ticket in family tickets map under active member
@@ -2605,7 +2605,7 @@ export default function PatientPage({
           try {
             const ticketStorageKey = `family_tickets_${currentUser ? (currentUser.username || currentUser.email) : "guest"}`;
             localStorage.setItem(ticketStorageKey, JSON.stringify(updated));
-          } catch (e) {}
+          } catch (e) { }
           window.dispatchEvent(new CustomEvent("family_tickets_updated", { detail: updated }));
           return updated;
         });
@@ -2627,7 +2627,7 @@ export default function PatientPage({
             bc.postMessage({ type: "TICKET_CREATED", ticket: t, tenant_id: tenantId });
             bc.close();
           }
-        } catch (e) {}
+        } catch (e) { }
 
         setUserAppointments((prev) =>
           prev.map((a) =>
@@ -2683,7 +2683,7 @@ export default function PatientPage({
       if (selectedMemberId === "self") {
         try {
           localStorage.removeItem("ai_queue_active_ticket");
-        } catch (e) {}
+        } catch (e) { }
       }
 
       // Clean from familyTickets map
@@ -2696,7 +2696,7 @@ export default function PatientPage({
         try {
           const ticketStorageKey = `family_tickets_${currentUser ? (currentUser.username || currentUser.email) : "guest"}`;
           localStorage.setItem(ticketStorageKey, JSON.stringify(updated));
-        } catch (e) {}
+        } catch (e) { }
         window.dispatchEvent(new CustomEvent("family_tickets_updated", { detail: updated }));
         return updated;
       });
@@ -2772,7 +2772,7 @@ export default function PatientPage({
                 if (setTicketQrData) setTicketQrData(null);
                 try {
                   localStorage.removeItem("ai_queue_active_ticket");
-                } catch (e) {}
+                } catch (e) { }
               }
             }
             fetchUserAppointments();
@@ -2830,7 +2830,7 @@ export default function PatientPage({
           try {
             const ticketStorageKey = `family_tickets_${currentUser ? (currentUser.username || currentUser.email) : "guest"}`;
             localStorage.setItem(ticketStorageKey, JSON.stringify(updated));
-          } catch (e) {}
+          } catch (e) { }
           window.dispatchEvent(new CustomEvent("family_tickets_updated", { detail: updated }));
           return updated;
         });
@@ -3591,8 +3591,8 @@ export default function PatientPage({
           effectiveAnalytics?.waiting_count !== undefined
             ? effectiveAnalytics.waiting_count
             : effectiveAnalytics?.currently_waiting !== undefined
-            ? effectiveAnalytics.currently_waiting
-            : (effectiveQueue?.length || 0);
+              ? effectiveAnalytics.currently_waiting
+              : (effectiveQueue?.length || 0);
 
         return (
           <HeroBanner
@@ -4090,7 +4090,7 @@ export default function PatientPage({
           <div className="patient-modal-box" style={modalContentStyle}>
             <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
               <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: "var(--emergency-card-bg, #FEF2F2)", color: "var(--emergency-card-text, #DC2626)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
               </div>
               <div>
                 <h3 style={{ margin: 0, fontSize: "18px", color: "var(--patient-text-main, #0F172A)", fontWeight: 800 }}>
@@ -4245,7 +4245,7 @@ export default function PatientPage({
 
             {adjustSuccessMsg && (
               <div style={{ padding: "10px 12px", borderRadius: "8px", background: "var(--patient-tag-bg, #F0F9FF)", border: "1px solid var(--patient-tag-border, #BAE6FD)", color: "#0284C7", fontSize: "12.5px", marginBottom: "16px", fontWeight: 700, textAlign: "center", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
                 <span>{adjustSuccessMsg}</span>
               </div>
             )}
@@ -4308,7 +4308,7 @@ export default function PatientPage({
                     boxShadow: "0 4px 10px rgba(2, 132, 199, 0.2)",
                   }}
                 >
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18"/><path d="M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16"/><path d="M9 21v-4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v4"/><line x1="10" y1="9" x2="14" y2="9"/><line x1="12" y1="7" x2="12" y2="11"/></svg>
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18" /><path d="M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16" /><path d="M9 21v-4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v4" /><line x1="10" y1="9" x2="14" y2="9" /><line x1="12" y1="7" x2="12" y2="11" /></svg>
                 </div>
                 <div>
                   <h3 style={{ margin: 0, fontSize: "17px", fontWeight: 800, color: "var(--patient-text-main, #0F172A)" }}>
@@ -4337,7 +4337,7 @@ export default function PatientPage({
                   justifyContent: "center",
                 }}
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
               </button>
             </div>
 
@@ -4380,7 +4380,7 @@ export default function PatientPage({
                   alignItems: "center",
                 }}
               >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
               </span>
               {hospitalSearchQuery && (
                 <button
@@ -4400,7 +4400,7 @@ export default function PatientPage({
                     justifyContent: "center",
                   }}
                 >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                 </button>
               )}
             </div>
@@ -4432,7 +4432,7 @@ export default function PatientPage({
                   return (
                     <div style={{ textAlign: "center", padding: "30px 12px", color: "var(--patient-text-sub, #64748B)", fontSize: "13px" }}>
                       <div style={{ width: "48px", height: "48px", borderRadius: "14px", background: "var(--patient-tag-bg, #F0F9FF)", color: "#0284C7", display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: "8px" }}>
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18"/><path d="M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16"/><path d="M9 21v-4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v4"/><line x1="10" y1="9" x2="14" y2="9"/><line x1="12" y1="7" x2="12" y2="11"/></svg>
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18" /><path d="M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16" /><path d="M9 21v-4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v4" /><line x1="10" y1="9" x2="14" y2="9" /><line x1="12" y1="7" x2="12" y2="11" /></svg>
                       </div>
                       <div style={{ fontWeight: 600 }}>{language === "hi" ? "कोई अस्पताल नहीं मिला" : "No hospitals matching search"}</div>
                     </div>
@@ -4490,7 +4490,7 @@ export default function PatientPage({
                                 gap: "4px",
                               }}
                             >
-                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
                               <span>{language === "hi" ? "सक्रिय" : "Active"}</span>
                             </span>
                           )}
@@ -4509,13 +4509,13 @@ export default function PatientPage({
                         </div>
                         {hosp.address && (
                           <div style={{ fontSize: "11.5px", color: "var(--patient-text-sub, #475569)", marginTop: "3px", display: "flex", alignItems: "center", gap: "5px" }}>
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" /></svg>
                             <span>{hosp.address}</span>
                           </div>
                         )}
                         {hosp.phone && (
                           <div style={{ fontSize: "11px", color: "var(--patient-text-sub, #64748B)", marginTop: "1px", display: "flex", alignItems: "center", gap: "5px" }}>
-                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" /></svg>
                             <span>{hosp.phone}</span>
                           </div>
                         )}
@@ -4691,7 +4691,7 @@ export default function PatientPage({
                     Tests Ordered:
                   </span>
                   <span style={{ fontSize: "12.5px", color: "var(--patient-text-sub, #475569)", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: "5px" }}>
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#0284C7" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 2v7.527a2 2 0 0 1-.211.896L4.72 20.55a1 1 0 0 0 .9 1.45h12.76a1 1 0 0 0 .9-1.45l-5.069-10.127A2 2 0 0 1 14 9.527V2"/><path d="M8.5 2h7"/><path d="M7 16h10"/></svg>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#0284C7" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 2v7.527a2 2 0 0 1-.211.896L4.72 20.55a1 1 0 0 0 .9 1.45h12.76a1 1 0 0 0 .9-1.45l-5.069-10.127A2 2 0 0 1 14 9.527V2" /><path d="M8.5 2h7" /><path d="M7 16h10" /></svg>
                     <span>{formatCleanText(viewingPrescriptionData.lab_tests, language)}</span>
                   </span>
                 </div>
@@ -4742,7 +4742,7 @@ export default function PatientPage({
             {viewingPrescriptionData.advice && (
               <div style={{ marginBottom: "14px", padding: "10px 14px", background: "var(--patient-tag-bg, #F0F9FF)", borderRadius: "10px", border: "1px solid var(--patient-tag-border, #BAE6FD)" }}>
                 <span style={{ fontSize: "11px", fontWeight: 800, color: "#0369A1", display: "inline-flex", alignItems: "center", gap: "5px", marginBottom: "3px", textTransform: "uppercase" }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><rect x="8" y="2" width="8" height="4" rx="1" ry="1" /></svg>
                   <span>Doctor's Advice & Guidelines:</span>
                 </span>
                 <p style={{ margin: 0, fontSize: "12.5px", color: "var(--patient-text-main, #0F172A)" }}>
@@ -4754,7 +4754,7 @@ export default function PatientPage({
             {/* 6. Follow-up consultation */}
             {viewingPrescriptionData.follow_up && (
               <div style={{ marginBottom: "16px", display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "var(--patient-text-sub, #475569)" }}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#0284C7" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#0284C7" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
                 <strong>Follow-Up:</strong>
                 <span>{viewingPrescriptionData.follow_up}</span>
               </div>
@@ -4764,7 +4764,7 @@ export default function PatientPage({
             {viewingPrescriptionData.transfer_notes && (
               <div style={{ marginBottom: "14px", padding: "10px 14px", background: "#FEF3C7", borderRadius: "10px", border: "1px solid #FCD34D" }}>
                 <span style={{ fontSize: "11px", fontWeight: 800, color: "#92400E", display: "inline-flex", alignItems: "center", gap: "5px", marginBottom: "3px", textTransform: "uppercase" }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><rect x="8" y="2" width="8" height="4" rx="1" ry="1" /></svg>
                   <span>{language === "hi" ? "विभाग रेफरल निर्देश:" : "Department Referral Instructions:"}</span>
                 </span>
                 <p style={{ margin: 0, fontSize: "12px", color: "#78350F", fontWeight: 600 }}>
@@ -4776,7 +4776,7 @@ export default function PatientPage({
             {/* 7. Electronic Validation Stamp */}
             <div style={{ borderTop: "1px dashed var(--patient-card-border, #CBD5E1)", paddingTop: "12px", marginTop: "14px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: "#0284C7", fontWeight: 700 }}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
                 <span>Digitally Authenticated & Recorded in Hospital OPD System</span>
               </div>
               <span style={{ fontSize: "10.5px", color: "#94A3B8" }}>
@@ -4813,7 +4813,7 @@ export default function PatientPage({
                   transition: "all 0.15s ease",
                 }}
               >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><rect x="6" y="14" width="12" height="8" /></svg>
                 <span>{language === "hi" ? "पर्ची प्रिंट करें" : "Print Rx Slip"}</span>
               </button>
 
@@ -4840,9 +4840,9 @@ export default function PatientPage({
                 }}
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                  <polyline points="7 10 12 15 17 10"/>
-                  <line x1="12" y1="15" x2="12" y2="3"/>
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
                 </svg>
                 <span>{t("downloadClinicalRxPdf", language)}</span>
               </button>
@@ -4864,4 +4864,3 @@ export default function PatientPage({
     </div>
   );
 }
-

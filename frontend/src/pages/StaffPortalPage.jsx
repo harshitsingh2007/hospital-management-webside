@@ -1,17 +1,4 @@
-/**
- * StaffPortalPage.jsx
- * -------------------
- * Dedicated Front-Desk & OPD Reception Portal.
- * Purely operational workspace for Front-Desk Staff, Receptionists, and Triage Nurses.
- * Completely distinct from the Clinical Doctor Consultation Workspace.
- * 
- * Features:
- * 1. Appointment Desk & In-Person Check-In Terminal (Converts bookings into live OPD queue tokens)
- * 2. Front-Desk Walk-In Intake & Fast Ticketing (For patients arriving in person)
- * 3. OPD Queue Hall Monitor & Public Loudspeaker Announcement System (Voice chimes & No-Show dismissal)
- * 4. Service Counter Fleet & Clinician Availability Monitor (Desk toggles & Doctor duty status tracking)
- * 5. Lost Token Lookup & Re-Print Pass Tool
- */
+
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { API_BASE, HOSPITAL_CONFIG } from "../config/hospitalConfig";
@@ -307,7 +294,7 @@ export default function StaffPortalPage({
         bc.postMessage({ type: actionType, ...payload, tenant_id: effectiveHospitalCode });
         bc.close();
       }
-    } catch (e) {}
+    } catch (e) { }
   }, [effectiveHospitalCode]);
 
   // Sync props from App.jsx into local queue states whenever they update
@@ -419,7 +406,7 @@ export default function StaffPortalPage({
           handleRealtimeUpdate(event.data);
         };
       }
-    } catch (e) {}
+    } catch (e) { }
 
     // 4. Background quiet sync timer (every 30 seconds fallback; WebSockets push live changes)
     const livePollTimer = setInterval(() => {
@@ -680,10 +667,10 @@ export default function StaffPortalPage({
             ...(prev.all_profiles || []).map((p) =>
               p.id === "self"
                 ? {
-                    ...p,
-                    user_id: data.user_id || m.user_id || p.user_id,
-                    email: data.user_email || p.email,
-                  }
+                  ...p,
+                  user_id: data.user_id || m.user_id || p.user_id,
+                  email: data.user_email || p.email,
+                }
                 : p
             ),
             added,
@@ -703,7 +690,7 @@ export default function StaffPortalPage({
         idents.forEach((k) => {
           try {
             localStorage.setItem(`family_members_${k}`, JSON.stringify(updatedAllList));
-          } catch (e) {}
+          } catch (e) { }
         });
 
         // Dispatch real-time events for other pages/tabs
@@ -718,7 +705,7 @@ export default function StaffPortalPage({
             });
             bc.close();
           }
-        } catch (e) {}
+        } catch (e) { }
 
         handleSelectProfile(added);
         setShowAddDependentForm(false);
@@ -995,8 +982,8 @@ export default function StaffPortalPage({
               });
               bc.close();
             }
-          } catch (e) {}
-        } catch (e) {}
+          } catch (e) { }
+        } catch (e) { }
         // Reset form
         setWalkinForm({
           name: "",
@@ -1037,7 +1024,7 @@ export default function StaffPortalPage({
         ticket_id: ticket.ticket_id,
         tenant_id: effectiveHospitalCode,
       }),
-    }).catch(() => {});
+    }).catch(() => { });
   };
 
   // 8. Mark No-Show Handler
@@ -1911,30 +1898,30 @@ export default function StaffPortalPage({
           background: announcementMsg
             ? (isDark ? "rgba(120, 53, 15, 0.3)" : "#FEF3C7")
             : inAppToast?.type === "error"
-            ? (isDark ? "rgba(127, 29, 29, 0.35)" : "#FEF2F2")
-            : inAppToast?.type === "warn"
-            ? (isDark ? "rgba(120, 53, 15, 0.35)" : "#FFFBEB")
-            : inAppToast?.type === "info"
-            ? (isDark ? "rgba(12, 74, 110, 0.35)" : "#F0F9FF")
-            : (isDark ? "rgba(6, 78, 59, 0.35)" : "#F0FDF4"),
+              ? (isDark ? "rgba(127, 29, 29, 0.35)" : "#FEF2F2")
+              : inAppToast?.type === "warn"
+                ? (isDark ? "rgba(120, 53, 15, 0.35)" : "#FFFBEB")
+                : inAppToast?.type === "info"
+                  ? (isDark ? "rgba(12, 74, 110, 0.35)" : "#F0F9FF")
+                  : (isDark ? "rgba(6, 78, 59, 0.35)" : "#F0FDF4"),
           border: announcementMsg
             ? (isDark ? "1.5px solid #F59E0B" : "1.5px solid #FCD34D")
             : inAppToast?.type === "error"
-            ? (isDark ? "1.5px solid #EF4444" : "1.5px solid #FECACA")
-            : inAppToast?.type === "warn"
-            ? (isDark ? "1.5px solid #F59E0B" : "1.5px solid #FDE68A")
-            : inAppToast?.type === "info"
-            ? (isDark ? "1.5px solid #0284C7" : "1.5px solid #BAE6FD")
-            : (isDark ? "1.5px solid #10B981" : "1.5px solid #BBF7D0"),
+              ? (isDark ? "1.5px solid #EF4444" : "1.5px solid #FECACA")
+              : inAppToast?.type === "warn"
+                ? (isDark ? "1.5px solid #F59E0B" : "1.5px solid #FDE68A")
+                : inAppToast?.type === "info"
+                  ? (isDark ? "1.5px solid #0284C7" : "1.5px solid #BAE6FD")
+                  : (isDark ? "1.5px solid #10B981" : "1.5px solid #BBF7D0"),
           color: announcementMsg
             ? (isDark ? "#FDE68A" : "#92400E")
             : inAppToast?.type === "error"
-            ? (isDark ? "#FCA5A5" : "#991B1B")
-            : inAppToast?.type === "warn"
-            ? (isDark ? "#FDE68A" : "#92400E")
-            : inAppToast?.type === "info"
-            ? (isDark ? "#BAE6FD" : "#075985")
-            : (isDark ? "#A7F3D0" : "#166534"),
+              ? (isDark ? "#FCA5A5" : "#991B1B")
+              : inAppToast?.type === "warn"
+                ? (isDark ? "#FDE68A" : "#92400E")
+                : inAppToast?.type === "info"
+                  ? (isDark ? "#BAE6FD" : "#075985")
+                  : (isDark ? "#A7F3D0" : "#166534"),
           fontWeight: 800,
           fontSize: "13.5px",
           marginBottom: "20px",
@@ -2244,8 +2231,8 @@ export default function StaffPortalPage({
                   background: lookupFeedback.type === "success"
                     ? (isDark ? "rgba(16, 185, 129, 0.2)" : "#ECFDF5")
                     : lookupFeedback.type === "warn"
-                    ? (isDark ? "rgba(239, 68, 68, 0.2)" : "#FEF2F2")
-                    : (isDark ? "rgba(100, 116, 139, 0.2)" : "#F1F5F9"),
+                      ? (isDark ? "rgba(239, 68, 68, 0.2)" : "#FEF2F2")
+                      : (isDark ? "rgba(100, 116, 139, 0.2)" : "#F1F5F9"),
                   color: lookupFeedback.type === "success" ? "#10B981" : lookupFeedback.type === "warn" ? "#EF4444" : "#64748B",
                   border: `1px solid ${lookupFeedback.type === "success" ? "#A7F3D0" : lookupFeedback.type === "warn" ? "#FECACA" : "#E2E8F0"}`,
                 }}>
@@ -2689,10 +2676,10 @@ export default function StaffPortalPage({
                             {walkinOtpState.loading
                               ? (isHi ? "भेज रहा है..." : "Sending...")
                               : otpCooldown > 0
-                              ? `⏳ ${isHi ? "पुनः भेजें" : "Resend in"} (${otpCooldown}s)`
-                              : walkinOtpState.sent
-                              ? (isHi ? "✓ पुनः भेजें" : "✓ Resend OTP")
-                              : (isHi ? "📲 OTP भेजें" : "📲 Send OTP")}
+                                ? `⏳ ${isHi ? "पुनः भेजें" : "Resend in"} (${otpCooldown}s)`
+                                : walkinOtpState.sent
+                                  ? (isHi ? "✓ पुनः भेजें" : "✓ Resend OTP")
+                                  : (isHi ? "📲 OTP भेजें" : "📲 Send OTP")}
                           </button>
                         )
                       )}
@@ -2714,8 +2701,8 @@ export default function StaffPortalPage({
                       border: phoneLookupStatus === "not_registered"
                         ? "1.5px solid #EF4444"
                         : phoneLookupStatus === "registered"
-                        ? "1.5px solid #10B981"
-                        : (isDark ? "1px solid #334155" : "1.5px solid #CBD5E1"),
+                          ? "1.5px solid #10B981"
+                          : (isDark ? "1px solid #334155" : "1.5px solid #CBD5E1"),
                       background: isDark ? "#1E293B" : "#F8FAFC",
                       color: isDark ? "#F8FAFC" : "#0F172A",
                       fontSize: "13.5px",
@@ -3649,10 +3636,10 @@ export default function StaffPortalPage({
                           background: isEmergency
                             ? (isDark ? "rgba(220,38,38,0.12)" : "#FFF1F2")
                             : isServing
-                            ? (isDark ? "rgba(16,185,129,0.08)" : "#F0FDF4")
-                            : isOnHold
-                            ? (isDark ? "rgba(245,158,11,0.08)" : "#FFFBEB")
-                            : "transparent",
+                              ? (isDark ? "rgba(16,185,129,0.08)" : "#F0FDF4")
+                              : isOnHold
+                                ? (isDark ? "rgba(245,158,11,0.08)" : "#FFFBEB")
+                                : "transparent",
                           transition: "background 0.15s ease",
                         }}
                       >
@@ -4239,13 +4226,13 @@ export default function StaffPortalPage({
                             background: isCheckedIn
                               ? (isDark ? "rgba(16, 185, 129, 0.2)" : "#DCFCE7")
                               : isExpired
-                              ? (isDark ? "rgba(100, 116, 139, 0.2)" : "#F1F5F9")
-                              : (isDark ? "rgba(245, 158, 11, 0.2)" : "#FEF3C7"),
+                                ? (isDark ? "rgba(100, 116, 139, 0.2)" : "#F1F5F9")
+                                : (isDark ? "rgba(245, 158, 11, 0.2)" : "#FEF3C7"),
                             color: isCheckedIn
                               ? (isDark ? "#34D399" : "#15803D")
                               : isExpired
-                              ? (isDark ? "#94A3B8" : "#64748B")
-                              : (isDark ? "#FBBF24" : "#B45309"),
+                                ? (isDark ? "#94A3B8" : "#64748B")
+                                : (isDark ? "#FBBF24" : "#B45309"),
                             display: "inline-flex",
                             alignItems: "center",
                             gap: "4px",
@@ -5591,26 +5578,26 @@ export default function StaffPortalPage({
               inAppToast.type === "error"
                 ? (isDark ? "rgba(127, 29, 29, 0.95)" : "#FEF2F2")
                 : inAppToast.type === "warn"
-                ? (isDark ? "rgba(120, 53, 15, 0.95)" : "#FFFBEB")
-                : inAppToast.type === "info"
-                ? (isDark ? "rgba(12, 74, 110, 0.95)" : "#F0F9FF")
-                : (isDark ? "rgba(6, 78, 59, 0.95)" : "#ECFDF5"),
+                  ? (isDark ? "rgba(120, 53, 15, 0.95)" : "#FFFBEB")
+                  : inAppToast.type === "info"
+                    ? (isDark ? "rgba(12, 74, 110, 0.95)" : "#F0F9FF")
+                    : (isDark ? "rgba(6, 78, 59, 0.95)" : "#ECFDF5"),
             border:
               inAppToast.type === "error"
                 ? (isDark ? "1.5px solid #EF4444" : "1.5px solid #FECACA")
                 : inAppToast.type === "warn"
-                ? (isDark ? "1.5px solid #F59E0B" : "1.5px solid #FDE68A")
-                : inAppToast.type === "info"
-                ? (isDark ? "1.5px solid #0284C7" : "1.5px solid #BAE6FD")
-                : (isDark ? "1.5px solid #10B981" : "1.5px solid #A7F3D0"),
+                  ? (isDark ? "1.5px solid #F59E0B" : "1.5px solid #FDE68A")
+                  : inAppToast.type === "info"
+                    ? (isDark ? "1.5px solid #0284C7" : "1.5px solid #BAE6FD")
+                    : (isDark ? "1.5px solid #10B981" : "1.5px solid #A7F3D0"),
             color:
               inAppToast.type === "error"
                 ? (isDark ? "#FEE2E2" : "#991B1B")
                 : inAppToast.type === "warn"
-                ? (isDark ? "#FEF3C7" : "#92400E")
-                : inAppToast.type === "info"
-                ? (isDark ? "#E0F2FE" : "#075985")
-                : (isDark ? "#D1FAE5" : "#065F46"),
+                  ? (isDark ? "#FEF3C7" : "#92400E")
+                  : inAppToast.type === "info"
+                    ? (isDark ? "#E0F2FE" : "#075985")
+                    : (isDark ? "#D1FAE5" : "#065F46"),
           }}
         >
           <div style={{ flexShrink: 0, display: "flex", alignItems: "center" }}>

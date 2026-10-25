@@ -38,7 +38,7 @@ function getDoctorDutyStatus(docId, docEmail) {
 
 async function setDoctorDutyStatus(docIdentifier, statusData = {}) {
   const status = String(statusData.status || "ACTIVE").toUpperCase();
-  const validStatuses = ["ACTIVE", "ON_BREAK", "EMERGENCY_ROUND", "OFF_DUTY"];
+  const validStatuses = ["ACTIVE", "ON_BREAK", "EMERGENCY_ROUND", "OFF_DUTY", "SHIFT_ENDED"];
   const finalStatus = validStatuses.includes(status) ? status : "ACTIVE";
 
   const existing = getDoctorDutyStatus(docIdentifier, docIdentifier);
@@ -63,7 +63,7 @@ async function setDoctorDutyStatus(docIdentifier, statusData = {}) {
     const targetEmail = statusData.email || (String(docIdentifier).includes("@") ? String(docIdentifier).trim().toLowerCase() : null);
     const targetUserId = statusData.userId || (!isNaN(Number(docIdentifier)) ? Number(docIdentifier) : null);
 
-    const empStatus = finalStatus === "OFF_DUTY" ? "off_duty" : (finalStatus === "ACTIVE" ? "active" : finalStatus.toLowerCase());
+    const empStatus = (finalStatus === "OFF_DUTY" || finalStatus === "SHIFT_ENDED") ? "off_duty" : (finalStatus === "ACTIVE" ? "active" : finalStatus.toLowerCase());
 
     const orClauses = [];
     if (targetEmail) orClauses.push({ email: targetEmail });
@@ -501,13 +501,14 @@ async function serveNext(tenantId, department = null, deskId = null, doctorInfo 
           ON_BREAK: "on Tea / Lunch Break",
           EMERGENCY_ROUND: "on Emergency / ICU Round",
           OFF_DUTY: "Off Duty (Shift Ended)",
+          SHIFT_ENDED: "Off Duty (Shift Ended)",
         };
         const label = statusLabels[dutyStatusInfo.status] || dutyStatusInfo.status;
         const err = new Error(
-          `Cannot assign patient: Doctor '${docName || empRec.name || "Desk Doctor"}' is currently ${label}. Please switch duty status to 'Active' before calling patients.`
+          `Cannot assign patient: Staff member '${docName || empRec.name || "Desk Staff"}' is currently ${label}. Please switch duty status to 'Active' before calling patients.`
         );
         err.status = 409;
-        err.code = dutyStatusInfo.status === "OFF_DUTY" ? "DOCTOR_OFF_DUTY" : "DOCTOR_ON_BREAK";
+        err.code = (dutyStatusInfo.status === "OFF_DUTY" || dutyStatusInfo.status === "SHIFT_ENDED") ? "DOCTOR_OFF_DUTY" : "DOCTOR_ON_BREAK";
         err.duty_status = dutyStatusInfo.status;
         err.status_changed_at = dutyStatusInfo.status_changed_at;
         throw err;

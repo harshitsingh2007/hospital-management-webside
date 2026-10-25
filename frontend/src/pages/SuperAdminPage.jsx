@@ -1320,19 +1320,20 @@ export default function SuperAdminPage({
                 fetchHospitalDeepDive(hCode, true);
                 fetchGlobalData(true);
             });
-            socket.on("doctor_duty_status_changed", (data) => {
+            const handleDutyStatusChange = (data) => {
                 if (!data) return;
                 setLastSyncedAt(new Date());
-                const docId = data.doctor_id;
-                const docEmail = (data.doctor_email || "").toLowerCase();
+                const staffId = data.doctor_id || data.staff_id || data.user_id;
+                const staffEmail = (data.doctor_email || data.staff_email || data.email || "").toLowerCase();
                 const newDuty = (data.duty?.status || "ACTIVE").toUpperCase();
-                const newStatus = newDuty === "OFF_DUTY" ? "off_duty" : (newDuty === "ACTIVE" ? "active" : newDuty.toLowerCase());
+                const isOff = newDuty === "OFF_DUTY" || newDuty === "SHIFT_ENDED";
+                const newStatus = isOff ? "off_duty" : (newDuty === "ACTIVE" ? "active" : newDuty.toLowerCase());
 
                 setHospitalEmployees((prev) =>
                     prev.map((emp) => {
                         const matches =
-                            (docId && (String(emp.id) === String(docId) || String(emp.user_id) === String(docId) || String(emp.employee_id_num) === String(docId))) ||
-                            (docEmail && emp.email && emp.email.toLowerCase() === docEmail);
+                            (staffId && (String(emp.id) === String(staffId) || String(emp.user_id) === String(staffId) || String(emp.employee_id_num) === String(staffId))) ||
+                            (staffEmail && emp.email && emp.email.toLowerCase() === staffEmail);
                         if (matches) {
                             return {
                                 ...emp,
@@ -1345,7 +1346,10 @@ export default function SuperAdminPage({
                 );
                 fetchHospitalDeepDive(hCode, true);
                 fetchGlobalData(true);
-            });
+            };
+
+            socket.on("doctor_duty_status_changed", handleDutyStatusChange);
+            socket.on("staff_duty_status_changed", handleDutyStatusChange);
             socket.on("ticket_served", () => fetchHospitalDeepDive(hCode, true));
             socket.on("ticket_transferred", () => fetchHospitalDeepDive(hCode, true));
             socket.on("ticket_completed", () => fetchHospitalDeepDive(hCode, true));

@@ -835,15 +835,19 @@ async function getHospitalEmployees(hospitalCode) {
 
     // Prioritize real-time duty status from memory store if present
     const memoryStatus = dutyInfo?.status ? String(dutyInfo.status).toUpperCase() : null;
+    const isDutyActive = memoryStatus === "ACTIVE";
     const isDutyBreak = memoryStatus === "ON_BREAK" || e.status === "on_break";
     const isDutyEmergency = memoryStatus === "EMERGENCY_ROUND" || e.status === "emergency_round";
-    const isDutyOff = memoryStatus === "OFF_DUTY" || e.status === "off_duty";
+    const isDutyOff = memoryStatus === "OFF_DUTY" || memoryStatus === "SHIFT_ENDED" || e.status === "off_duty" || e.status === "shift_ended";
     const isExplicitlyInactive = !memoryStatus && e.status === "inactive";
 
     let effectiveStatus = "active";
     let dutyStatusLabel = "ACTIVE";
 
-    if (isDutyBreak) {
+    if (isDutyActive) {
+      effectiveStatus = "active";
+      dutyStatusLabel = "ACTIVE";
+    } else if (isDutyBreak) {
       effectiveStatus = "on_break";
       dutyStatusLabel = "ON_BREAK";
     } else if (isDutyEmergency) {
@@ -851,7 +855,7 @@ async function getHospitalEmployees(hospitalCode) {
       dutyStatusLabel = "EMERGENCY_ROUND";
     } else if (isDutyOff) {
       effectiveStatus = "off_duty";
-      dutyStatusLabel = "OFF_DUTY";
+      dutyStatusLabel = (memoryStatus === "SHIFT_ENDED" || e.status === "shift_ended") ? "SHIFT_ENDED" : "OFF_DUTY";
     } else if (isExplicitlyInactive) {
       effectiveStatus = "inactive";
       dutyStatusLabel = "OFF_DUTY";
