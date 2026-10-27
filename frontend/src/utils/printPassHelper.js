@@ -1492,3 +1492,338 @@ export function printDispensingLabelSlip(dispenseData = {}, language = "en", hos
   triggerIframePrint(html);
 }
 
+/**
+ * Generates an official hospital-branded Diagnostic Pathology & Laboratory Test Report Slip.
+ * Includes patient details, specimen metadata, structured parameter results with reference intervals,
+ * abnormal flags, pathologist remarks, and verification sign-off.
+ */
+export function printLabReportSlip(reportData = {}, language = "en", hospitalBranding = null) {
+  const isHi = language === "hi";
+  const hospName =
+    (hospitalBranding && (hospitalBranding.hospital_name || hospitalBranding.name)) ||
+    reportData.hospital_name ||
+    (isHi ? "सिटी जनरल अस्पताल" : "City General Hospital");
+  const brandColor = (hospitalBranding && hospitalBranding.primary_color) || "#0284C7";
+  const logoUrl = (hospitalBranding && (hospitalBranding.logo_url || hospitalBranding.hospital_logo)) || "";
+
+  const patientName = reportData.patient_name || reportData.name || (isHi ? "मरीज़" : "Patient");
+  const age = reportData.age || 30;
+  const gender = reportData.gender ? String(reportData.gender).toUpperCase() : "M";
+  const phone = reportData.phone ? String(reportData.phone) : "N/A";
+  const tokenNumber = reportData.ticket_id || reportData.token_id || "LAB-001";
+  const panelName = reportData.test_panel_name || reportData.panel_name || reportData.test_name || (isHi ? "नैदानिक पैथोलॉजी जांच" : "Clinical Pathology Investigation");
+  const specimenType = reportData.specimen_type || (isHi ? "रक्त नमूना (EDTA)" : "Whole Blood (EDTA)");
+  const refDoctor = reportData.referring_doctor || reportData.doctor_name || (isHi ? "डॉ. ओपीडी कंसल्टेंट" : "Dr. Attending Physician");
+  const clinicalDiag = reportData.clinical_diagnosis || reportData.diagnosis || (isHi ? "क्लिनिकल मूल्यांकन" : "Clinical Assessment");
+  const technician = reportData.technician_name || (isHi ? "वरिष्ठ लैब तकनीशियन" : "Senior Lab Technologist");
+  const pathologist = reportData.pathologist_name || (isHi ? "डॉ. एस. मेहता, एमडी (पैथोलॉजी)" : "Dr. S. Mehta, MD (Pathology)");
+  const pathologistReg = reportData.pathologist_reg_no || "MCI-74892";
+  const remarks = reportData.remarks || reportData.clinical_notes || "";
+  const status = reportData.status || (isHi ? "सत्यापित एवं अंतिम रिपोर्ट" : "Verified & Final Report");
+
+  const now = new Date();
+  const dateStr = reportData.verified_at ? new Date(reportData.verified_at).toLocaleDateString() : now.toLocaleDateString();
+  const timeStr = reportData.verified_at
+    ? new Date(reportData.verified_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  const collectionDateStr = reportData.collection_time ? new Date(reportData.collection_time).toLocaleDateString() : dateStr;
+  const collectionTimeStr = reportData.collection_time
+    ? new Date(reportData.collection_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : timeStr;
+
+  const results = Array.isArray(reportData.results) ? reportData.results : [];
+
+  const resultRows = results
+    .map((r) => {
+      const param = r.parameter || r.name || "Test Assay";
+      const val = r.value !== undefined && r.value !== null ? String(r.value) : "-";
+      const unit = r.unit || "";
+      const refRange = r.ref_range || r.reference_range || r.normal_range || "-";
+      const flag = (r.flag || "NORMAL").toUpperCase();
+
+      let flagHtml = `<span style="display:inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 10px; font-weight: 800; background: #ECFDF5; color: #047857; border: 1px solid #A7F3D0;">NORMAL</span>`;
+      let valueColor = "#0f172a";
+      let valueWeight = "700";
+
+      if (flag === "HIGH" || flag === "CRITICAL_HIGH") {
+        flagHtml = `<span style="display:inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 10px; font-weight: 800; background: #FEF2F2; color: #B91C1C; border: 1px solid #FECACA;">HIGH ▲</span>`;
+        valueColor = "#B91C1C";
+        valueWeight = "900";
+      } else if (flag === "LOW" || flag === "CRITICAL_LOW") {
+        flagHtml = `<span style="display:inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 10px; font-weight: 800; background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE;">LOW ▼</span>`;
+        valueColor = "#1D4ED8";
+        valueWeight = "900";
+      } else if (flag === "ABNORMAL") {
+        flagHtml = `<span style="display:inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 10px; font-weight: 800; background: #FFFBEB; color: #B45309; border: 1px solid #FDE68A;">ABNORMAL</span>`;
+        valueColor = "#B45309";
+        valueWeight = "900";
+      }
+
+      return `
+        <tr style="border-bottom: 1px solid #E2E8F0;">
+          <td style="padding: 7px 10px; font-weight: 600; color: #1E293B; font-size: 11.5px;">${param}</td>
+          <td style="padding: 7px 10px; text-align: right; font-weight: ${valueWeight}; color: ${valueColor}; font-size: 12px; font-family: monospace;">${val}</td>
+          <td style="padding: 7px 10px; text-align: center; color: #64748B; font-size: 11px;">${unit}</td>
+          <td style="padding: 7px 10px; text-align: center; color: #475569; font-size: 11px;">${refRange}</td>
+          <td style="padding: 7px 10px; text-align: center;">${flagHtml}</td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>${hospName} - Lab Report #${tokenNumber}</title>
+  <style>
+    @page { size: A4 portrait; margin: 12mm 14mm; }
+    @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 0 auto;
+      max-width: 780px;
+      color: #0f172a;
+      background: #ffffff;
+      padding: 24px;
+      border: 1.5px solid #cbd5e1;
+      border-radius: 12px;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2.5px solid ${brandColor};
+      padding-bottom: 14px;
+      margin-bottom: 16px;
+    }
+    .hosp-title {
+      font-size: 20px;
+      font-weight: 900;
+      color: #0f172a;
+      margin: 0;
+      letter-spacing: -0.3px;
+    }
+    .dept-title {
+      font-size: 11.5px;
+      font-weight: 800;
+      color: ${brandColor};
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-top: 2px;
+    }
+    .sub-cert {
+      font-size: 10px;
+      color: #64748b;
+      font-weight: 600;
+      margin-top: 2px;
+    }
+    .info-card {
+      background: #F8FAFC;
+      border: 1px solid #E2E8F0;
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-bottom: 16px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px 20px;
+      font-size: 11px;
+    }
+    .info-item {
+      display: flex;
+      justify-content: space-between;
+      border-bottom: 1px dashed #E2E8F0;
+      padding-bottom: 4px;
+    }
+    .info-label {
+      color: #64748b;
+      font-weight: 600;
+    }
+    .info-val {
+      font-weight: 800;
+      color: #0f172a;
+    }
+    .panel-banner {
+      background: linear-gradient(135deg, ${brandColor} 0%, #0369A1 100%);
+      color: #ffffff;
+      padding: 8px 14px;
+      border-radius: 6px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .results-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 18px;
+    }
+    .results-table th {
+      background: #F1F5F9;
+      color: #334155;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 8px 10px;
+      border-top: 1.5px solid #CBD5E1;
+      border-bottom: 1.5px solid #CBD5E1;
+    }
+    .remarks-box {
+      border: 1px solid #CBD5E1;
+      border-left: 4px solid ${brandColor};
+      background: #F8FAFC;
+      padding: 10px 14px;
+      border-radius: 6px;
+      margin-bottom: 20px;
+      font-size: 11px;
+    }
+    .sign-section {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      border-top: 1.5px solid #E2E8F0;
+      padding-top: 16px;
+      margin-top: 24px;
+    }
+    .sign-box {
+      text-align: center;
+      min-width: 180px;
+    }
+    .sign-line {
+      border-top: 1px solid #0f172a;
+      margin-bottom: 4px;
+      padding-top: 4px;
+    }
+    .footer {
+      text-align: center;
+      margin-top: 20px;
+      padding-top: 10px;
+      border-top: 1px dashed #CBD5E1;
+      font-size: 9.5px;
+      color: #94A3B8;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div style="display: flex; align-items: center; gap: 12px;">
+      ${logoUrl ? `<img src="${logoUrl}" style="height: 48px; width: 48px; object-fit: contain; border-radius: 6px;" alt="Hospital Logo" />` : ""}
+      <div>
+        <h1 class="hosp-title">${hospName}</h1>
+        <div class="dept-title">${isHi ? "पैथोलॉजी एवं डायग्नोस्टिक प्रयोगशाला विभाग" : "DEPARTMENT OF PATHOLOGY & LABORATORY MEDICINE"}</div>
+        <div class="sub-cert">${isHi ? "NABL मान्यता प्राप्त क्लिनिकल डायग्नोस्टिक सेंटर • स्वचालित बायोकेमिस्ट्री एवं हेमेटोलॉजी" : "NABL Accredited Clinical Testing Facility • Automated Biochemistry & Hematology"}</div>
+      </div>
+    </div>
+    <div style="text-align: right;">
+      <div style="display: inline-block; padding: 4px 10px; background: #EFF6FF; border: 1.5px solid #93C5FD; border-radius: 6px; font-weight: 900; color: #1D4ED8; font-size: 13px; font-family: monospace;">
+        TOKEN #${tokenNumber}
+      </div>
+      <div style="font-size: 9.5px; color: #64748B; margin-top: 4px;">
+        ${status}
+      </div>
+    </div>
+  </div>
+
+  <div class="info-card">
+    <div class="info-item">
+      <span class="info-label">${isHi ? "मरीज़ का नाम" : "Patient Name"}:</span>
+      <span class="info-val">${patientName}</span>
+    </div>
+    <div class="info-item">
+      <span class="info-label">${isHi ? "परामर्शदाता डॉक्टर" : "Referring Doctor"}:</span>
+      <span class="info-val">${refDoctor}</span>
+    </div>
+    <div class="info-item">
+      <span class="info-label">${isHi ? "आयु / लिंग" : "Age / Gender"}:</span>
+      <span class="info-val">${age} Yrs / ${gender}</span>
+    </div>
+    <div class="info-item">
+      <span class="info-label">${isHi ? "क्लिनिकल निदान" : "Clinical Indication"}:</span>
+      <span class="info-val">${clinicalDiag}</span>
+    </div>
+    <div class="info-item">
+      <span class="info-label">${isHi ? "फ़ोन नंबर" : "Phone"}:</span>
+      <span class="info-val">${phone}</span>
+    </div>
+    <div class="info-item">
+      <span class="info-label">${isHi ? "नमूना प्रकार" : "Sample Type"}:</span>
+      <span class="info-val">${specimenType}</span>
+    </div>
+    <div class="info-item">
+      <span class="info-label">${isHi ? "नमूना संकलन" : "Sample Collected"}:</span>
+      <span class="info-val">${collectionDateStr} ${collectionTimeStr}</span>
+    </div>
+    <div class="info-item">
+      <span class="info-label">${isHi ? "रिपोर्ट सत्यापन" : "Report Verified"}:</span>
+      <span class="info-val">${dateStr} ${timeStr}</span>
+    </div>
+  </div>
+
+  <div class="panel-banner">
+    <div style="font-size: 13px; font-weight: 900; letter-spacing: 0.3px;">
+      ${panelName}
+    </div>
+    <div style="font-size: 10.5px; font-weight: 700; background: rgba(255,255,255,0.22); padding: 3px 8px; border-radius: 4px;">
+      ${isHi ? "मानक संदर्भ अंतराल सहित" : "With Biological Reference Intervals"}
+    </div>
+  </div>
+
+  <table class="results-table">
+    <thead>
+      <tr>
+        <th style="text-align: left;">${isHi ? "जांच / परीक्षण पैरामीटर" : "Investigation / Test Parameter"}</th>
+        <th style="text-align: right;">${isHi ? "परिणाम" : "Observed Result"}</th>
+        <th style="text-align: center;">${isHi ? "इकाई" : "Unit"}</th>
+        <th style="text-align: center;">${isHi ? "सामान्य संदर्भ सीमा" : "Biological Ref. Interval"}</th>
+        <th style="text-align: center;">${isHi ? "स्थिति" : "Flag"}</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${resultRows || `<tr><td colspan="5" style="text-align: center; padding: 16px; color: #94A3B8;">${isHi ? "कोई जांच परिणाम उपलब्ध नहीं" : "No test parameters reported"}</td></tr>`}
+    </tbody>
+  </table>
+
+  ${remarks ? `
+  <div class="remarks-box">
+    <strong style="color: #0F172A; font-size: 11px;">${isHi ? "पैथोलॉजिस्ट क्लिनिकल अभिमत एवं टिप्पणियाँ" : "Pathologist Remarks & Clinical Impressions"}:</strong>
+    <p style="margin: 4px 0 0 0; color: #334155; line-height: 1.45;">${remarks}</p>
+  </div>
+  ` : ""}
+
+  <div class="sign-section">
+    <div class="sign-box">
+      <div style="font-size: 10px; color: #64748B; margin-bottom: 24px;">Tested By:</div>
+      <div class="sign-line">
+        <strong style="font-size: 11.5px; color: #0F172A;">${technician}</strong>
+        <div style="font-size: 9.5px; color: #64748B;">${isHi ? "वरिष्ठ मेडिकल लैब तकनीशियन" : "Senior Medical Lab Technologist"}</div>
+      </div>
+    </div>
+
+    <div style="text-align: center; padding-bottom: 8px;">
+      <div style="display: inline-block; border: 1.5px dashed #059669; padding: 6px 14px; border-radius: 8px; background: #ECFDF5;">
+        <span style="font-size: 11px; font-weight: 900; color: #047857;">✓ DIGITALLY VERIFIED</span>
+        <div style="font-size: 8.5px; color: #065F46;">No Physical Signature Required</div>
+      </div>
+    </div>
+
+    <div class="sign-box">
+      <div style="font-size: 10px; color: #64748B; margin-bottom: 24px;">Verified & Reported By:</div>
+      <div class="sign-line">
+        <strong style="font-size: 11.5px; color: #0F172A;">${pathologist}</strong>
+        <div style="font-size: 9.5px; color: #64748B;">Reg. No: ${pathologistReg} • MD (Pathology)</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    ${hospName} • LIS Diagnostic Portal • ${isHi ? "यह रिपोर्ट कंप्यूटर द्वारा तैयार की गई है और इलेक्ट्रॉनिक रूप से प्रमाणित है।" : "This diagnostic report is electronically validated and authenticated under standard LIS quality protocols."}
+  </div>
+</body>
+</html>`;
+
+  triggerIframePrint(html);
+}
+

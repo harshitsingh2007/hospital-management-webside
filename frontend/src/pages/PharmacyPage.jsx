@@ -1,14 +1,12 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { API_BASE, HOSPITAL_CONFIG } from "../config/hospitalConfig";
-import { t, getCategoryLabel, formatCleanText } from "../utils/i18n";
 import { announceTicketVoice } from "../utils/voiceSynthesizer";
-import { printPrescriptionSlip, printDispensingLabelSlip } from "../utils/printPassHelper";
+import { printPrescriptionSlip } from "../utils/printPassHelper";
 import Footer from "../components/common/Footer";
 import {
   Pill,
   CheckCircle2,
-  AlertTriangle,
   Clock,
   Printer,
   Volume2,
@@ -17,25 +15,19 @@ import {
   User,
   Stethoscope,
   Building2,
-  ShieldCheck,
-  Layers,
-  ChevronRight,
   ArrowRight,
   Sparkles,
   Coffee,
-  Check,
-  X,
   FileText,
-  BadgeAlert,
-  SlidersHorizontal,
-  ExternalLink,
   Info,
   History,
   Calendar,
   Download,
   Eye,
-  Activity,
-  Phone
+  Phone,
+  Save,
+  XCircle,
+  Check
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -408,7 +400,6 @@ export default function PharmacyPage({
 
   // Patient Visit History Section State
   const [patientVisits, setPatientVisits] = useState([]);
-  const [visitsSummary, setVisitsSummary] = useState({});
   const [loadingVisits, setLoadingVisits] = useState(false);
   const [visitSearchQuery, setVisitSearchQuery] = useState("");
 
@@ -450,6 +441,8 @@ export default function PharmacyPage({
   const [visitStatusFilter, setVisitStatusFilter] = useState("all");
 
   const [selectedVisitModal, setSelectedVisitModal] = useState(null);
+  const [modalMedStatusMap, setModalMedStatusMap] = useState({});
+  const [savingModalDispense, setSavingModalDispense] = useState(false);
 
   // Fetch Patient Visit History from Backend
   const fetchPatientVisits = useCallback(async () => {
@@ -469,7 +462,6 @@ export default function PharmacyPage({
       const data = await res.json();
       if (data && data.status === "success") {
         setPatientVisits(Array.isArray(data.visits) ? data.visits : []);
-        setVisitsSummary(data.summary || {});
       }
     } catch (err) {
       console.error("Failed to load patient visits:", err);
@@ -578,7 +570,40 @@ export default function PharmacyPage({
           if (parsedP.dispensing_counter) dispensedCounter = parsedP.dispensing_counter;
           if (parsedP.dispensed_counter_id) dispensedCounterId = parsedP.dispensed_counter_id;
           if (parsedP.dispensed_at) dispensedAt = parsedP.dispensed_at;
-          if (Array.isArray(parsedP.medicines) && medicines.length === 0) medicines = parsedP.medicines;
+          if (Array.isArray(parsedP.medicines) && parsedP.medicines.length > 0) {
+            if (medicines.length > 0) {
+              medicines = medicines.map((m, idx) => {
+                const match = parsedP.medicines.find(pm => (pm.name || "").trim().toLowerCase() === (m.name || "").trim().toLowerCase()) || parsedP.medicines[idx];
+                return { ...m, ...(match || {}) };
+              });
+            } else {
+              medicines = parsedP.medicines;
+            }
+          }
+        }
+      } catch (_) { }
+    }
+
+    if (visit.prescription_notes && visit.prescription_notes !== consultStage?.notes) {
+      try {
+        let rawV = typeof visit.prescription_notes === "string" ? visit.prescription_notes.trim() : visit.prescription_notes;
+        if (typeof rawV === "string") {
+          const jsonMatch = rawV.match(/\{[\s\S]*\}/);
+          if (jsonMatch) rawV = jsonMatch[0];
+          const parsedV = JSON.parse(rawV);
+          if (parsedV.dispensed_by) dispensedBy = parsedV.dispensed_by;
+          if (parsedV.dispensed_at) dispensedAt = parsedV.dispensed_at;
+          if (parsedV.dispensing_counter) dispensedCounter = parsedV.dispensing_counter;
+          if (Array.isArray(parsedV.medicines) && parsedV.medicines.length > 0) {
+            if (medicines.length > 0) {
+              medicines = medicines.map((m, idx) => {
+                const match = parsedV.medicines.find(pm => (pm.name || "").trim().toLowerCase() === (m.name || "").trim().toLowerCase()) || parsedV.medicines[idx];
+                return { ...m, ...(match || {}) };
+              });
+            } else {
+              medicines = parsedV.medicines;
+            }
+          }
         }
       } catch (_) { }
     }
@@ -614,6 +639,202 @@ export default function PharmacyPage({
       isPharmaVisit,
     };
   }, [activeCounter, currentUser?.name]);
+
+  // Helper to determine whether a medicine was given or not given
+  const getMedicineDispenseStatus = useCallback((med, visit) => {
+    if (!med) return { isGiven: false, statusText: "Not Given", statusLabel: isHi ? "नहीं दी गई ✕" : "Not Given ✕", color: "#EF4444" };
+
+    if (
+      med.dispensed === true ||
+      med.given === true ||
+      med.dispense_status === "given" ||
+      med.dispense_status === "dispensed" ||
+      med.status === "dispensed" ||
+      med.status === "given"
+    ) {
+      return { isGiven: true, statusText: "Given", statusLabel: isHi ? "दी गई ✓" : "Given ✓", color: "#10B981" };
+    }
+    if (
+      med.dispensed === false ||
+      med.given === false ||
+      med.dispense_status === "not_given" ||
+      med.dispense_status === "not_dispensed" ||
+      med.status === "not_dispensed" ||
+      med.status === "not_given" ||
+      med.status === "out_of_stock" ||
+      med.status === "cancelled"
+    ) {
+      return { isGiven: false, statusText: "Not Given", statusLabel: isHi ? "नहीं दी गई ✕" : "Not Given ✕", color: "#EF4444" };
+    }
+
+    // Heuristic: If visit or its pharmacy stage is completed
+    const isComplete = (visit?.status || "").toLowerCase() === "completed";
+    const stages = Array.isArray(visit?.transfer_stages) ? visit.transfer_stages : [];
+    const pharmaStage = stages.find((s) => (s.dept_code || s.department || "").toLowerCase().includes("pharm"));
+    const isPharmaDone =
+      (pharmaStage?.status || "").toLowerCase() === "completed" ||
+      (isComplete && (visit?.dept_code || visit?.department || "").toLowerCase().includes("pharm"));
+
+    if (isPharmaDone) {
+      return { isGiven: true, statusText: "Given", statusLabel: isHi ? "दी गई ✓" : "Given ✓", color: "#10B981" };
+    }
+
+    return { isGiven: false, statusText: "Pending", statusLabel: isHi ? "लंबित" : "Pending", color: "#F59E0B" };
+  }, [isHi]);
+
+  // Synchronize modal medicine status map when a visit modal is opened
+  useEffect(() => {
+    if (selectedVisitModal) {
+      const details = parseVisitDetails(selectedVisitModal);
+      const initialMap = {};
+      (details.medicines || []).forEach((m, idx) => {
+        initialMap[idx] = getMedicineDispenseStatus(m, selectedVisitModal).isGiven;
+      });
+      setModalMedStatusMap(initialMap);
+    } else {
+      setModalMedStatusMap({});
+    }
+  }, [selectedVisitModal, parseVisitDetails, getMedicineDispenseStatus]);
+
+  const handleToggleModalMedStatus = useCallback((idx) => {
+    setModalMedStatusMap((prev) => ({
+      ...prev,
+      [idx]: !prev[idx],
+    }));
+  }, []);
+
+  const handleSetAllModalMeds = useCallback((status) => {
+    if (!selectedVisitModal) return;
+    const details = parseVisitDetails(selectedVisitModal);
+    const next = {};
+    (details.medicines || []).forEach((_, idx) => {
+      next[idx] = status;
+    });
+    setModalMedStatusMap(next);
+  }, [selectedVisitModal, parseVisitDetails]);
+
+  const modalHasChanges = useMemo(() => {
+    if (!selectedVisitModal) return false;
+    const details = parseVisitDetails(selectedVisitModal);
+    if (!details.medicines || details.medicines.length === 0) return false;
+    return details.medicines.some((m, idx) => {
+      const origStatus = getMedicineDispenseStatus(m, selectedVisitModal).isGiven;
+      const currStatus = modalMedStatusMap[idx];
+      return currStatus !== undefined && currStatus !== origStatus;
+    });
+  }, [selectedVisitModal, parseVisitDetails, getMedicineDispenseStatus, modalMedStatusMap]);
+
+  const modalStats = useMemo(() => {
+    if (!selectedVisitModal) return { total: 0, given: 0, notGiven: 0 };
+    const details = parseVisitDetails(selectedVisitModal);
+    const total = (details.medicines || []).length;
+    let given = 0;
+    (details.medicines || []).forEach((m, idx) => {
+      const isG = modalMedStatusMap[idx] !== undefined
+        ? modalMedStatusMap[idx]
+        : getMedicineDispenseStatus(m, selectedVisitModal).isGiven;
+      if (isG) given++;
+    });
+    return { total, given, notGiven: total - given };
+  }, [selectedVisitModal, parseVisitDetails, getMedicineDispenseStatus, modalMedStatusMap]);
+
+  const handleSaveModalDispenseChanges = async () => {
+    if (!selectedVisitModal) return;
+    const visit = selectedVisitModal;
+    const details = parseVisitDetails(visit);
+    if (!details.medicines || details.medicines.length === 0) return;
+
+    setSavingModalDispense(true);
+    try {
+      const updatedMeds = details.medicines.map((m, idx) => {
+        const isGiven = modalMedStatusMap[idx] !== undefined
+          ? Boolean(modalMedStatusMap[idx])
+          : getMedicineDispenseStatus(m, visit).isGiven;
+
+        return {
+          ...m,
+          dispensed: isGiven,
+          given: isGiven,
+          dispense_status: isGiven ? "given" : "not_given",
+          status: isGiven ? "dispensed" : "not_dispensed",
+          dispensed_by: currentUser?.name || currentUser?.username || details.dispensedBy || "Pharmacy Staff",
+          dispensed_at: isGiven ? (m.dispensed_at || new Date().toISOString()) : null,
+        };
+      });
+
+      const givenCount = updatedMeds.filter((m) => m.dispensed).length;
+      const unverifiedCount = updatedMeds.filter((m) => !m.dispensed).length;
+
+      const updatedPayload = {
+        doctor_name: details.doctorName,
+        diagnosis: details.diagnosis,
+        advice: details.advice,
+        follow_up: details.followUp,
+        medicines: updatedMeds,
+        dispensed_by: currentUser?.name || currentUser?.username || details.dispensedBy || "Pharmacy Staff",
+        dispensed_by_id: currentUser?.id || currentUser?.user_id || currentUser?.employee_id || details.dispensedById || "",
+        dispensed_by_email: currentUser?.email || details.dispensedByEmail || "",
+        dispensed_at: details.dispensedAt || new Date().toISOString(),
+        dispensing_counter: details.dispensedCounter || activeCounter,
+        dispensed_counter_id: details.dispensedCounterId || assignedDesk?.id || "",
+        all_verified: unverifiedCount === 0,
+        dispensing_summary: {
+          total: updatedMeds.length,
+          given: givenCount,
+          not_given: unverifiedCount,
+        },
+      };
+
+      const tid = visit.ticket_id || visit.token_number;
+      const res = await fetch(`${API_BASE}/api/v1/plugin/save-prescription`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenant_id: effectiveHospitalCode,
+          ticket_id: tid,
+          prescription: updatedPayload,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok && !data.success) {
+        throw new Error(data.message || "Failed to update prescription");
+      }
+
+      // Update selectedVisitModal in place so user immediately sees changes
+      setSelectedVisitModal((prev) => {
+        if (!prev) return prev;
+        const newStages = Array.isArray(prev.transfer_stages)
+          ? prev.transfer_stages.map((stg) => {
+              const c = (stg.dept_code || stg.department || "").toLowerCase();
+              if (c.includes("pharm")) {
+                return { ...stg, notes: JSON.stringify(updatedPayload) };
+              }
+              return stg;
+            })
+          : [];
+        return {
+          ...prev,
+          prescription_notes: JSON.stringify(updatedPayload),
+          transfer_stages: newStages.length > 0 ? newStages : prev.transfer_stages,
+        };
+      });
+
+      showToast(
+        isHi
+          ? `दवा वितरण स्थिति सफलतापूर्वक सहेजी गई (${givenCount} दी गईं, ${unverifiedCount} नहीं दी गईं)!`
+          : `Dispensing status saved successfully (${givenCount} Given, ${unverifiedCount} Not Given)!`,
+        "success"
+      );
+
+      // Refresh visit history list
+      fetchPatientVisits();
+    } catch (err) {
+      showToast(`Error updating status: ${err.message}`, "error");
+    } finally {
+      setSavingModalDispense(false);
+    }
+  };
 
   // Check if a visit was consulted / dispensed exclusively by the logged-in pharmacist ("My Only")
   const checkConsultMatch = useCallback((visit, details) => {
@@ -848,24 +1069,6 @@ export default function PharmacyPage({
     printPrescriptionSlip(fullData, language, hospitalBranding);
   };
 
-  // Re-print dispensing envelope label from visit history record
-  const handlePrintVisitEnvelopeLabel = (visit) => {
-    if (!visit) return;
-    const details = parseVisitDetails(visit);
-    const labelData = {
-      ticket_id: visit.token_number || visit.ticket_id,
-      patient_name: visit.patient_name || "Patient",
-      age: visit.age || 30,
-      gender: visit.gender || "Patient",
-      doctor_name: details.doctorName || "Attending Physician",
-      pharmacist_name: details.dispensedBy || currentUser?.name || currentUser?.username || "Licensed Pharmacist",
-      counter: details.dispensedCounter || activeCounter,
-      hospital_name: brandName,
-      medicines: details.medicines || [],
-    };
-    printDispensingLabelSlip(labelData, language, hospitalBranding);
-  };
-
   // Filter & Search Term
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -1004,8 +1207,8 @@ export default function PharmacyPage({
       );
       showToast(
         isHi
-          ? `📢 टोकन #${ticket.ticket_id} (${ticket.name}) की कॉल लाउडस्पीकर पर प्रसारित की गई!`
-          : `📢 Announced Token #${ticket.ticket_id} (${ticket.name}) to Pharmacy Counter!`,
+          ? `टोकन #${ticket.ticket_id} (${ticket.name}) की कॉल लाउडस्पीकर पर प्रसारित की गई!`
+          : `Announced Token #${ticket.ticket_id} (${ticket.name}) to Pharmacy Counter!`,
         "info"
       );
     } catch (e) {
@@ -1022,10 +1225,28 @@ export default function PharmacyPage({
     try {
       const rxNotes = parseRxNotes(ticket) || {};
       const medicines = Array.isArray(rxNotes.medicines) ? rxNotes.medicines : [];
-      const unverifiedCount = medicines.filter((_, idx) => !dispensedItemsMap[`${ticket.ticket_id}_${idx}`]).length;
+      const anyExplicit = medicines.some((_, idx) => dispensedItemsMap[`${ticket.ticket_id}_${idx}`] !== undefined);
+
+      const updatedMedicines = medicines.map((med, idx) => {
+        const itemKey = `${ticket.ticket_id}_${idx}`;
+        const isGiven = anyExplicit ? Boolean(dispensedItemsMap[itemKey]) : true;
+        return {
+          ...med,
+          dispensed: isGiven,
+          given: isGiven,
+          dispense_status: isGiven ? "given" : "not_given",
+          status: isGiven ? "dispensed" : "not_dispensed",
+          dispensed_by: currentUser?.name || currentUser?.username || "Head Pharmacist",
+          dispensed_at: isGiven ? new Date().toISOString() : null,
+        };
+      });
+
+      const givenCount = updatedMedicines.filter((m) => m.dispensed).length;
+      const unverifiedCount = updatedMedicines.filter((m) => !m.dispensed).length;
 
       const completionPayload = {
         ...rxNotes,
+        medicines: updatedMedicines,
         dispensed_by: currentUser?.name || currentUser?.username || "Head Pharmacist",
         dispensed_by_id: currentUser?.id || currentUser?.user_id || currentUser?.employee_id || "",
         dispensed_by_email: currentUser?.email || "",
@@ -1033,6 +1254,11 @@ export default function PharmacyPage({
         dispensing_counter: activeCounter,
         dispensed_counter_id: assignedDesk?.id || "",
         all_verified: unverifiedCount === 0,
+        dispensing_summary: {
+          total: medicines.length,
+          given: givenCount,
+          not_given: unverifiedCount,
+        },
       };
 
       if (socketRef && socketRef.current) {
@@ -1058,8 +1284,8 @@ export default function PharmacyPage({
 
       showToast(
         isHi
-          ? `✓ टोकन #${ticket.ticket_id} (${ticket.name}) की दवाएं सफलतापूर्वक वितरित व पूर्ण की गईं!`
-          : `✓ Successfully dispensed all medications & completed Token #${ticket.ticket_id} (${ticket.name})!`,
+          ? `टोकन #${ticket.ticket_id} (${ticket.name}): ${givenCount}/${medicines.length} दवाएं वितरित व विज़िट पूर्ण!`
+          : `Token #${ticket.ticket_id} (${ticket.name}): ${givenCount}/${medicines.length} medications dispensed & completed!`,
         "success"
       );
 
@@ -1071,24 +1297,6 @@ export default function PharmacyPage({
     } finally {
       setCompletingTicket(false);
     }
-  };
-
-  // Print Envelope Label Sticker
-  const handlePrintEnvelopeLabel = (ticket) => {
-    if (!ticket) return;
-    const parsed = parseRxNotes(ticket);
-    const labelData = {
-      ticket_id: ticket.ticket_id,
-      patient_name: ticket.name,
-      age: ticket.age || 30,
-      gender: ticket.gender || "Patient",
-      doctor_name: parsed?.doctor_name || "Attending Physician",
-      pharmacist_name: currentUser?.name || currentUser?.username || "Licensed Pharmacist",
-      counter: activeCounter.includes(" - ") ? activeCounter.split(" - ")[0].trim() : activeCounter,
-      hospital_name: brandName,
-      medicines: Array.isArray(parsed?.medicines) ? parsed.medicines : [],
-    };
-    printDispensingLabelSlip(labelData, language, hospitalBranding);
   };
 
   // Print Full Doctor Rx Slip
@@ -1325,7 +1533,7 @@ export default function PharmacyPage({
             animation: "fadeIn 0.2s ease",
           }}
         >
-          <span>{toastMsg.type === "error" ? "✕" : toastMsg.type === "warn" ? "⚠️" : "✓"}</span>
+          <span>{toastMsg.type === "error" ? "✕" : toastMsg.type === "warn" ? "!" : "✓"}</span>
           <span>{toastMsg.text}</span>
           <button
             onClick={() => setToastMsg(null)}
@@ -1341,8 +1549,9 @@ export default function PharmacyPage({
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "16px" }}>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px", flexWrap: "wrap" }}>
-              <span style={{ background: "rgba(255,255,255,0.14)", padding: "4px 10px", borderRadius: "8px", fontSize: "11px", fontWeight: 800, letterSpacing: "0.5px" }}>
-                🏥 {brandName.toUpperCase()}
+              <span style={{ background: "rgba(255,255,255,0.14)", padding: "4px 10px", borderRadius: "8px", fontSize: "11px", fontWeight: 800, letterSpacing: "0.5px", display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                <Building2 size={12} />
+                <span>{brandName.toUpperCase()}</span>
               </span>
               <span style={{ background: "rgba(56, 189, 248, 0.2)", border: "1px solid rgba(56, 189, 248, 0.4)", color: "#BAE6FD", padding: "4px 10px", borderRadius: "8px", fontSize: "11px", fontWeight: 800 }}>
                 {isHi ? "केंद्रीय फार्मेसी एवं दवा वितरण केंद्र" : "CENTRAL PHARMACY STATION"}
@@ -1351,13 +1560,49 @@ export default function PharmacyPage({
             <h1 style={{ margin: 0, fontSize: "28px", fontWeight: 900, letterSpacing: "-0.5px" }}>
               {isHi ? "फार्मेसी वितरण वर्कस्टेशन" : "Pharmacy Dispensing Workstation"}
             </h1>
-            <p style={{ margin: "6px 0 0 0", fontSize: "13px", opacity: 0.9, display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
-              <User size={14} color="#38BDF8" />
-              <span>
-                {isHi ? "लॉगिन फार्मासिस्ट" : "Active Pharmacist"}: <strong>{currentUser?.name || currentUser?.username}</strong>
-                {currentUser?.department ? ` • Dept: ${currentUser.department.toUpperCase()}` : ""}
+            <div style={{ margin: "10px 0 0 0", fontSize: "12.5px", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+              <span style={{ opacity: 0.85, fontSize: "12px", fontWeight: 600 }}>
+                {isHi ? "लॉगिन फार्मासिस्ट:" : "Active Pharmacist:"}
               </span>
-            </p>
+              <span
+                style={{
+                  background: "linear-gradient(135deg, rgba(56, 189, 248, 0.28) 0%, rgba(14, 165, 233, 0.38) 100%)",
+                  border: "1.5px solid #38BDF8",
+                  color: "#FFFFFF",
+                  padding: "3px 12px",
+                  borderRadius: "8px",
+                  fontWeight: 900,
+                  fontSize: "13px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  boxShadow: "0 2px 8px rgba(56, 189, 248, 0.3)",
+                  letterSpacing: "0.2px",
+                }}
+              >
+                <User size={13} color="#38BDF8" />
+                <span>{currentUser?.name || currentUser?.username || "rajaram"}</span>
+              </span>
+              <span
+                style={{
+                  background: "linear-gradient(135deg, rgba(16, 185, 129, 0.24) 0%, rgba(5, 150, 105, 0.34) 100%)",
+                  border: "1.5px solid #10B981",
+                  color: "#A7F3D0",
+                  padding: "3px 10px",
+                  borderRadius: "8px",
+                  fontWeight: 800,
+                  fontSize: "11.5px",
+                  letterSpacing: "0.5px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "5px",
+                  boxShadow: "0 2px 8px rgba(16, 185, 129, 0.25)",
+                }}
+              >
+                <Building2 size={12} color="#34D399" />
+                <span>DEPT: {(currentUser?.department || "PHARMACY").toUpperCase()}</span>
+              </span>
+            </div>
           </div>
 
           {/* Assigned Desk Display & Duty Switcher */}
@@ -1625,7 +1870,9 @@ export default function PharmacyPage({
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <span>{pharmaDutyStatus === "SHIFT_ENDED" ? "🛑" : "☕"}</span>
+            <span style={{ display: "inline-flex", alignItems: "center" }}>
+              {pharmaDutyStatus === "SHIFT_ENDED" ? <Clock size={15} /> : <Coffee size={15} />}
+            </span>
             <span>
               {pharmaDutyStatus === "SHIFT_ENDED"
                 ? (isHi
@@ -1852,17 +2099,67 @@ export default function PharmacyPage({
                     )}
 
                     {/* Interactive Dispensing Checklist Header */}
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", flexWrap: "wrap", gap: "8px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                         <Pill size={17} color={highlightPrimary} />
                         <h4 style={{ margin: 0, fontSize: "14px", fontWeight: 800, color: textColor }}>
                           {isHi ? "दवा वितरण चेकलिस्ट व सत्यापन" : "Medication Dispensing Checklist"} ({medicines.length})
                         </h4>
                       </div>
-                      <div style={{ fontSize: "12px", fontWeight: 700, color: verifiedAll ? "#10B981" : mutedText }}>
-                        {verifiedAll
-                          ? (isHi ? "✓ सभी दवाएं सत्यापित" : "✓ All items verified")
-                          : (isHi ? "वितरण के लिए प्रत्येक पर सही का निशान लगाएं" : "Check off items as you pick & pack")}
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                        {medicines.length > 0 && (
+                          <div style={{ display: "flex", gap: "6px" }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const next = {};
+                                medicines.forEach((_, idx) => {
+                                  next[`${ticket.ticket_id}_${idx}`] = true;
+                                });
+                                setDispensedItemsMap((prev) => ({ ...prev, ...next }));
+                              }}
+                              style={{
+                                background: isDark ? "rgba(16, 185, 129, 0.15)" : "#ECFDF5",
+                                border: "1px solid #10B981",
+                                color: "#059669",
+                                borderRadius: "6px",
+                                padding: "2px 8px",
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                cursor: "pointer",
+                              }}
+                            >
+                              {isHi ? "✓ सभी दी गईं" : "✓ Mark All Given"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const next = {};
+                                medicines.forEach((_, idx) => {
+                                  next[`${ticket.ticket_id}_${idx}`] = false;
+                                });
+                                setDispensedItemsMap((prev) => ({ ...prev, ...next }));
+                              }}
+                              style={{
+                                background: isDark ? "rgba(239, 68, 68, 0.15)" : "#FEF2F2",
+                                border: "1px solid #EF4444",
+                                color: "#DC2626",
+                                borderRadius: "6px",
+                                padding: "2px 8px",
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                cursor: "pointer",
+                              }}
+                            >
+                              {isHi ? "✕ सभी बाकी" : "✕ Mark All Not Given"}
+                            </button>
+                          </div>
+                        )}
+                        <div style={{ fontSize: "12px", fontWeight: 700, color: verifiedAll ? "#10B981" : mutedText }}>
+                          {verifiedAll
+                            ? (isHi ? "✓ सभी दवाएं सत्यापित" : "✓ All items verified")
+                            : (isHi ? "वितरण के लिए प्रत्येक पर सही का निशान लगाएं" : "Check off items as you pick & pack")}
+                        </div>
                       </div>
                     </div>
 
@@ -1964,7 +2261,7 @@ export default function PharmacyPage({
                                       color: isDispensed ? "#FFFFFF" : mutedText,
                                     }}
                                   >
-                                    {isDispensed ? (isHi ? "सत्यापित ✓" : "VERIFIED ✓") : (isHi ? "बाकी" : "PENDING")}
+                                    {isDispensed ? (isHi ? "दी गई ✓" : "Given ✓") : (isHi ? "बाकी" : "PENDING")}
                                   </span>
                                 </div>
                               </div>
@@ -2243,7 +2540,8 @@ export default function PharmacyPage({
                               boxShadow: "0 2px 6px rgba(2, 132, 199, 0.25)",
                             }}
                           >
-                            <span>{isHi ? "काउंटर पर लें ➔" : "Dispense ➔"}</span>
+                            <span>{isHi ? "काउंटर पर लें" : "Dispense"}</span>
+                            <ArrowRight size={12} />
                           </button>
                         </div>
                       </div>
@@ -2903,7 +3201,7 @@ export default function PharmacyPage({
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
                   <thead>
                     <tr style={{ background: isDark ? "#0F172A" : "#F8FAFC", borderBottom: cardBorder }}>
-                      <th style={{ padding: "12px 14px", textAlign: "left", fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em" }}>Token / Date</th>
+                      <th style={{ padding: "12px 14px", textAlign: "left", fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em", whiteSpace: "nowrap", minWidth: "175px" }}>Token / Date</th>
                       <th style={{ padding: "12px 14px", textAlign: "left", fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em" }}>Patient Info</th>
                       <th style={{ padding: "12px 14px", textAlign: "left", fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em" }}>Care Pathway</th>
                       <th style={{ padding: "12px 14px", textAlign: "left", fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em" }}>Doctor & Diagnosis</th>
@@ -2932,7 +3230,7 @@ export default function PharmacyPage({
                           }}
                         >
                           {/* Token & Date */}
-                          <td style={{ padding: "12px 14px", verticalAlign: "middle" }}>
+                          <td style={{ padding: "12px 14px", verticalAlign: "middle", whiteSpace: "nowrap", minWidth: "175px" }}>
                             <div
                               style={{
                                 display: "inline-flex",
@@ -2950,13 +3248,24 @@ export default function PharmacyPage({
                             >
                               #{visit.token_number || visit.ticket_id}
                             </div>
-                            <div style={{ fontSize: "11px", color: mutedText, marginTop: "4px", display: "flex", alignItems: "center", gap: "4px" }}>
-                              <Calendar size={11} color={mutedText} />
-                              <span>{dateDisplay}</span>
+                            <div
+                              style={{
+                                fontSize: "11px",
+                                color: mutedText,
+                                marginTop: "4px",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "5px",
+                                whiteSpace: "nowrap",
+                                flexWrap: "nowrap",
+                              }}
+                            >
+                              <Calendar size={11} color={mutedText} style={{ flexShrink: 0 }} />
+                              <span style={{ whiteSpace: "nowrap", display: "inline-block" }}>{dateDisplay}</span>
                               {timeDisplay && (
                                 <>
-                                  <span style={{ opacity: 0.4 }}>•</span>
-                                  <span>{timeDisplay}</span>
+                                  <span style={{ opacity: 0.4, margin: "0 1px" }}>•</span>
+                                  <span style={{ whiteSpace: "nowrap", display: "inline-block" }}>{timeDisplay}</span>
                                 </>
                               )}
                             </div>
@@ -3027,35 +3336,87 @@ export default function PharmacyPage({
                           </td>
 
                           {/* Prescribed Medicines */}
+                          {/* Prescribed Medicines */}
                           <td style={{ padding: "12px 14px", verticalAlign: "middle" }}>
                             {details.medicines && details.medicines.length > 0 ? (
-                              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                                <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", maxWidth: "240px" }}>
-                                  {details.medicines.slice(0, 2).map((m, mIdx) => (
-                                    <span
-                                      key={mIdx}
-                                      style={{
-                                        display: "inline-flex",
-                                        alignItems: "center",
-                                        gap: "4px",
-                                        background: isDark ? "rgba(255, 255, 255, 0.05)" : "#F8FAFC",
-                                        border: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #E2E8F0",
-                                        color: textColor,
-                                        padding: "2px 7px",
-                                        borderRadius: "5px",
-                                        fontSize: "11px",
-                                        fontWeight: 600,
-                                      }}
-                                    >
-                                      <Pill size={10} color="#0284C7" />
-                                      <span>{m.name}</span>
-                                      {m.dosage && (
-                                        <span style={{ color: mutedText, fontSize: "10px", fontWeight: 500 }}>
-                                          · {m.dosage}
+                              <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
+                                {/* Dispensation Status Summary Badge */}
+                                {(() => {
+                                  const givenCount = details.medicines.filter((m) => getMedicineDispenseStatus(m, visit).isGiven).length;
+                                  const totalCount = details.medicines.length;
+                                  const allGiven = givenCount === totalCount;
+                                  const noneGiven = givenCount === 0;
+
+                                  return (
+                                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                      <span
+                                        style={{
+                                          fontSize: "10px",
+                                          fontWeight: 800,
+                                          padding: "1.5px 7px",
+                                          borderRadius: "5px",
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          gap: "4px",
+                                          background: allGiven
+                                            ? (isDark ? "rgba(16, 185, 129, 0.18)" : "#ECFDF5")
+                                            : noneGiven
+                                            ? (isDark ? "rgba(239, 68, 68, 0.18)" : "#FEF2F2")
+                                            : (isDark ? "rgba(245, 158, 11, 0.18)" : "#FEF3C7"),
+                                          color: allGiven ? "#059669" : noneGiven ? "#DC2626" : "#D97706",
+                                          border: allGiven
+                                            ? (isDark ? "1px solid rgba(16, 185, 129, 0.3)" : "1px solid #A7F3D0")
+                                            : noneGiven
+                                            ? (isDark ? "1px solid rgba(239, 68, 68, 0.3)" : "1px solid #FECACA")
+                                            : (isDark ? "1px solid rgba(245, 158, 11, 0.3)" : "1px solid #FDE68A"),
+                                        }}
+                                      >
+                                        {allGiven
+                                          ? (isHi ? `✓ सभी दी गईं (${givenCount}/${totalCount})` : `✓ All Given (${givenCount}/${totalCount})`)
+                                          : noneGiven
+                                          ? (isHi ? `✕ कोई नहीं दी गई (0/${totalCount})` : `✕ Not Given (0/${totalCount})`)
+                                          : (isHi ? `⚠ आंशिक: ${givenCount}/${totalCount} दी गईं` : `⚠ Partial: ${givenCount}/${totalCount} Given`)}
+                                      </span>
+                                    </div>
+                                  );
+                                })()}
+
+                                {/* Medicines list with individual Given / Not Given pill */}
+                                <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", maxWidth: "260px" }}>
+                                  {details.medicines.slice(0, 2).map((m, mIdx) => {
+                                    const medStatus = getMedicineDispenseStatus(m, visit);
+                                    return (
+                                      <span
+                                        key={mIdx}
+                                        style={{
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          gap: "4px",
+                                          background: medStatus.isGiven
+                                            ? (isDark ? "rgba(16, 185, 129, 0.12)" : "#F0FDF4")
+                                            : (isDark ? "rgba(239, 68, 68, 0.12)" : "#FEF2F2"),
+                                          border: medStatus.isGiven
+                                            ? (isDark ? "1px solid rgba(16, 185, 129, 0.3)" : "1px solid #BBF7D0")
+                                            : (isDark ? "1px solid rgba(239, 68, 68, 0.3)" : "1px solid #FECACA"),
+                                          color: textColor,
+                                          padding: "2px 7px",
+                                          borderRadius: "5px",
+                                          fontSize: "11px",
+                                          fontWeight: 600,
+                                        }}
+                                      >
+                                        <span style={{ color: medStatus.isGiven ? "#10B981" : "#EF4444", fontWeight: 800, fontSize: "11px" }}>
+                                          {medStatus.isGiven ? "✓" : "✕"}
                                         </span>
-                                      )}
-                                    </span>
-                                  ))}
+                                        <span>{m.name}</span>
+                                        {m.dosage && (
+                                          <span style={{ color: mutedText, fontSize: "10px", fontWeight: 500 }}>
+                                            · {m.dosage}
+                                          </span>
+                                        )}
+                                      </span>
+                                    );
+                                  })}
                                   {details.medicines.length > 2 && (
                                     <span
                                       style={{
@@ -3067,7 +3428,7 @@ export default function PharmacyPage({
                                         borderRadius: "5px",
                                         alignSelf: "center",
                                       }}
-                                      title={details.medicines.slice(2).map((m) => m.name).join(", ")}
+                                      title={details.medicines.slice(2).map((m) => `${m.name} (${getMedicineDispenseStatus(m, visit).statusText})`).join(", ")}
                                     >
                                       +{details.medicines.length - 2} more
                                     </span>
@@ -3385,8 +3746,9 @@ export default function PharmacyPage({
                   <div style={{ marginBottom: "20px", display: "grid", gridTemplateColumns: details.advice && details.followUp ? "1fr 1fr" : "1fr", gap: "12px" }}>
                     {details.advice && (
                       <div style={{ padding: "12px 14px", borderRadius: "12px", background: isDark ? "#1E293B" : "#F8FAFC", border: cardBorder }}>
-                        <div style={{ fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase" }}>
-                          📋 {isHi ? "चिकित्सक सलाह" : "Doctor Advice"}
+                        <div style={{ fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", display: "flex", alignItems: "center", gap: "5px" }}>
+                          <FileText size={12} />
+                          <span>{isHi ? "चिकित्सक सलाह" : "Doctor Advice"}</span>
                         </div>
                         <div style={{ fontSize: "12px", color: textColor, marginTop: "4px" }}>
                           {details.advice}
@@ -3395,8 +3757,9 @@ export default function PharmacyPage({
                     )}
                     {details.followUp && (
                       <div style={{ padding: "12px 14px", borderRadius: "12px", background: isDark ? "#1E293B" : "#F8FAFC", border: cardBorder }}>
-                        <div style={{ fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase" }}>
-                          📅 {isHi ? "फॉलो-अप परामर्श" : "Follow-up Consultation"}
+                        <div style={{ fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", display: "flex", alignItems: "center", gap: "5px" }}>
+                          <Calendar size={12} />
+                          <span>{isHi ? "फॉलो-अप परामर्श" : "Follow-up Consultation"}</span>
                         </div>
                         <div style={{ fontSize: "12px", color: textColor, marginTop: "4px" }}>
                           {details.followUp}

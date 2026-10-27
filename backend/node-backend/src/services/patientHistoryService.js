@@ -594,13 +594,14 @@ async function recordCompletedVisit({
 
   // Build prescription payload
   const prescriptionPayload = {
+    ...existingRx,
     doctor_name: resolvedDoc,
     diagnosis: resolvedDiag,
     medicines: resolvedMedicines,
     lab_tests: resolvedLab,
     advice: resolvedAdvice,
     follow_up: resolvedFollowUp,
-    prescribed_at: new Date().toISOString(),
+    prescribed_at: existingRx.prescribed_at || new Date().toISOString(),
   };
 
   // Update ticket with structured notes
