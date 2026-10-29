@@ -5,6 +5,7 @@
  */
 
 const express = require("express");
+const path = require("path");
 const cors = require("cors");
 const helmet = require("helmet");
 const morgan = require("morgan");
@@ -68,6 +69,9 @@ if (env.NODE_ENV !== "test") {
     })
   );
 }
+
+// Static uploaded files
+app.use("/uploads", express.static(path.resolve(__dirname, "../../uploads")));
 
 // API Routes
 app.use("/", routes);

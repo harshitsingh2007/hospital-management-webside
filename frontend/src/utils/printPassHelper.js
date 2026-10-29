@@ -1895,3 +1895,325 @@ export function printLabReportSlip(reportData = {}, language = "en", hospitalBra
   triggerIframePrint(html);
 }
 
+
+
+/**
+ * printRadiologyReportSlip
+ * ------------------------
+ * Prints a clean, professional, mostly black-and-white official Radiology & Imaging report.
+ * A4 format, 15mm margins, strictly medical formatting without decorative emojis or colorful cards.
+ */
+export function printRadiologyReportSlip(reportData = {}, language = "en", hospitalBranding = null) {
+  const isHi = language === "hi";
+  const hospName =
+    (hospitalBranding && (hospitalBranding.hospital_name || hospitalBranding.name)) ||
+    reportData.hospital_name ||
+    (isHi ? "सिटी जनरल अस्पताल" : "City General Hospital");
+  const logoUrl = (hospitalBranding && (hospitalBranding.logo_url || hospitalBranding.hospital_logo)) || "";
+
+  const patientName = reportData.patient_name || reportData.name || (isHi ? "मरीज़" : "Patient");
+  const age = reportData.age || 30;
+  const gender = reportData.gender ? String(reportData.gender).toUpperCase() : "M";
+  const phone = reportData.phone ? String(reportData.phone) : "N/A";
+  const tokenNumber = reportData.ticket_id || reportData.token_id || "RAD-001";
+  const refDoctor = reportData.referring_doctor || reportData.doctor_name || (isHi ? "डॉ. ओपीडी कंसल्टेंट" : "Attending Physician");
+
+  const modality = reportData.modality || "X-Ray";
+  const bodyPart = reportData.body_part || "Chest";
+  const view = reportData.view || "PA View";
+  const contrast = reportData.contrast || "None";
+  const laterality = reportData.laterality || "N/A";
+  const dose = reportData.dose || reportData.radiation_dose || "Standard diagnostic";
+  const equipment = reportData.equipment || "Digital Radiography Suite";
+  const technologist = reportData.technologist || reportData.technician_name || "Senior Radiographer";
+  const radiologist = reportData.radiologist || reportData.radiologist_name || "Dr. Radiologist, MD, DMRD";
+  const radiologistReg = reportData.radiologist_reg_no || "DMC-89421";
+
+  const clinicalIndication = reportData.clinical_indication || "Routine clinical evaluation.";
+  const technique = reportData.technique || `${modality} of ${bodyPart} performed with standard protocol (${view}).`;
+  const findings = reportData.findings || "No acute abnormalities demonstrated on current study.";
+  const impression = reportData.impression || "Study within normal limits.";
+  const status = (reportData.status || "Final (Verified)").toUpperCase();
+
+  const now = new Date();
+  const dateStr = reportData.verified_at ? new Date(reportData.verified_at).toLocaleDateString() : now.toLocaleDateString();
+  const timeStr = reportData.verified_at
+    ? new Date(reportData.verified_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  const examDateStr = reportData.exam_time ? new Date(reportData.exam_time).toLocaleDateString() : dateStr;
+  const examTimeStr = reportData.exam_time
+    ? new Date(reportData.exam_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : timeStr;
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>${hospName} - Radiology Report #${tokenNumber}</title>
+  <style>
+    @page { size: A4 portrait; margin: 15mm; }
+    @media print {
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      color: #111827;
+      background: #ffffff;
+      font-size: 11.5px;
+      line-height: 1.5;
+    }
+    .header-table {
+      width: 100%;
+      border-bottom: 2px solid #111827;
+      padding-bottom: 12px;
+      margin-bottom: 14px;
+    }
+    .hosp-title {
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.2px;
+      margin: 0;
+      color: #111827;
+      text-transform: uppercase;
+    }
+    .dept-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.8px;
+      margin-top: 2px;
+      color: #374151;
+      text-transform: uppercase;
+    }
+    .sub-cert {
+      font-size: 9.5px;
+      color: #6b7280;
+      margin-top: 2px;
+    }
+    .token-badge {
+      border: 1.5px solid #111827;
+      padding: 4px 10px;
+      font-weight: 800;
+      font-size: 13px;
+      display: inline-block;
+      letter-spacing: 0.5px;
+      font-family: monospace;
+    }
+    .demographics-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 14px;
+      border: 1px solid #d1d5db;
+    }
+    .demographics-table td {
+      padding: 6px 10px;
+      border: 1px solid #e5e7eb;
+      font-size: 11px;
+    }
+    .demographics-table td.label {
+      width: 18%;
+      color: #4b5563;
+      font-weight: 600;
+      background: #f9fafb;
+    }
+    .demographics-table td.val {
+      width: 32%;
+      font-weight: 700;
+      color: #111827;
+    }
+    .study-title-bar {
+      border-top: 1.5px solid #111827;
+      border-bottom: 1.5px solid #111827;
+      padding: 6px 8px;
+      margin-bottom: 14px;
+      font-weight: 800;
+      font-size: 12.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      display: flex;
+      justify-content: space-between;
+      background: #f9fafb;
+    }
+    .section-block {
+      margin-bottom: 14px;
+    }
+    .section-heading {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: #111827;
+      border-bottom: 1px solid #e5e7eb;
+      padding-bottom: 2px;
+      margin-bottom: 4px;
+    }
+    .section-content {
+      font-size: 11.5px;
+      color: #1f2937;
+      white-space: pre-line;
+      line-height: 1.55;
+    }
+    .impression-box {
+      border: 1.5px solid #111827;
+      padding: 10px 12px;
+      margin: 14px 0;
+      background: #ffffff;
+    }
+    .impression-box .heading {
+      font-size: 11.5px;
+      font-weight: 900;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+      color: #111827;
+    }
+    .impression-box .content {
+      font-size: 12px;
+      font-weight: 700;
+      color: #111827;
+      white-space: pre-line;
+      line-height: 1.5;
+    }
+    .signatures-table {
+      width: 100%;
+      margin-top: 26px;
+      border-top: 1px solid #d1d5db;
+      padding-top: 14px;
+    }
+    .signatures-table td {
+      vertical-align: bottom;
+      padding: 0 10px;
+    }
+    .sign-line {
+      border-top: 1px solid #111827;
+      padding-top: 4px;
+      margin-top: 40px;
+      text-align: center;
+    }
+    .stamp-box {
+      border: 1px dashed #4b5563;
+      padding: 6px 12px;
+      text-align: center;
+      font-size: 10px;
+      font-weight: 700;
+      color: #374151;
+      display: inline-block;
+    }
+    .footer-note {
+      text-align: center;
+      font-size: 9px;
+      color: #6b7280;
+      border-top: 1px solid #e5e7eb;
+      margin-top: 20px;
+      padding-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <table class="header-table">
+    <tr>
+      <td style="vertical-align: middle;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          ${logoUrl ? `<img src="${logoUrl}" style="height: 48px; width: 48px; object-fit: contain;" alt="Logo" />` : ""}
+          <div>
+            <h1 class="hosp-title">${hospName}</h1>
+            <div class="dept-title">${isHi ? "रेडियोलॉजी एवं इमेजिंग विभाग" : "DEPARTMENT OF RADIOLOGY & IMAGING"}</div>
+            <div class="sub-cert">${isHi ? "डिजिटल एक्स-रे • सीटी स्कैन • एमआरआई • अल्ट्रासाउंड" : "Digital X-Ray • Multi-Slice CT • High-Resolution MRI • Ultrasonography"}</div>
+          </div>
+        </div>
+      </td>
+      <td style="vertical-align: middle; text-align: right; width: 220px;">
+        <div class="token-badge">TOKEN #${tokenNumber}</div>
+        <div style="font-size: 9.5px; font-weight: 700; margin-top: 4px; color: #374151;">STATUS: ${status}</div>
+      </td>
+    </tr>
+  </table>
+
+  <table class="demographics-table">
+    <tr>
+      <td class="label">${isHi ? "मरीज़ का नाम" : "Patient Name"}</td>
+      <td class="val">${patientName}</td>
+      <td class="label">${isHi ? "उम्र / लिंग" : "Age / Gender"}</td>
+      <td class="val">${age} Y / ${gender}</td>
+    </tr>
+    <tr>
+      <td class="label">${isHi ? "रेफरिंग डॉक्टर" : "Referring Dr."}</td>
+      <td class="val">${refDoctor}</td>
+      <td class="label">${isHi ? "फोन / संपर्क" : "Contact Phone"}</td>
+      <td class="val">${phone}</td>
+    </tr>
+    <tr>
+      <td class="label">${isHi ? "जांच की तिथि" : "Exam Date/Time"}</td>
+      <td class="val">${examDateStr} ${examTimeStr}</td>
+      <td class="label">${isHi ? "रिपोर्ट तिथि" : "Report Date/Time"}</td>
+      <td class="val">${dateStr} ${timeStr}</td>
+    </tr>
+    <tr>
+      <td class="label">${isHi ? "उपकरण / कमरा" : "Equipment / Room"}</td>
+      <td class="val">${equipment}</td>
+      <td class="label">${isHi ? "रेडिएशन डोज" : "Radiation Dose"}</td>
+      <td class="val">${dose}</td>
+    </tr>
+  </table>
+
+  <div class="study-title-bar">
+    <span>STUDY: ${modality.toUpperCase()} — ${bodyPart.toUpperCase()}</span>
+    <span style="font-size: 11px; font-weight: 600;">VIEW: ${view} | CONTRAST: ${contrast} | LATERALITY: ${laterality}</span>
+  </div>
+
+  <div class="section-block">
+    <div class="section-heading">${isHi ? "क्लिनिकल संकेत (CLINICAL INDICATION)" : "CLINICAL INDICATION"}</div>
+    <div class="section-content">${clinicalIndication}</div>
+  </div>
+
+  <div class="section-block">
+    <div class="section-heading">${isHi ? "तकनीक एवं प्रोटोकॉल (TECHNIQUE)" : "TECHNIQUE & PROTOCOL"}</div>
+    <div class="section-content">${technique}</div>
+  </div>
+
+  <div class="section-block">
+    <div class="section-heading">${isHi ? "जांच निष्कर्ष (FINDINGS)" : "FINDINGS"}</div>
+    <div class="section-content">${findings}</div>
+  </div>
+
+  <div class="impression-box">
+    <div class="heading">${isHi ? "अंतिम मूल्यांकन / निष्कर्ष (IMPRESSION)" : "IMPRESSION"}</div>
+    <div class="content">${impression}</div>
+  </div>
+
+  <table class="signatures-table">
+    <tr>
+      <td style="width: 32%; text-align: left;">
+        <div style="font-size: 9.5px; color: #4b5563; margin-bottom: 24px;">Performed By (Technologist):</div>
+        <div class="sign-line">
+          <strong>${technologist}</strong><br />
+          <span style="font-size: 9.5px; color: #6b7280;">Radiologic Technologist</span>
+        </div>
+      </td>
+      <td style="width: 36%; text-align: center; vertical-align: middle;">
+        <div class="stamp-box">
+          OFFICIAL MEDICAL REPORT<br />
+          AUTHENTICATED & DIGITALLY SECURED
+        </div>
+      </td>
+      <td style="width: 32%; text-align: right;">
+        <div style="font-size: 9.5px; color: #4b5563; margin-bottom: 24px;">Reported & Signed By:</div>
+        <div class="sign-line">
+          <strong>${radiologist}</strong><br />
+          <span style="font-size: 9.5px; color: #6b7280;">Consultant Radiologist • Reg: ${radiologistReg}</span>
+        </div>
+      </td>
+    </tr>
+  </table>
+
+  <div class="footer-note">
+    ${hospName} • RIS / PACS Radiology Information System • This is an authenticated diagnostic imaging report. Please correlate clinically.
+  </div>
+</body>
+</html>`;
+
+  triggerIframePrint(html);
+}

@@ -217,6 +217,8 @@ export default function StaffRosterTab({
             if (roleFilter === "pharmacist" && !r.includes("pharma")) return false;
             if (roleFilter === "receptionist" && !r.includes("rec") && !r.includes("desk")) return false;
             if (roleFilter === "nurse" && !r.includes("nur")) return false;
+            if (roleFilter === "radiologist" && !r.includes("rad") && !r.includes("xray") && !r.includes("imaging")) return false;
+            if (roleFilter === "pathologist" && !r.includes("path") && !r.includes("lab")) return false;
             if (roleFilter === "admin" && !r.includes("admin")) return false;
         }
 
@@ -826,6 +828,8 @@ export default function StaffRosterTab({
                         { id: "all", label: isHi ? "सभी भूमिकाएं" : "All Roles" },
                         { id: "doctor", label: isHi ? "डॉक्टर" : "Doctors" },
                         { id: "pharmacist", label: isHi ? "फार्मासिस्ट" : "Pharmacists" },
+                        { id: "radiologist", label: isHi ? "रेडियोलॉजिस्ट" : "Radiologists" },
+                        { id: "pathologist", label: isHi ? "पैथोलॉजिस्ट" : "Pathologists" },
                         { id: "receptionist", label: isHi ? "डेस्क" : "Desk" },
                         { id: "nurse", label: isHi ? "नर्स" : "Nurses" },
                         { id: "admin", label: isHi ? "एडमिन" : "Admins" },

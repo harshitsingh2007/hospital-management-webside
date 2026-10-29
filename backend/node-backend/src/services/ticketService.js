@@ -396,6 +396,8 @@ async function serveNext(tenantId, department = null, deskId = null, doctorInfo 
     if (isLab(req) && isLab(cat)) return true;
     const isPharma = (d) => ["pharmacy", "pharma", "dispensary"].includes(d);
     if (isPharma(req) && isPharma(cat)) return true;
+    const isRad = (d) => ["radiology", "imaging", "xray", "x-ray", "radiology_dept", "ultrasound", "mri", "ct_scan", "ct-scan", "sonography"].includes(d);
+    if (isRad(req) && isRad(cat)) return true;
     return false;
   };
 
@@ -1057,9 +1059,9 @@ async function cancelTicket(tenantId = "city-hospital-01", ticketId, reason = "N
     };
   }
 
-  if (!["waiting", "scheduled", "on_hold", "pending"].includes(currStatus)) {
+  if (!["waiting", "scheduled", "on_hold", "pending", "serving"].includes(currStatus)) {
     const err = new Error(
-      `Cannot cancel ticket: Ticket status is '${currStatus.toUpperCase()}'. Only WAITING, SCHEDULED, or ON_HOLD tickets can be cancelled.`
+      `Cannot cancel ticket: Ticket status is '${currStatus.toUpperCase()}'. Only WAITING, SCHEDULED, ON_HOLD, or SERVING tickets can be cancelled.`
     );
     err.status = 409;
     throw err;
@@ -1077,6 +1079,7 @@ async function cancelTicket(tenantId = "city-hospital-01", ticketId, reason = "N
       data: {
         status: "cancelled",
         position: 0,
+        serve_end_time: currStatus === "serving" ? new Date() : undefined,
         cancelled_at: cancDt,
         cancellation_reason: reason,
         updated_at: new Date(),

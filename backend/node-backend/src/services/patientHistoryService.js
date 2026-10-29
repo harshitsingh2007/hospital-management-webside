@@ -182,6 +182,8 @@ function parseStructuredPrescription(rawRx, defaultDiagnosis = "") {
       advice: "",
       follow_up: "",
       doctor_name: "",
+      radiology_report: null,
+      lab_report: null,
     };
   }
 
@@ -194,6 +196,8 @@ function parseStructuredPrescription(rawRx, defaultDiagnosis = "") {
       follow_up: rawRx.follow_up || "",
       doctor_name: rawRx.doctor_name || "",
       prescribed_at: rawRx.prescribed_at || null,
+      radiology_report: rawRx.radiology_report || null,
+      lab_report: rawRx.lab_report || null,
     };
   }
 
@@ -208,6 +212,8 @@ function parseStructuredPrescription(rawRx, defaultDiagnosis = "") {
       advice: extractCleanAdvice(rawRx),
       follow_up: "",
       doctor_name: "",
+      radiology_report: null,
+      lab_report: null,
     };
   }
 }
@@ -442,8 +448,36 @@ async function getPatientReports(patientId, hospitalId = null, options = {}) {
 
   const reports = [];
   ticketsWithTests.forEach((t) => {
+    let rawObj = null;
+    try {
+      rawObj = typeof t.prescription_notes === "object" ? t.prescription_notes : JSON.parse(t.prescription_notes);
+    } catch (_) {}
+
     const rx = parseStructuredPrescription(t.prescription_notes);
     const dateStr = t.created_at ? t.created_at.toISOString().split("T")[0] : "Recent";
+
+    // When ticket has a radiology_report in prescription_notes
+    const radReport = rawObj?.radiology_report || rx.radiology_report;
+    if (radReport) {
+      const modality = radReport.modality || "Radiology";
+      const bodyPart = radReport.body_part ? ` - ${radReport.body_part}` : "";
+      reports.push({
+        id: `rad-${t.ticket_id}`,
+        ticket_id: t.ticket_id,
+        report_name: `${modality}${bodyPart}`,
+        report_type: "Radiology / Imaging",
+        report_date: dateStr,
+        status: radReport.status === "final" ? "Final (Verified)" : radReport.status === "preliminary" ? "Preliminary" : "Draft",
+        doctor_name: radReport.technologist || rx.doctor_name || "Radiology / Imaging Dept",
+        impression: radReport.impression || "",
+        findings: radReport.findings || "",
+        technique: radReport.technique || "",
+        clinical_indication: radReport.clinical_indication || "",
+        modality: radReport.modality || "",
+        images: Array.isArray(radReport.images) ? radReport.images : [],
+        url: radReport.images && radReport.images.length > 0 ? radReport.images[0].url : "#",
+      });
+    }
 
     if (rx.lab_tests && rx.lab_tests.trim() !== "") {
       const tests = String(rx.lab_tests).split(/[,;]/).map((s) => s.trim()).filter(Boolean);
@@ -461,7 +495,7 @@ async function getPatientReports(patientId, hospitalId = null, options = {}) {
       });
     }
 
-    if (t.service_category === "laboratory" || t.service_category === "radiology") {
+    if ((t.service_category === "laboratory" || t.service_category === "radiology") && !radReport) {
       reports.push({
         id: `diag-${t.ticket_id}`,
         ticket_id: t.ticket_id,

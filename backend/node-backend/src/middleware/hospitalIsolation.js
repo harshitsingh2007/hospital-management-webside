@@ -36,8 +36,24 @@ async function verifyHospitalAccess(hospitalCode, user) {
     return !!hospital;
   }
 
-  // 2. Hospital Admin / Doctor / Staff / Pharmacist: employee record attached to this hospital
-  if (role === "admin" || role === "doctor" || role === "staff" || role === "receptionist" || role === "pharmacist" || role === "nurse" || role === "technician") {
+  // 2. Hospital Admin / Doctor / Staff / Pharmacist / Pathologist / Radiologist: employee record attached to this hospital
+  const staffRoles = [
+    "admin",
+    "doctor",
+    "staff",
+    "receptionist",
+    "pharmacist",
+    "nurse",
+    "technician",
+    "pathologist",
+    "radiologist",
+    "radiology",
+    "radiographer",
+    "xray",
+    "imaging",
+    "radiology_technician",
+  ];
+  if (staffRoles.includes(role)) {
     const emp = await prisma.employees.findFirst({
       where: {
         user_id: user.id,
@@ -66,10 +82,12 @@ function hospitalIsolation(paramName = "hospital_code") {
 
       const hCode =
         req.params[paramName] ||
-        req.body.hospital_code ||
-        req.body.tenant_id ||
-        req.query.hospital_code ||
-        req.query.tenant_id;
+        req.body?.hospital_code ||
+        req.body?.tenant_id ||
+        req.query?.hospital_code ||
+        req.query?.tenant_id ||
+        req.headers["x-hospital-code"] ||
+        req.headers["x-tenant-id"];
 
       if (!hCode) {
         return next();

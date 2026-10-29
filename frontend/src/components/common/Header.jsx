@@ -130,7 +130,7 @@ export default function Header({
     if (onToggleTheme) onToggleTheme(nextTheme);
   };
 
-  const isDarkHeader = theme === "dark" && (activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "admin" || activePage === "pharmacy" || activePage === "pathology" || activePage === "doctor");
+  const isDarkHeader = theme === "dark" && (activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "admin" || activePage === "pharmacy" || activePage === "pathology" || activePage === "radiology" || activePage === "doctor");
 
   // Multi-Hospital Facility Active Display
   const [hospitalsList, setHospitalsList] = useState([]);
@@ -272,9 +272,11 @@ export default function Header({
   const isPharmacistAccess = Boolean(currentUser) && (isSuperAdmin || isPharmacist);
   const isPathologist = ["pathologist", "pathology", "lab", "lab_technician"].includes(userRole) || userDept === "pathology" || userDept === "laboratory" || userDept === "lab";
   const isPathologistAccess = Boolean(currentUser) && (isSuperAdmin || isPathologist || ["doctor", "physician", "admin"].includes(userRole));
-  const isDoctorAccess = Boolean(currentUser) && !isPharmacist && !isPathologist && (["doctor", "physician", "admin"].includes(userRole) || (isSuperAdmin && !isPharmacist));
-  const isStaffAccess = Boolean(currentUser) && !isPharmacist && !isPathologist && (["staff", "receptionist", "nurse", "admin"].includes(userRole) || (isSuperAdmin && !isPharmacist));
-  const isStaffOrDoctor = ["admin", "doctor", "staff", "receptionist", "pharmacist", "pathologist", "physician"].includes(userRole);
+  const isRadiologist = ["radiologist", "radiology", "radiographer", "xray", "imaging", "radiology_technician"].includes(userRole) || userDept === "radiology" || userDept === "imaging" || userDept === "xray" || userDept === "x-ray";
+  const isRadiologistAccess = Boolean(currentUser) && (isSuperAdmin || isRadiologist || ["doctor", "physician", "admin"].includes(userRole));
+  const isDoctorAccess = Boolean(currentUser) && !isPharmacist && !isPathologist && !isRadiologist && (["doctor", "physician", "admin"].includes(userRole) || (isSuperAdmin && !isPharmacist));
+  const isStaffAccess = Boolean(currentUser) && !isPharmacist && !isPathologist && !isRadiologist && (["staff", "receptionist", "nurse", "admin"].includes(userRole) || (isSuperAdmin && !isPharmacist));
+  const isStaffOrDoctor = ["admin", "doctor", "staff", "receptionist", "pharmacist", "pathologist", "radiologist", "physician"].includes(userRole);
   const isPatientOrGuest = !currentUser || userRole === "user" || userRole === "patient";
 
   // Hospital switcher is enabled on the patient portal for all visitors and patients
@@ -844,6 +846,8 @@ export default function Header({
               navigateTo("pharmacy");
             } else if (isPathologist) {
               navigateTo("pathology");
+            } else if (isRadiologist) {
+              navigateTo("radiology");
             } else if (role === "doctor" || role === "physician") {
               navigateTo("doctor");
             } else if (["staff", "receptionist", "nurse"].includes(role)) {
@@ -973,6 +977,32 @@ export default function Header({
                   </button>
                 )}
 
+                {/* Radiology & Imaging Workstation */}
+                {(isRadiologistAccess || isSuperAdmin) && activePage !== "doctor" && activePage !== "superadmin" && !["doctor", "physician"].includes(userRole) && (
+                  <button
+                    type="button"
+                    onClick={() => navigateTo("radiology")}
+                    className={`header-nav-btn ${activePage === "radiology" ? "active" : ""}`}
+                    style={{
+                      padding: "6px 14px",
+                      borderRadius: "10px",
+                      fontSize: "12px",
+                      fontWeight: activePage === "radiology" ? 800 : 700,
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      border: activePage === "radiology" ? "1.5px solid #6366F1" : undefined,
+                      background: activePage === "radiology" ? (isDarkHeader ? "rgba(99, 102, 241, 0.25)" : "#EEF2FF") : undefined,
+                      color: activePage === "radiology" ? (isDarkHeader ? "#818CF8" : "#4F46E5") : undefined,
+                    }}
+                    title={language === "hi" ? "रेडियोलॉजी एवं इमेजिंग वर्कस्टेशन" : "Radiology & Imaging Workstation"}
+                  >
+                    <span style={{ fontSize: "14px" }}>🩻</span>
+                    <span>{language === "hi" ? "रेडियोलॉजी / एक्स-रे" : "Radiology & X-Ray"}</span>
+                  </button>
+                )}
+
                 {/* Reception Desk (Hidden for Pharmacy Staff & SuperAdmin Portal) */}
                 {(isStaffAccess || isSuperAdmin) && !isPharmacist && activePage !== "superadmin" && (
                   <button
@@ -1055,7 +1085,7 @@ export default function Header({
         {/* 3. Right: Theme Toggle (User Portal Only), Language Selector & Patient Profile Dropdown */}
         <div style={{ display: "flex", alignItems: "center", gap: "8px", position: "relative", flexShrink: 0 }}>
           {/* Theme Toggle Switch (Available across all portals including Pharmacy, Doctor and Pathology) */}
-          {(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "admin" || activePage === "pharmacy" || activePage === "doctor" || activePage === "pathology") && (
+          {(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "admin" || activePage === "pharmacy" || activePage === "doctor" || activePage === "pathology" || activePage === "radiology") && (
             <button
               type="button"
               onClick={handleToggleTheme}

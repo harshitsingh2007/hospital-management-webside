@@ -27,6 +27,7 @@ import KioskPage from "./pages/KioskPage";
 import SuperAdminPage from "./pages/SuperAdminPage";
 import PharmacyPage from "./pages/PharmacyPage";
 import PathologyPage from "./pages/PathologyPage";
+import RadiologyPage from "./pages/RadiologyPage";
 
 import { announceTicketVoice } from "./utils/voiceSynthesizer";
 import { updateBrowserTabBrand } from "./utils/dynamicFavicon";
@@ -44,8 +45,9 @@ export function getInitialPage(user) {
   const isSuperAdminUser = userRole === "super_admin" || userRole === "superadmin" || effectiveUser?.email === "superadmin@hospital.com" || effectiveUser?.is_superadmin;
   const isPharmacistUser = ["pharmacist", "pharmacy"].includes(userRole) || (["staff", "admin"].includes(userRole) && userDept === "pharmacy");
   const isPathologistUser = ["pathologist", "pathology", "lab", "lab_technician"].includes(userRole) || (["staff", "admin"].includes(userRole) && (userDept === "pathology" || userDept === "laboratory" || userDept === "lab"));
-  const isDoctorUser = (userRole === "doctor" || userRole === "physician") && !isPharmacistUser && !isPathologistUser;
-  const isStaffUser = ["staff", "receptionist", "nurse"].includes(userRole) && !isPharmacistUser && !isPathologistUser;
+  const isRadiologistUser = ["radiologist", "radiology", "radiographer", "xray", "imaging", "radiology_technician"].includes(userRole) || (["staff", "admin"].includes(userRole) && (userDept === "radiology" || userDept === "imaging" || userDept === "xray" || userDept === "x-ray"));
+  const isDoctorUser = (userRole === "doctor" || userRole === "physician") && !isPharmacistUser && !isPathologistUser && !isRadiologistUser;
+  const isStaffUser = ["staff", "receptionist", "nurse"].includes(userRole) && !isPharmacistUser && !isPathologistUser && !isRadiologistUser;
   const path = window.location.pathname.toLowerCase();
   if (path.startsWith("/kiosk") || path.includes("kiosk") || path.includes("tv")) return "kiosk";
 
@@ -57,6 +59,7 @@ export function getInitialPage(user) {
     if (["superadmin", "super_admin", "super-admin", "owner"].includes(p)) return "superadmin";
     if (["pharmacy", "pharma", "dispense", "dispensary"].includes(p)) return "pharmacy";
     if (["pathology", "path", "lab", "laboratory"].includes(p)) return "pathology";
+    if (["radiology", "rad", "xray", "x-ray", "imaging"].includes(p)) return "radiology";
     if (["doctor"].includes(p)) {
       if (isStaffUser && !isDoctorUser) return "staff";
       return "doctor";
@@ -72,6 +75,7 @@ export function getInitialPage(user) {
       if (isSuperAdminUser) return "superadmin";
       if (isPharmacistUser) return "pharmacy";
       if (isPathologistUser) return "pathology";
+      if (isRadiologistUser) return "radiology";
       if (isDoctorUser) return "doctor";
       if (isStaffUser) return "staff";
       return "patient";
@@ -82,6 +86,7 @@ export function getInitialPage(user) {
   if (path.includes("superadmin") || path.includes("super_admin") || path.includes("super-admin")) return "superadmin";
   if (path.includes("pharmacy") || path.includes("pharma")) return "pharmacy";
   if (path.includes("pathology") || path.includes("lab")) return "pathology";
+  if (path.includes("radiology") || path.includes("xray") || path.includes("imaging")) return "radiology";
   if (path.includes("doctor")) {
     if (isStaffUser && !isDoctorUser) return "staff";
     return "doctor";
@@ -96,6 +101,7 @@ export function getInitialPage(user) {
     if (isSuperAdminUser) return "superadmin";
     if (isPharmacistUser) return "pharmacy";
     if (isPathologistUser) return "pathology";
+    if (isRadiologistUser) return "radiology";
     if (isDoctorUser) return "doctor";
     if (isStaffUser) return "staff";
     return "patient";
@@ -104,6 +110,7 @@ export function getInitialPage(user) {
   if (isSuperAdminUser) return "superadmin";
   if (isPharmacistUser) return "pharmacy";
   if (isPathologistUser) return "pathology";
+  if (isRadiologistUser) return "radiology";
   if (isDoctorUser) return "doctor";
   if (isStaffUser) return "staff";
 
@@ -199,7 +206,7 @@ export default function App() {
     try {
       localStorage.setItem("ai_queue_theme", theme);
       document.documentElement.setAttribute("data-theme", theme);
-      if (theme === "dark" && (activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "doctor" || activePage === "pharmacy" || activePage === "pathology" || activePage === "admin")) {
+      if (theme === "dark" && (activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "doctor" || activePage === "pharmacy" || activePage === "pathology" || activePage === "radiology" || activePage === "admin")) {
         document.body.classList.add("theme-dark");
         document.body.style.backgroundColor = "#090D16";
         document.body.style.color = "#F1F5F9";
@@ -349,6 +356,8 @@ export default function App() {
       targetPage = "pharmacy";
     } else if (["pathology", "path", "lab", "laboratory"].includes(lower)) {
       targetPage = "pathology";
+    } else if (["radiology", "rad", "xray", "x-ray", "imaging"].includes(lower)) {
+      targetPage = "radiology";
     } else if (["doctor", "doc"].includes(lower)) {
       targetPage = "doctor";
     } else if (["staff", "reception", "desk"].includes(lower)) {
@@ -429,18 +438,21 @@ export default function App() {
       const userDept = (currentUser.department || currentUser.primary_department || "").toLowerCase().trim();
       const isPharmacist = ["pharmacist", "pharmacy"].includes(r) || userDept === "pharmacy";
       const isPathologist = ["pathologist", "pathology", "lab", "lab_technician"].includes(r) || userDept === "pathology" || userDept === "laboratory" || userDept === "lab";
+      const isRadiologist = ["radiologist", "radiology", "radiographer", "xray", "imaging", "radiology_technician"].includes(r) || userDept === "radiology" || userDept === "imaging" || userDept === "xray" || userDept === "x-ray";
 
       if ((r === "super_admin" || r === "superadmin") && activePage === "patient") {
         navigateTo("superadmin");
-      } else if (isPharmacist && (activePage === "patient" || activePage === "doctor" || activePage === "staff" || activePage === "pathology")) {
+      } else if (isPharmacist && (activePage === "patient" || activePage === "doctor" || activePage === "staff" || activePage === "pathology" || activePage === "radiology")) {
         navigateTo("pharmacy");
-      } else if (isPathologist && (activePage === "patient" || activePage === "doctor" || activePage === "staff" || activePage === "pharmacy")) {
+      } else if (isPathologist && (activePage === "patient" || activePage === "doctor" || activePage === "staff" || activePage === "pharmacy" || activePage === "radiology")) {
         navigateTo("pathology");
+      } else if (isRadiologist && (activePage === "patient" || activePage === "doctor" || activePage === "staff" || activePage === "pharmacy" || activePage === "pathology")) {
+        navigateTo("radiology");
       } else if ((r === "doctor" || r === "physician") && activePage === "patient") {
         navigateTo("doctor");
-      } else if (["staff", "receptionist", "nurse"].includes(r) && !isPharmacist && !isPathologist && activePage === "patient") {
+      } else if (["staff", "receptionist", "nurse"].includes(r) && !isPharmacist && !isPathologist && !isRadiologist && activePage === "patient") {
         navigateTo("staff");
-      } else if (["admin"].includes(r) && !isPharmacist && !isPathologist && activePage === "patient") {
+      } else if (["admin"].includes(r) && !isPharmacist && !isPathologist && !isRadiologist && activePage === "patient") {
         navigateTo("doctor");
       }
     }
@@ -502,6 +514,7 @@ export default function App() {
     const userDept = (userData.department || userData.primary_department || "").toLowerCase().trim();
     const isPharmacistUser = ["pharmacist", "pharmacy"].includes(normalizedRole) || userDept === "pharmacy";
     const isPathologistUser = ["pathologist", "pathology", "lab", "lab_technician"].includes(normalizedRole) || (userDept === "pathology" || userDept === "laboratory" || userDept === "lab");
+    const isRadiologistUser = ["radiologist", "radiology", "radiographer", "xray", "imaging", "radiology_technician"].includes(normalizedRole) || (userDept === "radiology" || userDept === "imaging" || userDept === "xray" || userDept === "x-ray");
 
     if (normalizedRole === "super_admin" || normalizedRole === "superadmin") {
       navigateTo("superadmin");
@@ -509,6 +522,8 @@ export default function App() {
       navigateTo("pharmacy");
     } else if (isPathologistUser) {
       navigateTo("pathology");
+    } else if (isRadiologistUser) {
+      navigateTo("radiology");
     } else if (normalizedRole === "doctor" || normalizedRole === "physician") {
       navigateTo("doctor");
     } else if (["staff", "receptionist", "nurse"].includes(normalizedRole)) {
@@ -984,7 +999,7 @@ export default function App() {
       currentUser.is_superadmin === true
     )
   );
-  const isStaffOrAdmin = currentUser && ["admin", "doctor", "staff", "receptionist", "pharmacist"].includes((currentUser.role || "").toLowerCase());
+  const isStaffOrAdmin = currentUser && ["admin", "doctor", "staff", "receptionist", "pharmacist", "pathologist", "radiologist"].includes((currentUser.role || "").toLowerCase());
   const isAdmin = isStaffOrAdmin;
   const userRole = (currentUser?.role || "").toLowerCase();
   const userDept = (currentUser?.department || currentUser?.primary_department || "").toLowerCase().trim();
@@ -992,11 +1007,13 @@ export default function App() {
   const isPharmacistAccess = Boolean(currentUser) && (isSuperAdmin || isPharmacist);
   const isPathologist = ["pathologist", "pathology", "lab", "lab_technician"].includes(userRole) || userDept === "pathology" || userDept === "laboratory" || userDept === "lab";
   const isPathologistAccess = Boolean(currentUser) && (isSuperAdmin || isPathologist || ["doctor", "physician", "admin", "staff", "receptionist"].includes(userRole));
+  const isRadiologist = ["radiologist", "radiology", "radiographer", "xray", "imaging", "radiology_technician"].includes(userRole) || userDept === "radiology" || userDept === "imaging" || userDept === "xray" || userDept === "x-ray";
+  const isRadiologistAccess = Boolean(currentUser) && (isSuperAdmin || isRadiologist || ["doctor", "physician", "admin", "staff", "receptionist"].includes(userRole));
   const isPatientOrGuest = !currentUser || userRole === "user" || userRole === "patient";
-  const isDoctorAccess = Boolean(currentUser) && !isPharmacist && !isPathologist && (
+  const isDoctorAccess = Boolean(currentUser) && !isPharmacist && !isPathologist && !isRadiologist && (
     ["doctor", "physician", "admin"].includes(userRole) || (isSuperAdmin && !isPharmacist)
   );
-  const isStaffAccess = Boolean(currentUser) && !isPharmacist && !isPathologist && (
+  const isStaffAccess = Boolean(currentUser) && !isPharmacist && !isPathologist && !isRadiologist && (
     ["staff", "receptionist", "nurse", "admin"].includes(userRole) || (isSuperAdmin && !isPharmacist)
   );
   const canAccessDbInspector =
@@ -1552,6 +1569,8 @@ export default function App() {
           dept = "pharmacy";
         } else if (activePage === "pathology") {
           dept = "laboratory";
+        } else if (activePage === "radiology") {
+          dept = "radiology";
         } else if (activePage === "doctor") {
           // Clinical Doctor Consultation Desk should NEVER pull pharmacy tickets!
           dept = (adminDepartment && adminDepartment !== "all" && adminDepartment !== "pharmacy")
@@ -1767,8 +1786,8 @@ export default function App() {
 
   return (
     <div
-      className={`app-main-layout-wrapper ${(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "doctor" || activePage === "pharmacy" || activePage === "pathology" || activePage === "admin") && theme === "dark" ? "dark-theme" : ""} ${activePage === "superadmin" ? "superadmin-page-layout" : ""} ${activePage === "pathology" || activePage === "pharmacy" ? "portal-wide-layout" : ""}`}
-      style={(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "doctor" || activePage === "pharmacy" || activePage === "pathology" || activePage === "admin") && theme === "dark" ? darkAppBgStyle : appBgStyle}
+      className={`app-main-layout-wrapper ${(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "doctor" || activePage === "pharmacy" || activePage === "pathology" || activePage === "radiology" || activePage === "admin") && theme === "dark" ? "dark-theme" : ""} ${activePage === "superadmin" ? "superadmin-page-layout" : ""} ${activePage === "pathology" || activePage === "pharmacy" || activePage === "radiology" ? "portal-wide-layout" : ""}`}
+      style={(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "doctor" || activePage === "pharmacy" || activePage === "pathology" || activePage === "radiology" || activePage === "admin") && theme === "dark" ? darkAppBgStyle : appBgStyle}
     >
       {inactivityNotice && (
         <div
@@ -1858,12 +1877,12 @@ export default function App() {
           width: 100%;
         }
       `}</style>
-      <div className={`app-main-layout-inner ${activePage === "superadmin" ? "superadmin-wide" : activePage === "pathology" || activePage === "pharmacy" ? "portal-wide" : ""}`}>
+      <div className={`app-main-layout-inner ${activePage === "superadmin" ? "superadmin-wide" : activePage === "pathology" || activePage === "pharmacy" || activePage === "radiology" ? "portal-wide" : ""}`}>
         {/* Real-Time Animated Emergency Marquee & Broadcast Ribbon */}
         <EmergencyBroadcastBanner
           broadcasts={activeBroadcasts}
           currentHospitalCode={currentHospitalTenant}
-          surface={activePage === "superadmin" ? "superadmin" : activePage === "pharmacy" ? "pharmacy_desk" : activePage === "pathology" ? "pathology_desk" : activePage === "doctor" ? "doctor_desk" : activePage === "staff" ? "staff_desk" : "patient_portal"}
+          surface={activePage === "superadmin" ? "superadmin" : activePage === "pharmacy" ? "pharmacy_desk" : activePage === "pathology" ? "pathology_desk" : activePage === "radiology" ? "radiology_desk" : activePage === "doctor" ? "doctor_desk" : activePage === "staff" ? "staff_desk" : "patient_portal"}
           language={language}
           isStaffOrAdmin={Boolean(currentUser && ["admin", "doctor", "staff", "receptionist", "super_admin", "superadmin"].includes((currentUser.role || "").toLowerCase()))}
           navigateTo={navigateTo}
@@ -2075,6 +2094,39 @@ export default function App() {
               ) : (
                 <ErrorBoundary fallbackTitle="Pathology Laboratory Portal Error">
                   <PathologyPage
+                    tenantId={tenantId}
+                    currentUser={currentUser}
+                    analytics={analytics}
+                    queueSnapshot={queueSnapshot}
+                    servingTickets={servingTickets}
+                    heldTickets={heldTickets}
+                    handleServeNext={handleServeNext}
+                    refreshData={refreshData}
+                    language={language}
+                    setLanguage={setLanguage}
+                    socketRef={socketRef}
+                    navigateTo={navigateTo}
+                    hospitalBranding={hospitalBranding}
+                    theme={theme}
+                    setTheme={setTheme}
+                  />
+                </ErrorBoundary>
+              )
+            )}
+
+            {activePage === "radiology" && (
+              !isRadiologistAccess ? (
+                <AccessDeniedGuard
+                  requiredRole="radiologist"
+                  pageName="Radiology & X-Ray Imaging Portal"
+                  currentUser={currentUser}
+                  onLoginSuccess={handleLoginSuccess}
+                  navigateTo={navigateTo}
+                  language={language}
+                />
+              ) : (
+                <ErrorBoundary fallbackTitle="Radiology Imaging Portal Error">
+                  <RadiologyPage
                     tenantId={tenantId}
                     currentUser={currentUser}
                     analytics={analytics}
