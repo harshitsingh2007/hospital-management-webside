@@ -22,23 +22,27 @@ const { predictServiceDuration } = require("./aiService");
  */
 const doctorDutyStatusStore = new Map();
 
-function getDoctorDutyStatus(docId, docEmail) {
+function getDoctorDutyStatus(docId, docEmail, docCode, docName) {
   if (docId && doctorDutyStatusStore.has(String(docId))) {
     return doctorDutyStatusStore.get(String(docId));
   }
   if (docEmail && doctorDutyStatusStore.has(String(docEmail).trim().toLowerCase())) {
     return doctorDutyStatusStore.get(String(docEmail).trim().toLowerCase());
   }
+  if (docCode && doctorDutyStatusStore.has(String(docCode).trim().toLowerCase())) {
+    return doctorDutyStatusStore.get(String(docCode).trim().toLowerCase());
+  }
+  if (docName && doctorDutyStatusStore.has(String(docName).trim().toLowerCase())) {
+    return doctorDutyStatusStore.get(String(docName).trim().toLowerCase());
+  }
   // Return null when no status has been set — do NOT default to ACTIVE
-  // This lets the frontend know the server has no record and it should
-  // keep whatever status is persisted in localStorage.
   return null;
 }
 
 
 async function setDoctorDutyStatus(docIdentifier, statusData = {}) {
   const status = String(statusData.status || "ACTIVE").toUpperCase();
-  const validStatuses = ["ACTIVE", "ON_BREAK", "EMERGENCY_ROUND", "OFF_DUTY", "SHIFT_ENDED"];
+  const validStatuses = ["ACTIVE", "PROCESSING", "ON_BREAK", "EMERGENCY_ROUND", "OFF_DUTY", "SHIFT_ENDED"];
   const finalStatus = validStatuses.includes(status) ? status : "ACTIVE";
 
   const existing = getDoctorDutyStatus(docIdentifier, docIdentifier);
@@ -49,25 +53,41 @@ async function setDoctorDutyStatus(docIdentifier, statusData = {}) {
     status_changed_at: (existing && !isStatusChanging) ? (existing.status_changed_at || Date.now()) : Date.now(),
     break_type: statusData.break_type || null,
     note: statusData.note || "",
-    doctor_name: statusData.doctor_name || (existing && existing.doctor_name) || "",
+    doctor_name: statusData.doctor_name || statusData.staff_name || statusData.name || (existing && existing.doctor_name) || "",
     updated_at: Date.now(),
   };
 
   const key = String(docIdentifier).trim().toLowerCase();
   doctorDutyStatusStore.set(key, record);
   if (statusData.userId) doctorDutyStatusStore.set(String(statusData.userId), record);
+  if (statusData.user_id) doctorDutyStatusStore.set(String(statusData.user_id), record);
+  if (statusData.employeeId) doctorDutyStatusStore.set(String(statusData.employeeId), record);
+  if (statusData.employee_id) doctorDutyStatusStore.set(String(statusData.employee_id), record);
+  if (statusData.employeeCode) doctorDutyStatusStore.set(String(statusData.employeeCode).trim().toLowerCase(), record);
+  if (statusData.employee_code) doctorDutyStatusStore.set(String(statusData.employee_code).trim().toLowerCase(), record);
   if (statusData.email) doctorDutyStatusStore.set(String(statusData.email).trim().toLowerCase(), record);
+  if (statusData.doctor_email) doctorDutyStatusStore.set(String(statusData.doctor_email).trim().toLowerCase(), record);
+  if (statusData.staff_email) doctorDutyStatusStore.set(String(statusData.staff_email).trim().toLowerCase(), record);
+  if (statusData.doctor_name) doctorDutyStatusStore.set(String(statusData.doctor_name).trim().toLowerCase(), record);
+  if (statusData.staff_name) doctorDutyStatusStore.set(String(statusData.staff_name).trim().toLowerCase(), record);
+  if (statusData.name) doctorDutyStatusStore.set(String(statusData.name).trim().toLowerCase(), record);
 
   // Persist status to employees table in DB so all services and restarts stay in sync
   try {
-    const targetEmail = statusData.email || (String(docIdentifier).includes("@") ? String(docIdentifier).trim().toLowerCase() : null);
-    const targetUserId = statusData.userId || (!isNaN(Number(docIdentifier)) ? Number(docIdentifier) : null);
+    const targetEmail = statusData.email || statusData.doctor_email || statusData.staff_email || (String(docIdentifier).includes("@") ? String(docIdentifier).trim().toLowerCase() : null);
+    const targetUserId = statusData.userId || statusData.user_id || (!isNaN(Number(docIdentifier)) ? Number(docIdentifier) : null);
+    const targetEmpId = statusData.employeeId || statusData.employee_id || (!isNaN(Number(docIdentifier)) ? Number(docIdentifier) : null);
+    const targetEmpCode = statusData.employeeCode || statusData.employee_code || (isNaN(Number(docIdentifier)) && !String(docIdentifier).includes("@") ? String(docIdentifier).trim() : null);
+    const targetName = statusData.doctor_name || statusData.staff_name || statusData.name || null;
 
     const empStatus = (finalStatus === "OFF_DUTY" || finalStatus === "SHIFT_ENDED") ? "off_duty" : (finalStatus === "ACTIVE" ? "active" : finalStatus.toLowerCase());
 
     const orClauses = [];
     if (targetEmail) orClauses.push({ email: targetEmail });
     if (targetUserId) orClauses.push({ user_id: targetUserId });
+    if (targetEmpId) orClauses.push({ id: targetEmpId });
+    if (targetEmpCode) orClauses.push({ employee_code: targetEmpCode });
+    if (targetName) orClauses.push({ name: targetName });
 
     if (orClauses.length > 0) {
       await prisma.employees.updateMany({
@@ -366,6 +386,19 @@ async function serveNext(tenantId, department = null, deskId = null, doctorInfo 
   const filterDept = String(actualDept || "").trim().toLowerCase();
   const today = getCurrentQueueDate();
 
+  // Helper to match department/service categories with support for aliases (e.g. pathology <-> laboratory)
+  const isDeptMatch = (ticketCat, requestedDept) => {
+    if (!requestedDept || requestedDept === "all") return true;
+    const req = String(requestedDept).trim().toLowerCase();
+    const cat = String(ticketCat || "").trim().toLowerCase();
+    if (req === cat) return true;
+    const isLab = (d) => ["pathology", "laboratory", "lab", "pathology_lab", "diagnostic", "diagnostics"].includes(d);
+    if (isLab(req) && isLab(cat)) return true;
+    const isPharma = (d) => ["pharmacy", "pharma", "dispensary"].includes(d);
+    if (isPharma(req) && isPharma(cat)) return true;
+    return false;
+  };
+
   // Normalize doctor info
   let docId = null;
   let docName = null;
@@ -496,7 +529,7 @@ async function serveNext(tenantId, department = null, deskId = null, doctorInfo 
       const dutyDocEmail = docEmail || empRec.email || empRec.users?.email;
       const dutyStatusInfo = getDoctorDutyStatus(dutyDocId, dutyDocEmail);
 
-      if (dutyStatusInfo && dutyStatusInfo.status && dutyStatusInfo.status !== "ACTIVE") {
+      if (dutyStatusInfo && dutyStatusInfo.status && dutyStatusInfo.status !== "ACTIVE" && dutyStatusInfo.status !== "PROCESSING") {
         const statusLabels = {
           ON_BREAK: "on Tea / Lunch Break",
           EMERGENCY_ROUND: "on Emergency / ICU Round",
@@ -517,7 +550,7 @@ async function serveNext(tenantId, department = null, deskId = null, doctorInfo 
       const usr = empRec.users;
       const lastLogin = usr?.last_login_at ? new Date(usr.last_login_at).getTime() : null;
       const isStale = !lastLogin || (Date.now() - lastLogin > SESSION_MAX_AGE_MS);
-      const isOnline = ["active", "on_break", "emergency_round"].includes(empRec.status) && usr?.status === "active" && !isStale;
+      const isOnline = ["active", "processing", "on_break", "emergency_round"].includes(empRec.status) && usr?.status === "active" && !isStale;
 
       if (!isOnline) {
         const err = new Error(
@@ -580,7 +613,7 @@ async function serveNext(tenantId, department = null, deskId = null, doctorInfo 
       (t) =>
         t.status === "serving" &&
         parseQueueDate(t.queue_date) === today &&
-        String(t.service_category).trim().toLowerCase() === filterDept
+        (isDeptMatch(t.service_category, filterDept) || isDeptMatch(t.department, filterDept))
     );
     const maxCounters = tenant.active_counters || 2;
     if (activeServing.length >= maxCounters) {
@@ -610,7 +643,7 @@ async function serveNext(tenantId, department = null, deskId = null, doctorInfo 
       continue;
     }
 
-    if (filterDept && filterDept !== "all" && String(t.service_category).trim().toLowerCase() !== filterDept) {
+    if (filterDept && filterDept !== "all" && !isDeptMatch(t.service_category, filterDept) && !isDeptMatch(t.department, filterDept)) {
       tempPopped.push(item);
       continue;
     }
@@ -699,7 +732,44 @@ async function completeTicket(tenantId, ticketId, department = null, prescriptio
   }
 
   if (prescriptionNotes) {
+    try {
+      let parsed = typeof prescriptionNotes === "object" ? prescriptionNotes : JSON.parse(prescriptionNotes);
+      if (parsed && Array.isArray(parsed.medicines)) {
+        parsed.medicines = parsed.medicines.map((m) => {
+          const isExplicitlyGiven = m.dispensed === true || m.given === true ||
+            String(m.dispense_status || "").toLowerCase() === "given" ||
+            String(m.status || "").toLowerCase() === "dispensed";
+          return {
+            ...m,
+            dispensed: isExplicitlyGiven,
+            given: isExplicitlyGiven,
+            dispense_status: isExplicitlyGiven ? "given" : "not_given",
+            status: isExplicitlyGiven ? "dispensed" : "not_dispensed",
+          };
+        });
+        prescriptionNotes = parsed;
+      }
+    } catch (_) {}
     ticket.prescription_notes = typeof prescriptionNotes === "object" ? JSON.stringify(prescriptionNotes) : String(prescriptionNotes);
+  } else if (ticket.prescription_notes) {
+    try {
+      let parsed = JSON.parse(ticket.prescription_notes);
+      if (parsed && Array.isArray(parsed.medicines)) {
+        parsed.medicines = parsed.medicines.map((m) => {
+          const isExplicitlyGiven = m.dispensed === true || m.given === true ||
+            String(m.dispense_status || "").toLowerCase() === "given" ||
+            String(m.status || "").toLowerCase() === "dispensed";
+          return {
+            ...m,
+            dispensed: isExplicitlyGiven,
+            given: isExplicitlyGiven,
+            dispense_status: isExplicitlyGiven ? "given" : "not_given",
+            status: isExplicitlyGiven ? "dispensed" : "not_dispensed",
+          };
+        });
+        ticket.prescription_notes = JSON.stringify(parsed);
+      }
+    } catch (_) {}
   }
 
   ticket.status = "completed";
@@ -987,9 +1057,9 @@ async function cancelTicket(tenantId = "city-hospital-01", ticketId, reason = "N
     };
   }
 
-  if (!["waiting", "scheduled"].includes(currStatus)) {
+  if (!["waiting", "scheduled", "on_hold", "pending"].includes(currStatus)) {
     const err = new Error(
-      `Cannot cancel ticket: Ticket status is '${currStatus.toUpperCase()}'. Only WAITING or SCHEDULED tickets can be cancelled.`
+      `Cannot cancel ticket: Ticket status is '${currStatus.toUpperCase()}'. Only WAITING, SCHEDULED, or ON_HOLD tickets can be cancelled.`
     );
     err.status = 409;
     throw err;
@@ -1606,6 +1676,14 @@ async function saveTicketPrescription(tenantId, ticketId, prescriptionData) {
 
   if (!ticket) {
     throw new Error(`Ticket #${ticketId} not found.`);
+  }
+
+  // Rule 4: Reject any update request when consultation status is COMPLETED
+  if (ticket.status && String(ticket.status).trim().toLowerCase() === "completed") {
+    const err = new Error("Consultation is completed. Status cannot be modified.");
+    err.status = 400;
+    err.statusCode = 400;
+    throw err;
   }
 
   const notesStr = typeof prescriptionData === "object" ? JSON.stringify(prescriptionData) : String(prescriptionData);

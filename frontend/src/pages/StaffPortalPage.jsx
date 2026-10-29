@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { API_BASE, HOSPITAL_CONFIG } from "../config/hospitalConfig";
 import { t, getCategoryLabel, getStatusLabel, formatCleanText, SYMPTOM_OPTIONS } from "../utils/i18n";
@@ -327,6 +325,23 @@ export default function StaffPortalPage({
       if (refreshData) refreshData();
     };
 
+    const handleIncomingAnnouncement = (data) => {
+      const ticket = data?.ticket || data?.detail?.ticket || (data?.ticket_id ? data : null);
+      if (ticket && ticket.ticket_id) {
+        const tId = ticket.ticket_id;
+        const pName = ticket.name || ticket.patient_name || (isHi ? "मरीज़" : "Patient");
+        const dept = ticket.service_category || ticket.department || "Pathology / Lab";
+        setAnnouncementMsg(
+          isHi
+            ? `🔊 लाउडस्पीकर प्रसारण: टोकन #${tId} (${pName}) को ${dept} विभाग में बुलाया गया!`
+            : `🔊 Loudspeaker Announcement: Token #${tId} (${pName}) called to ${dept}!`
+        );
+        setTimeout(() => setAnnouncementMsg(""), 5000);
+        announceTicketVoice(ticket, language);
+      }
+      handleRealtimeUpdate(data);
+    };
+
     // 1. WebSocket Listeners (with interval attachment in case socket connects after mount)
     let attachedSocket = null;
     const attachSocketListeners = () => {
@@ -336,9 +351,10 @@ export default function StaffPortalPage({
           attachedSocket.off("queue_updated", handleRealtimeUpdate);
           attachedSocket.off("queue_update", handleRealtimeUpdate);
           attachedSocket.off("ticket_created", handleRealtimeUpdate);
-          attachedSocket.off("now_serving", handleRealtimeUpdate);
+          attachedSocket.off("now_serving", handleIncomingAnnouncement);
           attachedSocket.off("appointment_updated", handleRealtimeUpdate);
-          attachedSocket.off("ticket_called", handleRealtimeUpdate);
+          attachedSocket.off("ticket_called", handleIncomingAnnouncement);
+          attachedSocket.off("ticket_announced", handleIncomingAnnouncement);
           attachedSocket.off("ticket_completed", handleRealtimeUpdate);
           attachedSocket.off("ticket_cancelled", handleRealtimeUpdate);
           attachedSocket.off("ticket_transferred", handleRealtimeUpdate);
@@ -346,15 +362,16 @@ export default function StaffPortalPage({
           attachedSocket.off("ticket_priority_updated", handleRealtimeUpdate);
           attachedSocket.off("priority_changed", handleRealtimeUpdate);
           attachedSocket.off("ticket_held", handleRealtimeUpdate);
-          attachedSocket.off("ticket_recalled", handleRealtimeUpdate);
+          attachedSocket.off("ticket_recalled", handleIncomingAnnouncement);
         }
         attachedSocket = socket;
         socket.on("queue_updated", handleRealtimeUpdate);
         socket.on("queue_update", handleRealtimeUpdate);
         socket.on("ticket_created", handleRealtimeUpdate);
-        socket.on("now_serving", handleRealtimeUpdate);
+        socket.on("now_serving", handleIncomingAnnouncement);
         socket.on("appointment_updated", handleRealtimeUpdate);
-        socket.on("ticket_called", handleRealtimeUpdate);
+        socket.on("ticket_called", handleIncomingAnnouncement);
+        socket.on("ticket_announced", handleIncomingAnnouncement);
         socket.on("ticket_completed", handleRealtimeUpdate);
         socket.on("ticket_cancelled", handleRealtimeUpdate);
         socket.on("ticket_transferred", handleRealtimeUpdate);
@@ -362,7 +379,7 @@ export default function StaffPortalPage({
         socket.on("ticket_priority_updated", handleRealtimeUpdate);
         socket.on("priority_changed", handleRealtimeUpdate);
         socket.on("ticket_held", handleRealtimeUpdate);
-        socket.on("ticket_recalled", handleRealtimeUpdate);
+        socket.on("ticket_recalled", handleIncomingAnnouncement);
       }
     };
 
@@ -387,7 +404,6 @@ export default function StaffPortalPage({
       "ticket_held",
       "ticket_recalled",
       "ticket_completed",
-      "now_serving",
       "ticket_noshow",
       "appointment_updated",
       "storage",
@@ -397,13 +413,23 @@ export default function StaffPortalPage({
       window.addEventListener(evName, handleRealtimeUpdate);
     });
 
+    const announceEventNames = ["now_serving", "ticket_called", "ticket_announced", "ticket_recalled"];
+    announceEventNames.forEach((evName) => {
+      window.addEventListener(evName, handleIncomingAnnouncement);
+    });
+
     // 3. Cross-Tab / Cross-Window BroadcastChannel
     let bc = null;
     try {
       if (typeof BroadcastChannel !== "undefined") {
         bc = new BroadcastChannel("hospital_live_queue_sync");
         bc.onmessage = (event) => {
-          handleRealtimeUpdate(event.data);
+          const d = event.data;
+          if (d && (d.type === "now_serving" || d.type === "ticket_called" || d.type === "ticket_announced" || d.type === "ticket_recalled")) {
+            handleIncomingAnnouncement(d);
+          } else {
+            handleRealtimeUpdate(d);
+          }
         };
       }
     } catch (e) { }
@@ -432,9 +458,10 @@ export default function StaffPortalPage({
         attachedSocket.off("queue_updated", handleRealtimeUpdate);
         attachedSocket.off("queue_update", handleRealtimeUpdate);
         attachedSocket.off("ticket_created", handleRealtimeUpdate);
-        attachedSocket.off("now_serving", handleRealtimeUpdate);
+        attachedSocket.off("now_serving", handleIncomingAnnouncement);
         attachedSocket.off("appointment_updated", handleRealtimeUpdate);
-        attachedSocket.off("ticket_called", handleRealtimeUpdate);
+        attachedSocket.off("ticket_called", handleIncomingAnnouncement);
+        attachedSocket.off("ticket_announced", handleIncomingAnnouncement);
         attachedSocket.off("ticket_completed", handleRealtimeUpdate);
         attachedSocket.off("ticket_cancelled", handleRealtimeUpdate);
         attachedSocket.off("ticket_transferred", handleRealtimeUpdate);
@@ -442,10 +469,13 @@ export default function StaffPortalPage({
         attachedSocket.off("ticket_priority_updated", handleRealtimeUpdate);
         attachedSocket.off("priority_changed", handleRealtimeUpdate);
         attachedSocket.off("ticket_held", handleRealtimeUpdate);
-        attachedSocket.off("ticket_recalled", handleRealtimeUpdate);
+        attachedSocket.off("ticket_recalled", handleIncomingAnnouncement);
       }
       eventNames.forEach((evName) => {
         window.removeEventListener(evName, handleRealtimeUpdate);
+      });
+      announceEventNames.forEach((evName) => {
+        window.removeEventListener(evName, handleIncomingAnnouncement);
       });
       if (bc) bc.close();
       window.removeEventListener("focus", handleFocus);

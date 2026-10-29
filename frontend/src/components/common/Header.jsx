@@ -1054,8 +1054,8 @@ export default function Header({
 
         {/* 3. Right: Theme Toggle (User Portal Only), Language Selector & Patient Profile Dropdown */}
         <div style={{ display: "flex", alignItems: "center", gap: "8px", position: "relative", flexShrink: 0 }}>
-          {/* Theme Toggle Switch (Available across all portals including Pharmacy and Doctor) */}
-          {(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "admin" || activePage === "pharmacy" || activePage === "doctor") && (
+          {/* Theme Toggle Switch (Available across all portals including Pharmacy, Doctor and Pathology) */}
+          {(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "admin" || activePage === "pharmacy" || activePage === "doctor" || activePage === "pathology") && (
             <button
               type="button"
               onClick={handleToggleTheme}

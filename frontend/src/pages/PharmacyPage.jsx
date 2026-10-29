@@ -27,9 +27,363 @@ import {
   Phone,
   Save,
   XCircle,
-  Check
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Filter,
+  RotateCcw
 } from "lucide-react";
 import * as XLSX from "xlsx";
+
+/**
+ * Reusable Sub-Components for Pharmacy Dispensing & Visit Queue
+ */
+function StatusBadge({ status, isHi, isDark }) {
+  const rawStatus = String(status || "").toLowerCase().trim();
+  let label = isHi ? "पूर्ण" : "Completed";
+  let color = "#059669";
+  let bg = isDark ? "rgba(16, 185, 129, 0.16)" : "#ECFDF5";
+  let border = isDark ? "rgba(16, 185, 129, 0.35)" : "#A7F3D0";
+  let dotColor = "#10B981";
+
+  if (rawStatus === "serving" || rawStatus === "in_progress" || rawStatus === "transferred") {
+    label = isHi ? "प्रगति में" : "In Progress";
+    color = isDark ? "#38BDF8" : "#0284C7";
+    bg = isDark ? "rgba(2, 132, 199, 0.16)" : "#F0F9FF";
+    border = isDark ? "rgba(2, 132, 199, 0.35)" : "#BAE6FD";
+    dotColor = "#0284C7";
+  } else if (rawStatus === "waiting" || rawStatus === "pending") {
+    label = isHi ? "प्रतीक्षारत" : "Pending";
+    color = isDark ? "#FBBF24" : "#D97706";
+    bg = isDark ? "rgba(245, 158, 11, 0.16)" : "#FFFBEB";
+    border = isDark ? "rgba(245, 158, 11, 0.35)" : "#FDE68A";
+    dotColor = "#F59E0B";
+  } else if (rawStatus === "cancelled" || rawStatus === "no_show") {
+    label = isHi ? "रद्द" : "Cancelled";
+    color = isDark ? "#F87171" : "#DC2626";
+    bg = isDark ? "rgba(239, 68, 68, 0.16)" : "#FEF2F2";
+    border = isDark ? "rgba(239, 68, 68, 0.35)" : "#FECACA";
+    dotColor = "#EF4444";
+  }
+
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "6px",
+        padding: "4px 9px",
+        borderRadius: "6px",
+        fontSize: "11px",
+        fontWeight: 700,
+        letterSpacing: "0.2px",
+        background: bg,
+        color: color,
+        border: `1px solid ${border}`,
+        whiteSpace: "nowrap",
+        userSelect: "none",
+      }}
+    >
+      <span
+        style={{
+          width: "6px",
+          height: "6px",
+          borderRadius: "50%",
+          background: dotColor,
+          display: "inline-block",
+        }}
+      />
+      <span>{label}</span>
+    </span>
+  );
+}
+
+function TokenDateTimeCell({ visit, isDark, mutedText }) {
+  const formatDateTime = (dateStr, createdAt) => {
+    if (createdAt) {
+      const d = new Date(createdAt);
+      if (!isNaN(d.getTime())) {
+        const dateFormatted = d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+        const timeFormatted = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true }).toLowerCase();
+        return `${dateFormatted}, ${timeFormatted}`;
+      }
+    }
+    if (dateStr) {
+      const parts = String(dateStr).split("-");
+      if (parts.length === 3) {
+        const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+      }
+      return dateStr;
+    }
+    return "Today";
+  };
+
+  return (
+    <div>
+      <div
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "4px",
+          background: isDark ? "rgba(2, 132, 199, 0.15)" : "#F0F9FF",
+          border: isDark ? "1px solid rgba(2, 132, 199, 0.3)" : "1px solid #BAE6FD",
+          color: isDark ? "#38BDF8" : "#0284C7",
+          padding: "3px 9px",
+          borderRadius: "6px",
+          fontWeight: 800,
+          fontFamily: "monospace",
+          fontSize: "12px",
+          whiteSpace: "nowrap",
+        }}
+      >
+        #{visit.token_number || visit.ticket_id}
+      </div>
+      <div
+        style={{
+          fontSize: "11px",
+          color: mutedText,
+          marginTop: "6px",
+          display: "flex",
+          alignItems: "center",
+          gap: "4px",
+          whiteSpace: "nowrap",
+        }}
+      >
+        <Calendar size={11} color={mutedText} style={{ flexShrink: 0 }} />
+        <span>{formatDateTime(visit.queue_date, visit.created_at)}</span>
+      </div>
+    </div>
+  );
+}
+
+function PatientCell({ visit, textColor, mutedText }) {
+  const ageText = visit.age ? `${visit.age}y` : "Age N/A";
+  const genderText = visit.gender || "Patient";
+
+  return (
+    <div>
+      <div
+        style={{
+          fontWeight: 800,
+          color: textColor,
+          fontSize: "13px",
+          letterSpacing: "-0.2px",
+          lineHeight: "1.3",
+        }}
+      >
+        {visit.patient_name || "Unknown Patient"}
+      </div>
+      <div
+        style={{
+          fontSize: "11px",
+          color: mutedText,
+          marginTop: "3px",
+          display: "flex",
+          alignItems: "center",
+          gap: "5px",
+          whiteSpace: "nowrap",
+        }}
+      >
+        <span>{ageText}</span>
+        <span style={{ opacity: 0.4 }}>·</span>
+        <span style={{ textTransform: "capitalize" }}>{genderText}</span>
+      </div>
+      {visit.phone && (
+        <div
+          style={{
+            fontSize: "11px",
+            color: mutedText,
+            marginTop: "2px",
+            display: "flex",
+            alignItems: "center",
+            gap: "4px",
+            whiteSpace: "nowrap",
+          }}
+        >
+          <Phone size={10} color={mutedText} style={{ flexShrink: 0 }} />
+          <span style={{ fontFamily: "monospace" }}>{visit.phone}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CarePathwayCell({ visit, isDark, textColor, mutedText }) {
+  const originDept = (visit.origin_department || "OPD")
+    .replace(/General Consultation\s*\(OPD\)/i, "OPD")
+    .replace(/Pharmacy\s*&\s*Medicine/i, "Pharmacy");
+  const destDept = (visit.department || "Pharmacy")
+    .replace(/Pharmacy\s*&\s*Medicine/i, "Pharmacy");
+
+  const isSameDept =
+    originDept.trim().toLowerCase() === destDept.trim().toLowerCase() ||
+    (originDept.toLowerCase().includes("pharm") && destDept.toLowerCase().includes("pharm"));
+
+  const formatDuration = (mins) => {
+    if (mins === undefined || mins === null || mins === "") return null;
+    const num = parseFloat(mins);
+    if (isNaN(num) || num <= 0) return null;
+    if (num < 1) return "< 1 min";
+    if (num < 60) return `${Math.round(num)} min`;
+    const hrs = Math.floor(num / 60);
+    const rem = Math.round(num % 60);
+    return rem > 0 ? `${hrs} h ${rem} min` : `${hrs} h`;
+  };
+
+  const readableDuration = formatDuration(visit.service_duration_minutes);
+
+  return (
+    <div>
+      {isSameDept ? (
+        <span
+          style={{
+            display: "inline-block",
+            padding: "3px 8px",
+            borderRadius: "6px",
+            background: isDark ? "rgba(2, 132, 199, 0.12)" : "#F0F9FF",
+            border: isDark ? "1px solid rgba(2, 132, 199, 0.25)" : "1px solid #BAE6FD",
+            color: isDark ? "#38BDF8" : "#0284C7",
+            fontSize: "11.5px",
+            fontWeight: 700,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {destDept}
+        </span>
+      ) : (
+        <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "11.5px", fontWeight: 700, whiteSpace: "nowrap" }}>
+          <span style={{ color: textColor }}>{originDept}</span>
+          <ArrowRight size={11} color={mutedText} style={{ flexShrink: 0 }} />
+          <span style={{ color: isDark ? "#38BDF8" : "#0284C7" }}>{destDept}</span>
+        </div>
+      )}
+      {readableDuration && (
+        <div style={{ fontSize: "11px", color: mutedText, marginTop: "5px", display: "flex", alignItems: "center", gap: "4px", whiteSpace: "nowrap" }}>
+          <Clock size={10} color={mutedText} style={{ flexShrink: 0 }} />
+          <span>{readableDuration}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DoctorDiagnosisCell({ details, isDark, textColor, mutedText }) {
+  const diagnosis = details.diagnosis || "";
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", fontWeight: 700, color: textColor, whiteSpace: "nowrap" }}>
+        <Stethoscope size={13} color="#0284C7" style={{ flexShrink: 0 }} />
+        <span>{details.doctorName || "OPD Doctor"}</span>
+      </div>
+      {diagnosis ? (
+        <div
+          title={diagnosis}
+          style={{
+            marginTop: "5px",
+            maxWidth: "240px",
+            fontSize: "11px",
+            fontWeight: 600,
+            color: isDark ? "#93C5FD" : "#1D4ED8",
+            background: isDark ? "rgba(59, 130, 246, 0.12)" : "#EFF6FF",
+            border: isDark ? "1px solid rgba(59, 130, 246, 0.25)" : "1px solid #DBEAFE",
+            padding: "3px 8px",
+            borderRadius: "6px",
+            lineHeight: "1.35",
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            cursor: "help",
+          }}
+        >
+          {diagnosis}
+        </div>
+      ) : (
+        <div style={{ fontSize: "11px", color: mutedText, marginTop: "4px" }}>General OPD</div>
+      )}
+    </div>
+  );
+}
+
+function DispensedByCell({ details, textColor, mutedText }) {
+  const staffName = details.dispensedBy || "Pharmacy Staff";
+  const counterText = details.dispensedCounter || "Counter 1";
+  const timeText = details.dispensedAt
+    ? new Date(details.dispensedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true }).toLowerCase()
+    : "";
+  const counterTimeLine = timeText ? `${counterText} · ${timeText}` : counterText;
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "12px", fontWeight: 800, color: textColor, whiteSpace: "nowrap" }}>
+        <CheckCircle2 size={12} color="#10B981" style={{ flexShrink: 0 }} />
+        <span>{staffName}</span>
+      </div>
+      <div style={{ fontSize: "11px", color: mutedText, marginTop: "4px", whiteSpace: "nowrap" }}>
+        {counterTimeLine}
+      </div>
+    </div>
+  );
+}
+
+function StatusActionCell({ visit, isDark, textColor, isHi, cardBorder, onOpenDetails, onPrintRx }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "8px", flexWrap: "nowrap" }}>
+      <StatusBadge status={visit.status} isHi={isHi} isDark={isDark} />
+      <button
+        type="button"
+        onClick={() => onOpenDetails(visit)}
+        style={{
+          padding: "6px 11px",
+          borderRadius: "7px",
+          border: cardBorder,
+          background: isDark ? "#1E293B" : "#FFFFFF",
+          color: textColor,
+          fontSize: "11.5px",
+          fontWeight: 700,
+          cursor: "pointer",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "4px",
+          boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+          transition: "all 0.15s ease",
+          whiteSpace: "nowrap",
+        }}
+        title={isHi ? "पूर्ण विज़िट विवरण देखें" : "View Visit Details"}
+      >
+        <Eye size={12} color="#0284C7" />
+        <span>{isHi ? "विवरण" : "Details"}</span>
+      </button>
+      <button
+        type="button"
+        onClick={() => onPrintRx(visit)}
+        style={{
+          padding: "6px 12px",
+          borderRadius: "7px",
+          border: "none",
+          background: "#0284C7",
+          color: "#FFFFFF",
+          fontSize: "11.5px",
+          fontWeight: 800,
+          cursor: "pointer",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "4px",
+          boxShadow: "0 1px 3px rgba(2, 132, 199, 0.25)",
+          transition: "all 0.15s ease",
+          whiteSpace: "nowrap",
+        }}
+        title={isHi ? "दवा पर्ची प्रिंट करें" : "Print Doctor Prescription"}
+      >
+        <Printer size={12} color="#FFFFFF" />
+        <span>Rx</span>
+      </button>
+    </div>
+  );
+}
 
 export default function PharmacyPage({
   tenantId,
@@ -437,8 +791,11 @@ export default function PharmacyPage({
     return `${year}-${month}-${day}`;
   });
 
-  // Status filter: "all" | "completed" | "in_progress"
+  // Status filter: "all" | "completed" | "in_progress" | "pending" | "cancelled"
   const [visitStatusFilter, setVisitStatusFilter] = useState("all");
+  const [visitDoctorFilter, setVisitDoctorFilter] = useState("all");
+  const [visitPage, setVisitPage] = useState(1);
+  const [visitRowsPerPage, setVisitRowsPerPage] = useState(10);
 
   const [selectedVisitModal, setSelectedVisitModal] = useState(null);
   const [modalMedStatusMap, setModalMedStatusMap] = useState({});
@@ -667,16 +1024,11 @@ export default function PharmacyPage({
       return { isGiven: false, statusText: "Not Given", statusLabel: isHi ? "नहीं दी गई ✕" : "Not Given ✕", color: "#EF4444" };
     }
 
-    // Heuristic: If visit or its pharmacy stage is completed
-    const isComplete = (visit?.status || "").toLowerCase() === "completed";
-    const stages = Array.isArray(visit?.transfer_stages) ? visit.transfer_stages : [];
-    const pharmaStage = stages.find((s) => (s.dept_code || s.department || "").toLowerCase().includes("pharm"));
-    const isPharmaDone =
-      (pharmaStage?.status || "").toLowerCase() === "completed" ||
-      (isComplete && (visit?.dept_code || visit?.department || "").toLowerCase().includes("pharm"));
-
-    if (isPharmaDone) {
-      return { isGiven: true, statusText: "Given", statusLabel: isHi ? "दी गई ✓" : "Given ✓", color: "#10B981" };
+    // Rule 3: If an item was never marked before completion, display it as "Not Given" by default.
+    const visitStatus = String(visit?.status || "").trim().toLowerCase();
+    const isCompleted = visitStatus === "completed";
+    if (isCompleted || !visit) {
+      return { isGiven: false, statusText: "Not Given", statusLabel: isHi ? "नहीं दी गई" : "Not Given", color: "#EF4444" };
     }
 
     return { isGiven: false, statusText: "Pending", statusLabel: isHi ? "लंबित" : "Pending", color: "#F59E0B" };
@@ -697,24 +1049,44 @@ export default function PharmacyPage({
   }, [selectedVisitModal, parseVisitDetails, getMedicineDispenseStatus]);
 
   const handleToggleModalMedStatus = useCallback((idx) => {
+    if (!selectedVisitModal) return;
+    const vStatus = String(selectedVisitModal.status || "").trim().toLowerCase();
+    const isCompleted = vStatus === "completed";
+    const isInProgress = vStatus === "in_progress" || vStatus === "serving";
+    if (isCompleted || !isInProgress) {
+      showToast(isHi ? "परामर्श पूर्ण हो चुका है। स्थिति में बदलाव नहीं किया जा सकता।" : "Consultation is completed. Status cannot be modified.", "warning");
+      return;
+    }
     setModalMedStatusMap((prev) => ({
       ...prev,
       [idx]: !prev[idx],
     }));
-  }, []);
+  }, [selectedVisitModal, isHi]);
 
   const handleSetAllModalMeds = useCallback((status) => {
     if (!selectedVisitModal) return;
+    const vStatus = String(selectedVisitModal.status || "").trim().toLowerCase();
+    const isCompleted = vStatus === "completed";
+    const isInProgress = vStatus === "in_progress" || vStatus === "serving";
+    if (isCompleted || !isInProgress) {
+      showToast(isHi ? "परामर्श पूर्ण हो चुका है। स्थिति में बदलाव नहीं किया जा सकता।" : "Consultation is completed. Status cannot be modified.", "warning");
+      return;
+    }
     const details = parseVisitDetails(selectedVisitModal);
     const next = {};
     (details.medicines || []).forEach((_, idx) => {
       next[idx] = status;
     });
     setModalMedStatusMap(next);
-  }, [selectedVisitModal, parseVisitDetails]);
+  }, [selectedVisitModal, parseVisitDetails, isHi]);
 
   const modalHasChanges = useMemo(() => {
     if (!selectedVisitModal) return false;
+    const vStatus = String(selectedVisitModal.status || "").trim().toLowerCase();
+    const isCompleted = vStatus === "completed";
+    const isInProgress = vStatus === "in_progress" || vStatus === "serving";
+    if (isCompleted || !isInProgress) return false;
+
     const details = parseVisitDetails(selectedVisitModal);
     if (!details.medicines || details.medicines.length === 0) return false;
     return details.medicines.some((m, idx) => {
@@ -741,6 +1113,13 @@ export default function PharmacyPage({
   const handleSaveModalDispenseChanges = async () => {
     if (!selectedVisitModal) return;
     const visit = selectedVisitModal;
+    const vStatus = String(visit.status || "").trim().toLowerCase();
+    const isCompleted = vStatus === "completed";
+    const isInProgress = vStatus === "in_progress" || vStatus === "serving";
+    if (isCompleted || !isInProgress) {
+      showToast(isHi ? "परामर्श पूर्ण हो चुका है। स्थिति में बदलाव नहीं किया जा सकता।" : "Consultation is completed. Status cannot be modified.", "error");
+      return;
+    }
     const details = parseVisitDetails(visit);
     if (!details.medicines || details.medicines.length === 0) return;
 
@@ -959,6 +1338,18 @@ export default function PharmacyPage({
     };
   }, [pharmaScopedVisits, parseVisitDetails, checkVisitDateMatch, getTodayDateStr, getYesterdayDateStr, customVisitDate]);
 
+  // Extract unique list of doctors for the filter dropdown
+  const availableDoctors = useMemo(() => {
+    const docSet = new Set();
+    pharmaScopedVisits.forEach((v) => {
+      const details = parseVisitDetails(v);
+      if (details.doctorName && details.doctorName.trim()) {
+        docSet.add(details.doctorName.trim());
+      }
+    });
+    return Array.from(docSet).sort();
+  }, [pharmaScopedVisits, parseVisitDetails]);
+
   // Filtered visits computation
   const filteredVisits = useMemo(() => {
     let list = pharmaScopedVisits;
@@ -969,14 +1360,26 @@ export default function PharmacyPage({
       return checkVisitDateMatch(v, details, visitDateFilter, customVisitDate);
     });
 
-    // 2. Status filter: all | completed | in_progress
+    // 2. Status filter: all | completed | in_progress | pending | cancelled
     if (visitStatusFilter === "completed") {
       list = list.filter((v) => (v.status || "").toLowerCase() === "completed");
     } else if (visitStatusFilter === "in_progress") {
-      list = list.filter((v) => (v.status || "").toLowerCase() !== "completed");
+      list = list.filter((v) => ["serving", "in_progress", "transferred"].includes((v.status || "").toLowerCase()));
+    } else if (visitStatusFilter === "pending" || visitStatusFilter === "waiting") {
+      list = list.filter((v) => ["waiting", "pending"].includes((v.status || "").toLowerCase()));
+    } else if (visitStatusFilter === "cancelled") {
+      list = list.filter((v) => ["cancelled", "no_show"].includes((v.status || "").toLowerCase()));
     }
 
-    // 3. Search query
+    // 3. Doctor filter
+    if (visitDoctorFilter && visitDoctorFilter !== "all") {
+      list = list.filter((v) => {
+        const details = parseVisitDetails(v);
+        return (details.doctorName || "").trim().toLowerCase() === visitDoctorFilter.trim().toLowerCase();
+      });
+    }
+
+    // 4. Search query
     if (!visitSearchQuery.trim()) return list;
     const q = visitSearchQuery.toLowerCase().trim();
     return list.filter((v) => {
@@ -1007,8 +1410,21 @@ export default function PharmacyPage({
     visitDateFilter,
     customVisitDate,
     visitStatusFilter,
+    visitDoctorFilter,
     visitSearchQuery,
   ]);
+
+  // Reset page when filter criteria change
+  useEffect(() => {
+    setVisitPage(1);
+  }, [visitDateFilter, customVisitDate, visitStatusFilter, visitDoctorFilter, visitSearchQuery, visitRowsPerPage]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredVisits.length / visitRowsPerPage));
+  const currentPage = Math.min(visitPage, totalPages);
+  const paginatedVisits = useMemo(() => {
+    const start = (currentPage - 1) * visitRowsPerPage;
+    return filteredVisits.slice(start, start + visitRowsPerPage);
+  }, [filteredVisits, currentPage, visitRowsPerPage]);
 
   // Export visit logs to Excel
   const handleExportVisitsExcel = () => {
@@ -1560,48 +1976,108 @@ export default function PharmacyPage({
             <h1 style={{ margin: 0, fontSize: "28px", fontWeight: 900, letterSpacing: "-0.5px" }}>
               {isHi ? "फार्मेसी वितरण वर्कस्टेशन" : "Pharmacy Dispensing Workstation"}
             </h1>
-            <div style={{ margin: "10px 0 0 0", fontSize: "12.5px", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-              <span style={{ opacity: 0.85, fontSize: "12px", fontWeight: 600 }}>
-                {isHi ? "लॉगिन फार्मासिस्ट:" : "Active Pharmacist:"}
-              </span>
-              <span
+            {/* Highlighted Staff & Department One-Liner Glass Capsule */}
+            <div
+              style={{
+                marginTop: "10px",
+                display: "inline-flex",
+                alignItems: "center",
+                flexWrap: "nowrap",
+                gap: "10px",
+                background: "linear-gradient(135deg, rgba(15, 23, 42, 0.75) 0%, rgba(30, 41, 59, 0.6) 100%)",
+                border: "1.5px solid rgba(56, 189, 248, 0.45)",
+                borderRadius: "30px",
+                padding: "5px 14px 5px 6px",
+                backdropFilter: "blur(12px)",
+                boxShadow: "0 4px 15px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.15)",
+                maxWidth: "100%",
+              }}
+            >
+              {/* Avatar Icon */}
+              <div
                 style={{
-                  background: "linear-gradient(135deg, rgba(56, 189, 248, 0.28) 0%, rgba(14, 165, 233, 0.38) 100%)",
-                  border: "1.5px solid #38BDF8",
+                  width: "24px",
+                  height: "24px",
+                  borderRadius: "50%",
+                  background: "linear-gradient(135deg, #38BDF8 0%, #0284C7 100%)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
                   color: "#FFFFFF",
-                  padding: "3px 12px",
-                  borderRadius: "8px",
-                  fontWeight: 900,
-                  fontSize: "13px",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  boxShadow: "0 2px 8px rgba(56, 189, 248, 0.3)",
-                  letterSpacing: "0.2px",
+                  boxShadow: "0 2px 6px rgba(2, 132, 199, 0.4)",
+                  flexShrink: 0,
                 }}
               >
-                <User size={13} color="#38BDF8" />
-                <span>{currentUser?.name || currentUser?.username || "rajaram"}</span>
-              </span>
-              <span
-                style={{
-                  background: "linear-gradient(135deg, rgba(16, 185, 129, 0.24) 0%, rgba(5, 150, 105, 0.34) 100%)",
-                  border: "1.5px solid #10B981",
-                  color: "#A7F3D0",
-                  padding: "3px 10px",
-                  borderRadius: "8px",
-                  fontWeight: 800,
-                  fontSize: "11.5px",
-                  letterSpacing: "0.5px",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "5px",
-                  boxShadow: "0 2px 8px rgba(16, 185, 129, 0.25)",
-                }}
-              >
-                <Building2 size={12} color="#34D399" />
-                <span>DEPT: {(currentUser?.department || "PHARMACY").toUpperCase()}</span>
-              </span>
+                <User size={13} />
+              </div>
+
+              {/* Staff Name */}
+              <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                <span style={{ fontSize: "11px", fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  {isHi ? "फार्मासिस्ट:" : "Pharmacist:"}
+                </span>
+                <span
+                  style={{
+                    fontSize: "13.5px",
+                    fontWeight: 900,
+                    color: "#FFFFFF",
+                    letterSpacing: "0.2px",
+                  }}
+                >
+                  {currentUser?.name || currentUser?.username || "Pharmacist"}
+                </span>
+              </div>
+
+              {/* Subtle Divider */}
+              <span style={{ width: "1px", height: "14px", background: "rgba(255, 255, 255, 0.2)", margin: "0 2px" }} />
+
+              {/* Department */}
+              <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                <span
+                  style={{
+                    width: "7px",
+                    height: "7px",
+                    borderRadius: "50%",
+                    background: "#34D399",
+                    boxShadow: "0 0 8px #10B981, 0 0 3px #34D399",
+                    display: "inline-block",
+                    flexShrink: 0,
+                  }}
+                />
+                <span style={{ fontSize: "11px", fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  {isHi ? "विभाग:" : "Dept:"}
+                </span>
+                <span
+                  style={{
+                    fontSize: "12.5px",
+                    fontWeight: 800,
+                    color: "#34D399",
+                    letterSpacing: "0.4px",
+                  }}
+                >
+                  {(currentUser?.department || "PHARMACY").toUpperCase()}
+                </span>
+              </div>
+
+              {/* Staff ID Pill if available */}
+              {(currentUser?.employee_code || currentUser?.employee_id || currentUser?.id) && (
+                <>
+                  <span style={{ width: "1px", height: "14px", background: "rgba(255, 255, 255, 0.2)", margin: "0 2px" }} />
+                  <span
+                    style={{
+                      fontSize: "11px",
+                      fontWeight: 700,
+                      color: "rgba(255, 255, 255, 0.75)",
+                      fontFamily: "monospace",
+                      background: "rgba(255, 255, 255, 0.08)",
+                      padding: "2px 7px",
+                      borderRadius: "6px",
+                    }}
+                  >
+                    ID: {currentUser?.employee_code || currentUser?.employee_id || currentUser?.id}
+                  </span>
+                </>
+              )}
             </div>
           </div>
 
@@ -2839,298 +3315,380 @@ export default function PharmacyPage({
             {/* Filter Controls Bar */}
             <div
               style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
                 marginBottom: "20px",
-                flexWrap: "wrap",
-                gap: "12px",
-                padding: "12px 14px",
+                padding: "16px",
                 borderRadius: "14px",
                 background: isDark ? "#0B1120" : "#F8FAFC",
                 border: cardBorder,
+                display: "flex",
+                flexDirection: "column",
+                gap: "14px",
               }}
             >
-              {/* Date Filter Buttons & Date Picker */}
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                <span style={{ fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", letterSpacing: "0.5px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                  <Calendar size={13} color="#0284C7" />
-                  <span>{isHi ? "दिनांक:" : "Date:"}</span>
-                </span>
+              {/* Row 1: Date Range Presets & Custom Date Picker */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                  <span style={{ fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", letterSpacing: "0.5px", display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                    <Calendar size={13} color="#0284C7" />
+                    <span>{isHi ? "दिनांक अवधि:" : "Date Range:"}</span>
+                  </span>
 
-                <div style={{ display: "inline-flex", background: isDark ? "#1E293B" : "#E2E8F0", padding: "3px", borderRadius: "10px", alignItems: "center", gap: "3px" }}>
-                  {/* Today Button */}
-                  <button
-                    type="button"
-                    onClick={() => setVisitDateFilter("today")}
-                    style={{
-                      padding: "5px 12px",
-                      borderRadius: "7px",
-                      border: "none",
-                      background: visitDateFilter === "today" ? "#10B981" : "transparent",
-                      color: visitDateFilter === "today" ? "#FFFFFF" : textColor,
-                      fontSize: "11.5px",
-                      fontWeight: 800,
-                      cursor: "pointer",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "6px",
-                      transition: "all 0.15s ease",
-                    }}
-                  >
-                    <span>{isHi ? "आज" : "Today"}</span>
-                    <span
+                  <div style={{ display: "inline-flex", background: isDark ? "#1E293B" : "#E2E8F0", padding: "3px", borderRadius: "10px", alignItems: "center", gap: "3px" }}>
+                    {/* Today */}
+                    <button
+                      type="button"
+                      onClick={() => setVisitDateFilter("today")}
                       style={{
-                        background: visitDateFilter === "today" ? "rgba(255,255,255,0.25)" : (isDark ? "rgba(255,255,255,0.08)" : "#CBD5E1"),
-                        color: visitDateFilter === "today" ? "#FFFFFF" : mutedText,
-                        padding: "1px 6px",
-                        borderRadius: "5px",
-                        fontSize: "10px",
-                        fontWeight: 900,
+                        padding: "5px 12px",
+                        borderRadius: "7px",
+                        border: "none",
+                        background: visitDateFilter === "today" ? "#10B981" : "transparent",
+                        color: visitDateFilter === "today" ? "#FFFFFF" : textColor,
+                        fontSize: "11.5px",
+                        fontWeight: 800,
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        transition: "all 0.15s ease",
                       }}
                     >
-                      {dateCounts.today}
-                    </span>
-                  </button>
-
-                  {/* Yesterday Button */}
-                  <button
-                    type="button"
-                    onClick={() => setVisitDateFilter("yesterday")}
-                    style={{
-                      padding: "5px 12px",
-                      borderRadius: "7px",
-                      border: "none",
-                      background: visitDateFilter === "yesterday" ? "#F59E0B" : "transparent",
-                      color: visitDateFilter === "yesterday" ? "#FFFFFF" : textColor,
-                      fontSize: "11.5px",
-                      fontWeight: 800,
-                      cursor: "pointer",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "6px",
-                      transition: "all 0.15s ease",
-                    }}
-                  >
-                    <span>{isHi ? "कल" : "Yesterday"}</span>
-                    <span
-                      style={{
-                        background: visitDateFilter === "yesterday" ? "rgba(255,255,255,0.25)" : (isDark ? "rgba(255,255,255,0.08)" : "#CBD5E1"),
-                        color: visitDateFilter === "yesterday" ? "#FFFFFF" : mutedText,
-                        padding: "1px 6px",
-                        borderRadius: "5px",
-                        fontSize: "10px",
-                        fontWeight: 900,
-                      }}
-                    >
-                      {dateCounts.yesterday}
-                    </span>
-                  </button>
-
-                  {/* Date Wise Button */}
-                  <button
-                    type="button"
-                    onClick={() => setVisitDateFilter("date_wise")}
-                    style={{
-                      padding: "5px 12px",
-                      borderRadius: "7px",
-                      border: "none",
-                      background: visitDateFilter === "date_wise" ? "#0284C7" : "transparent",
-                      color: visitDateFilter === "date_wise" ? "#FFFFFF" : textColor,
-                      fontSize: "11.5px",
-                      fontWeight: 800,
-                      cursor: "pointer",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "6px",
-                      transition: "all 0.15s ease",
-                    }}
-                  >
-                    <span>{isHi ? "तिथि अनुसार" : "Date Wise"}</span>
-                    {visitDateFilter === "date_wise" && (
+                      <span>{isHi ? "आज" : "Today"}</span>
                       <span
                         style={{
-                          background: "rgba(255,255,255,0.25)",
-                          color: "#FFFFFF",
+                          background: visitDateFilter === "today" ? "rgba(255,255,255,0.25)" : (isDark ? "rgba(255,255,255,0.08)" : "#CBD5E1"),
+                          color: visitDateFilter === "today" ? "#FFFFFF" : mutedText,
                           padding: "1px 6px",
                           borderRadius: "5px",
                           fontSize: "10px",
                           fontWeight: 900,
                         }}
                       >
-                        {dateCounts.custom}
+                        {dateCounts.today}
                       </span>
-                    )}
-                  </button>
+                    </button>
 
-                  {/* All Dates Button */}
+                    {/* Yesterday */}
+                    <button
+                      type="button"
+                      onClick={() => setVisitDateFilter("yesterday")}
+                      style={{
+                        padding: "5px 12px",
+                        borderRadius: "7px",
+                        border: "none",
+                        background: visitDateFilter === "yesterday" ? "#F59E0B" : "transparent",
+                        color: visitDateFilter === "yesterday" ? "#FFFFFF" : textColor,
+                        fontSize: "11.5px",
+                        fontWeight: 800,
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      <span>{isHi ? "कल" : "Yesterday"}</span>
+                      <span
+                        style={{
+                          background: visitDateFilter === "yesterday" ? "rgba(255,255,255,0.25)" : (isDark ? "rgba(255,255,255,0.08)" : "#CBD5E1"),
+                          color: visitDateFilter === "yesterday" ? "#FFFFFF" : mutedText,
+                          padding: "1px 6px",
+                          borderRadius: "5px",
+                          fontSize: "10px",
+                          fontWeight: 900,
+                        }}
+                      >
+                        {dateCounts.yesterday}
+                      </span>
+                    </button>
+
+                    {/* Date Wise */}
+                    <button
+                      type="button"
+                      onClick={() => setVisitDateFilter("date_wise")}
+                      style={{
+                        padding: "5px 12px",
+                        borderRadius: "7px",
+                        border: "none",
+                        background: visitDateFilter === "date_wise" ? "#0284C7" : "transparent",
+                        color: visitDateFilter === "date_wise" ? "#FFFFFF" : textColor,
+                        fontSize: "11.5px",
+                        fontWeight: 800,
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      <span>{isHi ? "तिथि अनुसार" : "Date Wise"}</span>
+                      {visitDateFilter === "date_wise" && (
+                        <span
+                          style={{
+                            background: "rgba(255,255,255,0.25)",
+                            color: "#FFFFFF",
+                            padding: "1px 6px",
+                            borderRadius: "5px",
+                            fontSize: "10px",
+                            fontWeight: 900,
+                          }}
+                        >
+                          {dateCounts.custom}
+                        </span>
+                      )}
+                    </button>
+
+                    {/* All Dates */}
+                    <button
+                      type="button"
+                      onClick={() => setVisitDateFilter("all")}
+                      style={{
+                        padding: "5px 12px",
+                        borderRadius: "7px",
+                        border: "none",
+                        background: visitDateFilter === "all" ? (isDark ? "#475569" : "#64748B") : "transparent",
+                        color: visitDateFilter === "all" ? "#FFFFFF" : textColor,
+                        fontSize: "11.5px",
+                        fontWeight: 800,
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      <span>{isHi ? "सभी तिथियां" : "All Dates"}</span>
+                      <span
+                        style={{
+                          background: visitDateFilter === "all" ? "rgba(255,255,255,0.25)" : (isDark ? "rgba(255,255,255,0.08)" : "#CBD5E1"),
+                          color: visitDateFilter === "all" ? "#FFFFFF" : mutedText,
+                          padding: "1px 6px",
+                          borderRadius: "5px",
+                          fontSize: "10px",
+                          fontWeight: 900,
+                        }}
+                      >
+                        {dateCounts.all}
+                      </span>
+                    </button>
+                  </div>
+
+                  {/* Date Picker Input */}
+                  <input
+                    type="date"
+                    value={customVisitDate}
+                    onChange={(e) => {
+                      setCustomVisitDate(e.target.value);
+                      setVisitDateFilter("date_wise");
+                    }}
+                    style={{
+                      padding: "6px 10px",
+                      borderRadius: "9px",
+                      border: visitDateFilter === "date_wise" ? "1.5px solid #0284C7" : cardBorder,
+                      background: isDark ? "#1E293B" : "#FFFFFF",
+                      color: textColor,
+                      fontSize: "11.5px",
+                      fontWeight: 700,
+                      outline: "none",
+                      cursor: "pointer",
+                      boxShadow: visitDateFilter === "date_wise" ? "0 0 0 2px rgba(2, 132, 199, 0.25)" : "none",
+                    }}
+                    title={isHi ? "कस्टम तिथि का चयन करें" : "Pick custom date"}
+                  />
+                </div>
+
+                {/* Clear Filters Button if any filter is active */}
+                {(visitDateFilter !== "today" || visitStatusFilter !== "all" || visitDoctorFilter !== "all" || Boolean(visitSearchQuery.trim())) && (
                   <button
                     type="button"
-                    onClick={() => setVisitDateFilter("all")}
+                    onClick={() => {
+                      setVisitDateFilter("today");
+                      setVisitStatusFilter("all");
+                      setVisitDoctorFilter("all");
+                      setVisitSearchQuery("");
+                      setVisitPage(1);
+                    }}
                     style={{
-                      padding: "5px 12px",
-                      borderRadius: "7px",
+                      background: "none",
                       border: "none",
-                      background: visitDateFilter === "all" ? (isDark ? "#475569" : "#64748B") : "transparent",
-                      color: visitDateFilter === "all" ? "#FFFFFF" : textColor,
+                      color: "#EF4444",
+                      fontSize: "11.5px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "5px",
+                      padding: "4px 8px",
+                      borderRadius: "6px",
+                    }}
+                    title={isHi ? "सभी फ़िल्टर रीसेट करें" : "Reset all filters"}
+                  >
+                    <RotateCcw size={12} />
+                    <span>{isHi ? "फ़िल्टर रीसेट" : "Reset Filters"}</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Row 2: Status Filter, Doctor Filter, Search Box, Excel, Refresh */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", flex: 1 }}>
+                  {/* Status Dropdown */}
+                  <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+                    <select
+                      value={visitStatusFilter}
+                      onChange={(e) => {
+                        setVisitStatusFilter(e.target.value);
+                        setVisitPage(1);
+                      }}
+                      style={{
+                        padding: "7px 11px",
+                        borderRadius: "9px",
+                        border: cardBorder,
+                        background: isDark ? "#1E293B" : "#FFFFFF",
+                        color: textColor,
+                        fontSize: "11.5px",
+                        fontWeight: 700,
+                        outline: "none",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <option value="all">{isHi ? "सभी स्थितियां (All Status)" : "All Status"}</option>
+                      <option value="completed">{isHi ? "केवल पूर्ण (Completed)" : "Completed"}</option>
+                      <option value="in_progress">{isHi ? "प्रगति में (In Progress)" : "In Progress"}</option>
+                      <option value="pending">{isHi ? "प्रतीक्षारत (Pending)" : "Pending"}</option>
+                      <option value="cancelled">{isHi ? "रद्द (Cancelled)" : "Cancelled"}</option>
+                    </select>
+                  </div>
+
+                  {/* Doctor Dropdown */}
+                  {availableDoctors.length > 0 && (
+                    <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+                      <select
+                        value={visitDoctorFilter}
+                        onChange={(e) => {
+                          setVisitDoctorFilter(e.target.value);
+                          setVisitPage(1);
+                        }}
+                        style={{
+                          padding: "7px 11px",
+                          borderRadius: "9px",
+                          border: cardBorder,
+                          background: isDark ? "#1E293B" : "#FFFFFF",
+                          color: textColor,
+                          fontSize: "11.5px",
+                          fontWeight: 700,
+                          outline: "none",
+                          cursor: "pointer",
+                          maxWidth: "180px",
+                        }}
+                      >
+                        <option value="all">{isHi ? "सभी डॉक्टर (All Doctors)" : "All Doctors"}</option>
+                        {availableDoctors.map((doc) => (
+                          <option key={doc} value={doc}>
+                            {doc}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {/* Search Box */}
+                  <div style={{ position: "relative", minWidth: "220px", flex: 1, maxWidth: "340px" }}>
+                    <Search size={13} color={mutedText} style={{ position: "absolute", left: "11px", top: "50%", transform: "translateY(-50%)" }} />
+                    <input
+                      type="text"
+                      placeholder={isHi ? "मरीज़, टोकन, फ़ोन, डॉक्टर..." : "Search patient, token, phone, doctor..."}
+                      value={visitSearchQuery}
+                      onChange={(e) => {
+                        setVisitSearchQuery(e.target.value);
+                        setVisitPage(1);
+                      }}
+                      style={{
+                        padding: "7px 28px 7px 32px",
+                        borderRadius: "9px",
+                        border: cardBorder,
+                        background: isDark ? "#1E293B" : "#FFFFFF",
+                        color: textColor,
+                        fontSize: "11.5px",
+                        outline: "none",
+                        width: "100%",
+                        boxSizing: "border-box",
+                      }}
+                    />
+                    {visitSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setVisitSearchQuery("");
+                          setVisitPage(1);
+                        }}
+                        style={{
+                          position: "absolute",
+                          right: "8px",
+                          top: "50%",
+                          transform: "translateY(-50%)",
+                          background: "none",
+                          border: "none",
+                          color: mutedText,
+                          cursor: "pointer",
+                          fontSize: "11px",
+                        }}
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Excel & Refresh Controls */}
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  {/* Export to Excel */}
+                  <button
+                    type="button"
+                    onClick={handleExportVisitsExcel}
+                    style={{
+                      background: isDark ? "rgba(16, 185, 129, 0.18)" : "#ECFDF5",
+                      border: isDark ? "1px solid rgba(16, 185, 129, 0.4)" : "1px solid #A7F3D0",
+                      color: "#10B981",
+                      borderRadius: "9px",
+                      padding: "7px 12px",
                       fontSize: "11.5px",
                       fontWeight: 800,
                       cursor: "pointer",
                       display: "inline-flex",
                       alignItems: "center",
-                      gap: "6px",
-                      transition: "all 0.15s ease",
+                      gap: "5px",
                     }}
+                    title={isHi ? "फ़िल्टर किए गए रिकॉर्ड्स एक्सेल में डाउनलोड करें" : "Download filtered records to Excel"}
                   >
-                    <span>{isHi ? "सभी तिथियां" : "All Dates"}</span>
-                    <span
-                      style={{
-                        background: visitDateFilter === "all" ? "rgba(255,255,255,0.25)" : (isDark ? "rgba(255,255,255,0.08)" : "#CBD5E1"),
-                        color: visitDateFilter === "all" ? "#FFFFFF" : mutedText,
-                        padding: "1px 6px",
-                        borderRadius: "5px",
-                        fontSize: "10px",
-                        fontWeight: 900,
-                      }}
-                    >
-                      {dateCounts.all}
-                    </span>
+                    <Download size={13} />
+                    <span>{isHi ? "एक्सेल" : "Excel"}</span>
+                  </button>
+
+                  {/* Refresh */}
+                  <button
+                    type="button"
+                    onClick={fetchPatientVisits}
+                    disabled={loadingVisits}
+                    style={{
+                      background: isDark ? "#1E293B" : "#FFFFFF",
+                      border: cardBorder,
+                      color: textColor,
+                      borderRadius: "9px",
+                      padding: "7px 12px",
+                      fontSize: "11.5px",
+                      fontWeight: 700,
+                      cursor: loadingVisits ? "wait" : "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "5px",
+                    }}
+                    title="Reload patient visit history"
+                  >
+                    <RefreshCw size={12} className={loadingVisits ? "spin-icon" : ""} />
+                    <span>{isHi ? "रिफ्रेश" : "Refresh"}</span>
                   </button>
                 </div>
-
-                {/* Date Picker Input */}
-                <input
-                  type="date"
-                  value={customVisitDate}
-                  onChange={(e) => {
-                    setCustomVisitDate(e.target.value);
-                    setVisitDateFilter("date_wise");
-                  }}
-                  style={{
-                    padding: "6px 10px",
-                    borderRadius: "9px",
-                    border: visitDateFilter === "date_wise" ? "1.5px solid #0284C7" : cardBorder,
-                    background: isDark ? "#1E293B" : "#FFFFFF",
-                    color: textColor,
-                    fontSize: "11.5px",
-                    fontWeight: 700,
-                    outline: "none",
-                    cursor: "pointer",
-                    boxShadow: visitDateFilter === "date_wise" ? "0 0 0 2px rgba(2, 132, 199, 0.25)" : "none",
-                  }}
-                  title={isHi ? "कस्टम तिथि का चयन करें" : "Pick custom date"}
-                />
-              </div>
-
-              {/* Status, Search, Excel & Refresh Controls */}
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                {/* Status Dropdown */}
-                <select
-                  value={visitStatusFilter}
-                  onChange={(e) => setVisitStatusFilter(e.target.value)}
-                  style={{
-                    padding: "7px 11px",
-                    borderRadius: "9px",
-                    border: cardBorder,
-                    background: isDark ? "#1E293B" : "#FFFFFF",
-                    color: textColor,
-                    fontSize: "11.5px",
-                    fontWeight: 700,
-                    outline: "none",
-                    cursor: "pointer",
-                  }}
-                >
-                  <option value="all">{isHi ? "सभी स्थितियां" : "All Status"}</option>
-                  <option value="completed">{isHi ? "केवल पूर्ण वितरण" : "Completed Only"}</option>
-                  <option value="in_progress">{isHi ? "प्रगति में" : "In Progress"}</option>
-                </select>
-
-                {/* Search Box */}
-                <div style={{ position: "relative" }}>
-                  <Search size={13} color={mutedText} style={{ position: "absolute", left: "11px", top: "50%", transform: "translateY(-50%)" }} />
-                  <input
-                    type="text"
-                    placeholder={isHi ? "मरीज़, टोकन, डॉक्टर, दवा..." : "Search patient, token, doctor, medicine..."}
-                    value={visitSearchQuery}
-                    onChange={(e) => setVisitSearchQuery(e.target.value)}
-                    style={{
-                      padding: "7px 10px 7px 30px",
-                      borderRadius: "9px",
-                      border: cardBorder,
-                      background: isDark ? "#1E293B" : "#FFFFFF",
-                      color: textColor,
-                      fontSize: "11.5px",
-                      outline: "none",
-                      width: "190px",
-                    }}
-                  />
-                  {visitSearchQuery && (
-                    <button
-                      type="button"
-                      onClick={() => setVisitSearchQuery("")}
-                      style={{
-                        position: "absolute",
-                        right: "8px",
-                        top: "50%",
-                        transform: "translateY(-50%)",
-                        background: "none",
-                        border: "none",
-                        color: mutedText,
-                        cursor: "pointer",
-                        fontSize: "11px",
-                      }}
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-
-                {/* Export to Excel */}
-                <button
-                  type="button"
-                  onClick={handleExportVisitsExcel}
-                  style={{
-                    background: isDark ? "rgba(16, 185, 129, 0.18)" : "#ECFDF5",
-                    border: isDark ? "1px solid rgba(16, 185, 129, 0.4)" : "1px solid #A7F3D0",
-                    color: "#10B981",
-                    borderRadius: "9px",
-                    padding: "7px 12px",
-                    fontSize: "11.5px",
-                    fontWeight: 800,
-                    cursor: "pointer",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "5px",
-                  }}
-                  title={isHi ? "फ़िल्टर किए गए रिकॉर्ड्स एक्सेल में डाउनलोड करें" : "Download filtered records to Excel"}
-                >
-                  <Download size={13} />
-                  <span>{isHi ? "एक्सेल" : "Excel"}</span>
-                </button>
-
-                {/* Refresh */}
-                <button
-                  type="button"
-                  onClick={fetchPatientVisits}
-                  disabled={loadingVisits}
-                  style={{
-                    background: isDark ? "#1E293B" : "#FFFFFF",
-                    border: cardBorder,
-                    color: textColor,
-                    borderRadius: "9px",
-                    padding: "7px 11px",
-                    fontSize: "11.5px",
-                    fontWeight: 700,
-                    cursor: loadingVisits ? "wait" : "pointer",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "5px",
-                  }}
-                  title="Reload patient visit history"
-                >
-                  <RefreshCw size={12} className={loadingVisits ? "spin-icon" : ""} />
-                  <span>{isHi ? "रिफ्रेश" : "Refresh"}</span>
-                </button>
               </div>
             </div>
 
@@ -3197,359 +3755,255 @@ export default function PharmacyPage({
                 )}
               </div>
             ) : (
-              <div style={{ overflowX: "auto", borderRadius: "12px", border: cardBorder }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
-                  <thead>
-                    <tr style={{ background: isDark ? "#0F172A" : "#F8FAFC", borderBottom: cardBorder }}>
-                      <th style={{ padding: "12px 14px", textAlign: "left", fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em", whiteSpace: "nowrap", minWidth: "175px" }}>Token / Date</th>
-                      <th style={{ padding: "12px 14px", textAlign: "left", fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em" }}>Patient Info</th>
-                      <th style={{ padding: "12px 14px", textAlign: "left", fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em" }}>Care Pathway</th>
-                      <th style={{ padding: "12px 14px", textAlign: "left", fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em" }}>Doctor & Diagnosis</th>
-                      <th style={{ padding: "12px 14px", textAlign: "left", fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em" }}>Prescribed Medicines</th>
-                      <th style={{ padding: "12px 14px", textAlign: "left", fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em" }}>Dispensing Audit</th>
-                      <th style={{ padding: "12px 14px", textAlign: "center", fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em" }}>Status</th>
-                      <th style={{ padding: "12px 14px", textAlign: "right", fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em" }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredVisits.map((visit, vIdx) => {
-                      const details = parseVisitDetails(visit);
-                      const isComplete = (visit.status || "").toLowerCase() === "completed";
-                      const dateDisplay = visit.queue_date || (visit.created_at ? new Date(visit.created_at).toLocaleDateString() : "Today");
-                      const timeDisplay = visit.created_at ? new Date(visit.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
-                      const originDept = (visit.origin_department || "OPD").replace(/General Consultation\s*\(OPD\)/i, "OPD").replace(/Pharmacy\s*&\s*Medicine/i, "Pharmacy");
-                      const destDept = (visit.department || "Pharmacy").replace(/Pharmacy\s*&\s*Medicine/i, "Pharmacy");
+              <div>
+                <style>{`
+                  .pharmacy-visit-row {
+                    transition: background-color 0.15s ease;
+                  }
+                  .pharmacy-visit-row:hover {
+                    background-color: ${isDark ? "rgba(255, 255, 255, 0.04)" : "#F8FAFC"} !important;
+                  }
+                `}</style>
+                <div style={{ overflowX: "auto", borderRadius: "14px", border: cardBorder, background: cardBg, boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
+                  <table style={{ width: "100%", minWidth: "1050px", borderCollapse: "collapse", fontSize: "12px" }}>
+                    <thead>
+                      <tr style={{ background: isDark ? "#0F172A" : "#F8FAFC", borderBottom: cardBorder, position: "sticky", top: 0, zIndex: 5 }}>
+                        <th style={{ padding: "14px 20px", textAlign: "left", fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em", width: "160px" }}>
+                          {isHi ? "टोकन व समय" : "Token & Date/Time"}
+                        </th>
+                        <th style={{ padding: "14px 20px", textAlign: "left", fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em", width: "170px" }}>
+                          {isHi ? "मरीज़ विवरण" : "Patient"}
+                        </th>
+                        <th style={{ padding: "14px 20px", textAlign: "left", fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em", width: "180px" }}>
+                          {isHi ? "ट्रांसफर मार्ग व अवधि" : "Care Pathway & Duration"}
+                        </th>
+                        <th style={{ padding: "14px 20px", textAlign: "left", fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em", width: "220px" }}>
+                          {isHi ? "डॉक्टर व रोग निदान" : "Doctor & Diagnosis"}
+                        </th>
+                        <th style={{ padding: "14px 20px", textAlign: "left", fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em", width: "190px" }}>
+                          {isHi ? "दवा वितरण ऑडिट" : "Dispensed By"}
+                        </th>
+                        <th style={{ padding: "14px 20px", textAlign: "right", fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em", width: "250px" }}>
+                          {isHi ? "स्थिति व कार्य" : "Status & Actions"}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paginatedVisits.map((visit, vIdx) => {
+                        const details = parseVisitDetails(visit);
 
-                      return (
-                        <tr
-                          key={visit.id || visit.ticket_id || vIdx}
+                        return (
+                          <tr
+                            key={visit.id || visit.ticket_id || vIdx}
+                            className="pharmacy-visit-row"
+                            style={{
+                              borderBottom: isDark ? "1px solid #1E293B" : "1px solid #F1F5F9",
+                              height: "78px",
+                              minHeight: "78px",
+                              background: vIdx % 2 === 0 ? "transparent" : (isDark ? "rgba(255,255,255,0.012)" : "rgba(0,0,0,0.01)"),
+                            }}
+                          >
+                            {/* 1. Token & Date/Time */}
+                            <td style={{ padding: "16px 20px", verticalAlign: "middle" }}>
+                              <TokenDateTimeCell visit={visit} isDark={isDark} mutedText={mutedText} />
+                            </td>
+
+                            {/* 2. Patient Info */}
+                            <td style={{ padding: "16px 20px", verticalAlign: "middle" }}>
+                              <PatientCell visit={visit} textColor={textColor} mutedText={mutedText} />
+                            </td>
+
+                            {/* 3. Care Pathway & Duration */}
+                            <td style={{ padding: "16px 20px", verticalAlign: "middle" }}>
+                              <CarePathwayCell visit={visit} isDark={isDark} textColor={textColor} mutedText={mutedText} />
+                            </td>
+
+                            {/* 4. Doctor & Diagnosis */}
+                            <td style={{ padding: "16px 20px", verticalAlign: "middle" }}>
+                              <DoctorDiagnosisCell details={details} isDark={isDark} textColor={textColor} mutedText={mutedText} />
+                            </td>
+
+                            {/* 5. Dispensed By */}
+                            <td style={{ padding: "16px 20px", verticalAlign: "middle" }}>
+                              <DispensedByCell details={details} textColor={textColor} mutedText={mutedText} />
+                            </td>
+
+                            {/* 6. Status & Actions */}
+                            <td style={{ padding: "16px 20px", verticalAlign: "middle", textAlign: "right" }}>
+                              <StatusActionCell
+                                visit={visit}
+                                isDark={isDark}
+                                textColor={textColor}
+                                isHi={isHi}
+                                cardBorder={cardBorder}
+                                onOpenDetails={setSelectedVisitModal}
+                                onPrintRx={handlePrintVisitPrescription}
+                              />
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Pagination Controls Bar */}
+                {filteredVisits.length > 0 && (
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      marginTop: "16px",
+                      padding: "12px 18px",
+                      borderRadius: "12px",
+                      background: isDark ? "#0B1120" : "#F8FAFC",
+                      border: cardBorder,
+                      flexWrap: "wrap",
+                      gap: "12px",
+                    }}
+                  >
+                    {/* Record count info */}
+                    <div style={{ fontSize: "12px", color: mutedText, fontWeight: 600 }}>
+                      {isHi ? (
+                        <span>
+                          कुल <strong>{filteredVisits.length}</strong> में से <strong>{Math.min((currentPage - 1) * visitRowsPerPage + 1, filteredVisits.length)}</strong> - <strong>{Math.min(currentPage * visitRowsPerPage, filteredVisits.length)}</strong> रिकॉर्ड प्रदर्शित
+                        </span>
+                      ) : (
+                        <span>
+                          Showing <strong>{Math.min((currentPage - 1) * visitRowsPerPage + 1, filteredVisits.length)}</strong> - <strong>{Math.min(currentPage * visitRowsPerPage, filteredVisits.length)}</strong> of <strong>{filteredVisits.length}</strong> records
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Rows per page & Navigation */}
+                    <div style={{ display: "flex", alignItems: "center", gap: "16px", flexWrap: "wrap" }}>
+                      {/* Rows per page selector */}
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <span style={{ fontSize: "11.5px", color: mutedText, fontWeight: 700 }}>
+                          {isHi ? "प्रति पृष्ठ:" : "Rows per page:"}
+                        </span>
+                        <select
+                          value={visitRowsPerPage}
+                          onChange={(e) => {
+                            setVisitRowsPerPage(Number(e.target.value));
+                            setVisitPage(1);
+                          }}
                           style={{
-                            borderBottom: isDark ? "1px solid #1E293B" : "1px solid #F1F5F9",
-                            background: vIdx % 2 === 0 ? "transparent" : (isDark ? "rgba(255,255,255,0.015)" : "rgba(0,0,0,0.01)"),
-                            transition: "background 0.15s ease",
+                            padding: "5px 8px",
+                            borderRadius: "7px",
+                            border: cardBorder,
+                            background: isDark ? "#1E293B" : "#FFFFFF",
+                            color: textColor,
+                            fontSize: "11.5px",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            outline: "none",
                           }}
                         >
-                          {/* Token & Date */}
-                          <td style={{ padding: "12px 14px", verticalAlign: "middle", whiteSpace: "nowrap", minWidth: "175px" }}>
-                            <div
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "4px",
-                                background: isDark ? "rgba(2, 132, 199, 0.15)" : "#F0F9FF",
-                                border: isDark ? "1px solid rgba(2, 132, 199, 0.3)" : "1px solid #BAE6FD",
-                                color: isDark ? "#38BDF8" : "#0284C7",
-                                padding: "3px 8px",
-                                borderRadius: "6px",
-                                fontWeight: 700,
-                                fontFamily: "monospace",
-                                fontSize: "12px",
-                              }}
-                            >
-                              #{visit.token_number || visit.ticket_id}
-                            </div>
-                            <div
-                              style={{
-                                fontSize: "11px",
-                                color: mutedText,
-                                marginTop: "4px",
-                                display: "flex",
-                                alignItems: "center",
-                                gap: "5px",
-                                whiteSpace: "nowrap",
-                                flexWrap: "nowrap",
-                              }}
-                            >
-                              <Calendar size={11} color={mutedText} style={{ flexShrink: 0 }} />
-                              <span style={{ whiteSpace: "nowrap", display: "inline-block" }}>{dateDisplay}</span>
-                              {timeDisplay && (
-                                <>
-                                  <span style={{ opacity: 0.4, margin: "0 1px" }}>•</span>
-                                  <span style={{ whiteSpace: "nowrap", display: "inline-block" }}>{timeDisplay}</span>
-                                </>
-                              )}
-                            </div>
-                          </td>
+                          <option value={10}>10</option>
+                          <option value={25}>25</option>
+                          <option value={50}>50</option>
+                          <option value={100}>100</option>
+                        </select>
+                      </div>
 
-                          {/* Patient Info */}
-                          <td style={{ padding: "12px 14px", verticalAlign: "middle" }}>
-                            <div style={{ fontWeight: 700, color: textColor, fontSize: "13px", letterSpacing: "-0.2px" }}>
-                              {visit.patient_name}
-                            </div>
-                            <div style={{ fontSize: "11px", color: mutedText, marginTop: "2px", display: "flex", alignItems: "center", gap: "5px" }}>
-                              <span>{visit.age ? `${visit.age}y` : "Age N/A"}</span>
-                              <span style={{ opacity: 0.4 }}>•</span>
-                              <span style={{ textTransform: "capitalize" }}>{visit.gender || "Patient"}</span>
-                            </div>
-                            {visit.phone && (
-                              <div style={{ fontSize: "11px", color: mutedText, marginTop: "2px", display: "flex", alignItems: "center", gap: "4px" }}>
-                                <Phone size={10} color={mutedText} />
-                                <span style={{ fontFamily: "monospace" }}>{visit.phone}</span>
-                              </div>
-                            )}
-                          </td>
+                      {/* Page navigation controls */}
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <button
+                          type="button"
+                          onClick={() => setVisitPage((p) => Math.max(1, p - 1))}
+                          disabled={currentPage <= 1}
+                          style={{
+                            padding: "5px 10px",
+                            borderRadius: "7px",
+                            border: cardBorder,
+                            background: isDark ? "#1E293B" : "#FFFFFF",
+                            color: currentPage <= 1 ? mutedText : textColor,
+                            opacity: currentPage <= 1 ? 0.45 : 1,
+                            cursor: currentPage <= 1 ? "not-allowed" : "pointer",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "4px",
+                            fontSize: "11.5px",
+                            fontWeight: 700,
+                            transition: "all 0.15s ease",
+                          }}
+                          title={isHi ? "पिछला पृष्ठ" : "Previous page"}
+                        >
+                          <ChevronLeft size={13} />
+                          <span>{isHi ? "पिछला" : "Prev"}</span>
+                        </button>
 
-                          {/* Care Pathway */}
-                          <td style={{ padding: "12px 14px", verticalAlign: "middle" }}>
-                            <div style={{ display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "11.5px", fontWeight: 600 }}>
-                              <span style={{ color: textColor }}>{originDept}</span>
-                              <ArrowRight size={11} color={mutedText} />
-                              <span style={{ color: "#0284C7", fontWeight: 700 }}>{destDept}</span>
-                            </div>
-                            {visit.service_duration_minutes ? (
-                              <div style={{ fontSize: "11px", color: mutedText, marginTop: "3px", display: "flex", alignItems: "center", gap: "4px" }}>
-                                <Clock size={10} color={mutedText} />
-                                <span>{visit.service_duration_minutes} min duration</span>
-                              </div>
-                            ) : null}
-                          </td>
+                        {/* Page numbers */}
+                        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                          {Array.from({ length: totalPages }, (_, i) => i + 1)
+                            .filter((p) => {
+                              return p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1;
+                            })
+                            .map((p, idx, arr) => {
+                              const prev = arr[idx - 1];
+                              const showEllipsis = prev && p - prev > 1;
 
-                          {/* Doctor & Diagnosis */}
-                          <td style={{ padding: "12px 14px", verticalAlign: "middle" }}>
-                            <div style={{ fontWeight: 600, color: textColor, fontSize: "12px", display: "flex", alignItems: "center", gap: "5px" }}>
-                              <User size={12} color="#0284C7" />
-                              <span>{details.doctorName || "OPD Doctor"}</span>
-                            </div>
-                            {details.diagnosis && (
-                              <div style={{ marginTop: "4px" }}>
-                                <span
-                                  style={{
-                                    display: "inline-block",
-                                    maxWidth: "180px",
-                                    overflow: "hidden",
-                                    textOverflow: "ellipsis",
-                                    whiteSpace: "nowrap",
-                                    fontSize: "11px",
-                                    fontWeight: 600,
-                                    color: isDark ? "#93C5FD" : "#1D4ED8",
-                                    background: isDark ? "rgba(59, 130, 246, 0.12)" : "#EFF6FF",
-                                    border: isDark ? "1px solid rgba(59, 130, 246, 0.25)" : "1px solid #DBEAFE",
-                                    padding: "2px 7px",
-                                    borderRadius: "5px",
-                                  }}
-                                  title={details.diagnosis}
-                                >
-                                  {details.diagnosis}
-                                </span>
-                              </div>
-                            )}
-                          </td>
-
-                          {/* Prescribed Medicines */}
-                          {/* Prescribed Medicines */}
-                          <td style={{ padding: "12px 14px", verticalAlign: "middle" }}>
-                            {details.medicines && details.medicines.length > 0 ? (
-                              <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
-                                {/* Dispensation Status Summary Badge */}
-                                {(() => {
-                                  const givenCount = details.medicines.filter((m) => getMedicineDispenseStatus(m, visit).isGiven).length;
-                                  const totalCount = details.medicines.length;
-                                  const allGiven = givenCount === totalCount;
-                                  const noneGiven = givenCount === 0;
-
-                                  return (
-                                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                      <span
-                                        style={{
-                                          fontSize: "10px",
-                                          fontWeight: 800,
-                                          padding: "1.5px 7px",
-                                          borderRadius: "5px",
-                                          display: "inline-flex",
-                                          alignItems: "center",
-                                          gap: "4px",
-                                          background: allGiven
-                                            ? (isDark ? "rgba(16, 185, 129, 0.18)" : "#ECFDF5")
-                                            : noneGiven
-                                            ? (isDark ? "rgba(239, 68, 68, 0.18)" : "#FEF2F2")
-                                            : (isDark ? "rgba(245, 158, 11, 0.18)" : "#FEF3C7"),
-                                          color: allGiven ? "#059669" : noneGiven ? "#DC2626" : "#D97706",
-                                          border: allGiven
-                                            ? (isDark ? "1px solid rgba(16, 185, 129, 0.3)" : "1px solid #A7F3D0")
-                                            : noneGiven
-                                            ? (isDark ? "1px solid rgba(239, 68, 68, 0.3)" : "1px solid #FECACA")
-                                            : (isDark ? "1px solid rgba(245, 158, 11, 0.3)" : "1px solid #FDE68A"),
-                                        }}
-                                      >
-                                        {allGiven
-                                          ? (isHi ? `✓ सभी दी गईं (${givenCount}/${totalCount})` : `✓ All Given (${givenCount}/${totalCount})`)
-                                          : noneGiven
-                                          ? (isHi ? `✕ कोई नहीं दी गई (0/${totalCount})` : `✕ Not Given (0/${totalCount})`)
-                                          : (isHi ? `⚠ आंशिक: ${givenCount}/${totalCount} दी गईं` : `⚠ Partial: ${givenCount}/${totalCount} Given`)}
-                                      </span>
-                                    </div>
-                                  );
-                                })()}
-
-                                {/* Medicines list with individual Given / Not Given pill */}
-                                <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", maxWidth: "260px" }}>
-                                  {details.medicines.slice(0, 2).map((m, mIdx) => {
-                                    const medStatus = getMedicineDispenseStatus(m, visit);
-                                    return (
-                                      <span
-                                        key={mIdx}
-                                        style={{
-                                          display: "inline-flex",
-                                          alignItems: "center",
-                                          gap: "4px",
-                                          background: medStatus.isGiven
-                                            ? (isDark ? "rgba(16, 185, 129, 0.12)" : "#F0FDF4")
-                                            : (isDark ? "rgba(239, 68, 68, 0.12)" : "#FEF2F2"),
-                                          border: medStatus.isGiven
-                                            ? (isDark ? "1px solid rgba(16, 185, 129, 0.3)" : "1px solid #BBF7D0")
-                                            : (isDark ? "1px solid rgba(239, 68, 68, 0.3)" : "1px solid #FECACA"),
-                                          color: textColor,
-                                          padding: "2px 7px",
-                                          borderRadius: "5px",
-                                          fontSize: "11px",
-                                          fontWeight: 600,
-                                        }}
-                                      >
-                                        <span style={{ color: medStatus.isGiven ? "#10B981" : "#EF4444", fontWeight: 800, fontSize: "11px" }}>
-                                          {medStatus.isGiven ? "✓" : "✕"}
-                                        </span>
-                                        <span>{m.name}</span>
-                                        {m.dosage && (
-                                          <span style={{ color: mutedText, fontSize: "10px", fontWeight: 500 }}>
-                                            · {m.dosage}
-                                          </span>
-                                        )}
-                                      </span>
-                                    );
-                                  })}
-                                  {details.medicines.length > 2 && (
-                                    <span
-                                      style={{
-                                        fontSize: "10.5px",
-                                        color: "#0284C7",
-                                        fontWeight: 700,
-                                        background: isDark ? "rgba(2, 132, 199, 0.15)" : "#E0F2FE",
-                                        padding: "2px 6px",
-                                        borderRadius: "5px",
-                                        alignSelf: "center",
-                                      }}
-                                      title={details.medicines.slice(2).map((m) => `${m.name} (${getMedicineDispenseStatus(m, visit).statusText})`).join(", ")}
-                                    >
-                                      +{details.medicines.length - 2} more
-                                    </span>
+                              return (
+                                <React.Fragment key={p}>
+                                  {showEllipsis && (
+                                    <span style={{ padding: "0 4px", color: mutedText, fontSize: "11px" }}>…</span>
                                   )}
-                                </div>
-                              </div>
-                            ) : (
-                              <span style={{ fontSize: "11.5px", color: mutedText }}>—</span>
-                            )}
-                          </td>
+                                  <button
+                                    type="button"
+                                    onClick={() => setVisitPage(p)}
+                                    style={{
+                                      minWidth: "28px",
+                                      height: "28px",
+                                      padding: "0 6px",
+                                      borderRadius: "6px",
+                                      border: p === currentPage ? "none" : cardBorder,
+                                      background: p === currentPage ? "#0284C7" : (isDark ? "#1E293B" : "#FFFFFF"),
+                                      color: p === currentPage ? "#FFFFFF" : textColor,
+                                      fontSize: "11.5px",
+                                      fontWeight: 800,
+                                      cursor: "pointer",
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                    }}
+                                  >
+                                    {p}
+                                  </button>
+                                </React.Fragment>
+                              );
+                            })}
+                        </div>
 
-                          {/* Dispensing Audit */}
-                          <td style={{ padding: "12px 14px", verticalAlign: "middle" }}>
-                            <div style={{ fontSize: "11.5px", fontWeight: 700, color: textColor, display: "flex", alignItems: "center", gap: "4px" }}>
-                              <CheckCircle2 size={11} color="#10B981" />
-                              <span>{details.dispensedBy}</span>
-                            </div>
-                            {details.dispensedCounter && (
-                              <div style={{ fontSize: "11px", color: mutedText, marginTop: "2px", display: "flex", alignItems: "center", gap: "4px" }}>
-                                <Building2 size={10} color={mutedText} />
-                                <span>{details.dispensedCounter}</span>
-                              </div>
-                            )}
-                            {details.dispensedAt && (
-                              <div style={{ fontSize: "10.5px", color: mutedText, marginTop: "2px", display: "flex", alignItems: "center", gap: "4px" }}>
-                                <Clock size={10} color={mutedText} />
-                                <span>{new Date(details.dispensedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-                              </div>
-                            )}
-                          </td>
-
-                          {/* Status */}
-                          <td style={{ padding: "12px 14px", textAlign: "center", verticalAlign: "middle" }}>
-                            <span
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "5px",
-                                padding: "3px 9px",
-                                borderRadius: "6px",
-                                fontSize: "11px",
-                                fontWeight: 700,
-                                letterSpacing: "0.2px",
-                                background: isComplete
-                                  ? (isDark ? "rgba(16, 185, 129, 0.15)" : "#ECFDF5")
-                                  : (isDark ? "rgba(245, 158, 11, 0.15)" : "#FFFBEB"),
-                                color: isComplete ? "#059669" : "#D97706",
-                                border: isComplete
-                                  ? (isDark ? "1px solid rgba(16, 185, 129, 0.3)" : "1px solid #A7F3D0")
-                                  : (isDark ? "1px solid rgba(245, 158, 11, 0.3)" : "1px solid #FDE68A"),
-                              }}
-                            >
-                              <span
-                                style={{
-                                  width: "6px",
-                                  height: "6px",
-                                  borderRadius: "50%",
-                                  background: isComplete ? "#10B981" : "#F59E0B",
-                                }}
-                              />
-                              <span>{isComplete ? (isHi ? "पूर्ण" : "Completed") : (isHi ? "प्रगति में" : "In Progress")}</span>
-                            </span>
-                          </td>
-
-                          {/* Actions */}
-                          <td style={{ padding: "12px 14px", textAlign: "right", verticalAlign: "middle" }}>
-                            <div style={{ display: "flex", justifyContent: "flex-end", gap: "6px" }}>
-                              <button
-                                type="button"
-                                onClick={() => setSelectedVisitModal(visit)}
-                                style={{
-                                  padding: "5px 10px",
-                                  borderRadius: "6px",
-                                  border: cardBorder,
-                                  background: isDark ? "#1E293B" : "#FFFFFF",
-                                  color: textColor,
-                                  fontSize: "11px",
-                                  fontWeight: 600,
-                                  cursor: "pointer",
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  gap: "4px",
-                                  boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
-                                  transition: "all 0.15s ease",
-                                }}
-                                title={isHi ? "पूर्ण विज़िट विवरण देखें" : "View Visit Details"}
-                              >
-                                <Eye size={12} color="#0284C7" />
-                                <span>{isHi ? "विवरण" : "Details"}</span>
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => handlePrintVisitPrescription(visit)}
-                                style={{
-                                  padding: "5px 10px",
-                                  borderRadius: "6px",
-                                  border: "none",
-                                  background: "#0284C7",
-                                  color: "#FFFFFF",
-                                  fontSize: "11px",
-                                  fontWeight: 600,
-                                  cursor: "pointer",
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  gap: "4px",
-                                  boxShadow: "0 1px 3px rgba(2, 132, 199, 0.25)",
-                                  transition: "all 0.15s ease",
-                                }}
-                                title={isHi ? "डॉक्टर पर्चा प्रिंट करें" : "Print Doctor Prescription"}
-                              >
-                                <Printer size={12} />
-                                <span>Rx</span>
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                        <button
+                          type="button"
+                          onClick={() => setVisitPage((p) => Math.min(totalPages, p + 1))}
+                          disabled={currentPage >= totalPages}
+                          style={{
+                            padding: "5px 10px",
+                            borderRadius: "7px",
+                            border: cardBorder,
+                            background: isDark ? "#1E293B" : "#FFFFFF",
+                            color: currentPage >= totalPages ? mutedText : textColor,
+                            opacity: currentPage >= totalPages ? 0.45 : 1,
+                            cursor: currentPage >= totalPages ? "not-allowed" : "pointer",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "4px",
+                            fontSize: "11.5px",
+                            fontWeight: 700,
+                            transition: "all 0.15s ease",
+                          }}
+                          title={isHi ? "अगला पृष्ठ" : "Next page"}
+                        >
+                          <span>{isHi ? "अगला" : "Next"}</span>
+                          <ChevronRight size={13} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -3561,6 +4015,10 @@ export default function PharmacyPage({
         (() => {
           const visit = selectedVisitModal;
           const details = parseVisitDetails(visit);
+          const rawStatus = String(visit.status || "").trim().toLowerCase();
+          const isCompleted = rawStatus === "completed";
+          const isInProgress = rawStatus === "in_progress" || rawStatus === "serving";
+          const canEdit = isInProgress && !isCompleted;
           return (
             <div
               style={{
@@ -3699,12 +4157,120 @@ export default function PharmacyPage({
 
                 {/* Prescribed Medicines Section */}
                 <div style={{ marginBottom: "18px" }}>
-                  <div style={{ fontSize: "13px", fontWeight: 800, marginBottom: "8px", display: "flex", alignItems: "center", gap: "6px" }}>
-                    <Pill size={14} color="#0284C7" />
-                    <span>{isHi ? "निर्धारित दवाएं व खुराक अनुसूची" : "Prescribed Medications & Dosage Schedule"}</span>
-                    <span style={{ fontSize: "11px", fontWeight: 700, background: isDark ? "rgba(2, 132, 199, 0.2)" : "#E0F2FE", color: "#0284C7", padding: "1px 6px", borderRadius: "4px" }}>
-                      {details.medicines.length}
-                    </span>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", flexWrap: "wrap", gap: "8px" }}>
+                    <div style={{ fontSize: "13px", fontWeight: 800, display: "flex", alignItems: "center", gap: "6px" }}>
+                      <Pill size={14} color="#0284C7" />
+                      <span>{isHi ? "निर्धारित दवाएं व खुराक अनुसूची" : "Prescribed Medications & Dosage Schedule"}</span>
+                      <span style={{ fontSize: "11px", fontWeight: 700, background: isDark ? "rgba(2, 132, 199, 0.2)" : "#E0F2FE", color: "#0284C7", padding: "1px 6px", borderRadius: "4px" }}>
+                        {details.medicines.length}
+                      </span>
+
+                      {/* Dispensation Summary Badges */}
+                      {details.medicines.length > 0 && (
+                        <div style={{ display: "inline-flex", gap: "5px", marginLeft: "6px" }}>
+                          <span
+                            style={{
+                              fontSize: "11px",
+                              fontWeight: 800,
+                              color: "#059669",
+                              background: isDark ? "rgba(16, 185, 129, 0.18)" : "#ECFDF5",
+                              border: "1px solid #A7F3D0",
+                              padding: "1px 8px",
+                              borderRadius: "6px",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "4px",
+                            }}
+                          >
+                            <CheckCircle2 size={11} color="#059669" />
+                            <span>{modalStats.given} {isHi ? "दी गईं" : "Given"}</span>
+                          </span>
+                          {modalStats.notGiven > 0 && (
+                            <span
+                              style={{
+                                fontSize: "11px",
+                                fontWeight: 800,
+                                color: "#DC2626",
+                                background: isDark ? "rgba(239, 68, 68, 0.18)" : "#FEF2F2",
+                                border: "1px solid #FECACA",
+                                padding: "1px 8px",
+                                borderRadius: "6px",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                              }}
+                            >
+                              <XCircle size={11} color="#DC2626" />
+                              <span>{modalStats.notGiven} {isHi ? "नहीं दी गईं" : "Not Given"}</span>
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Quick Mark All Controls (Editable ONLY when consultation is IN PROGRESS) */}
+                    {details.medicines.length > 0 && canEdit && (
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <button
+                          type="button"
+                          onClick={() => handleSetAllModalMeds(true)}
+                          style={{
+                            background: isDark ? "rgba(16, 185, 129, 0.15)" : "#ECFDF5",
+                            border: "1px solid #10B981",
+                            color: "#059669",
+                            fontSize: "11px",
+                            fontWeight: 700,
+                            padding: "3px 8px",
+                            borderRadius: "6px",
+                            cursor: "pointer",
+                          }}
+                          title={isHi ? "सभी दवाओं को 'दी गई' चिह्नित करें" : "Mark all medications as Given"}
+                        >
+                          {isHi ? "✓ सभी दी गईं" : "✓ Mark All Given"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSetAllModalMeds(false)}
+                          style={{
+                            background: isDark ? "rgba(239, 68, 68, 0.15)" : "#FEF2F2",
+                            border: "1px solid #EF4444",
+                            color: "#DC2626",
+                            fontSize: "11px",
+                            fontWeight: 700,
+                            padding: "3px 8px",
+                            borderRadius: "6px",
+                            cursor: "pointer",
+                          }}
+                          title={isHi ? "सभी दवाओं को 'नहीं दी गई' चिह्नित करें" : "Mark all medications as Not Given"}
+                        >
+                          {isHi ? "✕ सभी नहीं दी गईं" : "✕ Mark All Not Given"}
+                        </button>
+                        {modalHasChanges && (
+                          <button
+                            type="button"
+                            disabled={savingModalDispense}
+                            onClick={handleSaveModalDispenseChanges}
+                            style={{
+                              background: "linear-gradient(135deg, #10B981 0%, #059669 100%)",
+                              border: "none",
+                              color: "#FFFFFF",
+                              fontSize: "11px",
+                              fontWeight: 800,
+                              padding: "4px 10px",
+                              borderRadius: "6px",
+                              cursor: savingModalDispense ? "wait" : "pointer",
+                              boxShadow: "0 2px 8px rgba(16, 185, 129, 0.35)",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "4px",
+                            }}
+                          >
+                            <Save size={12} />
+                            <span>{savingModalDispense ? (isHi ? "सहेजा जा रहा है..." : "Saving...") : (isHi ? "सहेजें" : "Save Changes")}</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {details.medicines.length > 0 ? (
@@ -3718,19 +4284,76 @@ export default function PharmacyPage({
                             <th style={{ padding: "8px 12px", textAlign: "left", fontWeight: 800, color: mutedText }}>FREQUENCY</th>
                             <th style={{ padding: "8px 12px", textAlign: "left", fontWeight: 800, color: mutedText }}>DURATION</th>
                             <th style={{ padding: "8px 12px", textAlign: "left", fontWeight: 800, color: mutedText }}>INSTRUCTIONS</th>
+                            <th style={{ padding: "8px 12px", textAlign: "center", fontWeight: 800, color: mutedText }}>DISPENSING STATUS</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {details.medicines.map((m, mIdx) => (
-                            <tr key={mIdx} style={{ borderBottom: isDark ? "1px solid #1E293B" : "1px solid #F1F5F9" }}>
-                              <td style={{ padding: "8px 12px", fontWeight: 700, color: mutedText }}>{mIdx + 1}</td>
-                              <td style={{ padding: "8px 12px", fontWeight: 800, color: textColor }}>{m.name}</td>
-                              <td style={{ padding: "8px 12px", color: textColor }}>{m.dosage || "-"}</td>
-                              <td style={{ padding: "8px 12px", fontWeight: 700, color: "#0284C7" }}>{m.frequency || "-"}</td>
-                              <td style={{ padding: "8px 12px", color: textColor }}>{m.duration || "-"}</td>
-                              <td style={{ padding: "8px 12px", color: mutedText }}>{m.instructions || "-"}</td>
-                            </tr>
-                          ))}
+                          {details.medicines.map((m, mIdx) => {
+                            const isGiven = modalMedStatusMap[mIdx] !== undefined
+                              ? modalMedStatusMap[mIdx]
+                              : getMedicineDispenseStatus(m, visit).isGiven;
+
+                            return (
+                              <tr key={mIdx} style={{ borderBottom: isDark ? "1px solid #1E293B" : "1px solid #F1F5F9" }}>
+                                <td style={{ padding: "8px 12px", fontWeight: 700, color: mutedText }}>{mIdx + 1}</td>
+                                <td style={{ padding: "8px 12px", fontWeight: 800, color: textColor }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                    <Pill size={12} color={isGiven ? "#10B981" : "#EF4444"} />
+                                    <span>{m.name}</span>
+                                  </div>
+                                </td>
+                                <td style={{ padding: "8px 12px", color: textColor }}>{m.dosage || "-"}</td>
+                                <td style={{ padding: "8px 12px", fontWeight: 700, color: "#0284C7" }}>{m.frequency || "-"}</td>
+                                <td style={{ padding: "8px 12px", color: textColor }}>{m.duration || "-"}</td>
+                                <td style={{ padding: "8px 12px", color: mutedText }}>{m.instructions || "-"}</td>
+                                <td style={{ padding: "8px 12px", textAlign: "center" }}>
+                                  {canEdit ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleModalMedStatus(mIdx)}
+                                      title={isHi ? "स्थिति बदलने के लिए क्लिक करें (दी गई / नहीं दी गई)" : "Click to toggle Given / Not Given"}
+                                      style={{
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: "5px",
+                                        padding: "4px 10px",
+                                        borderRadius: "7px",
+                                        fontSize: "11px",
+                                        fontWeight: 800,
+                                        cursor: "pointer",
+                                        border: isGiven ? "1.5px solid #10B981" : "1.5px solid #EF4444",
+                                        background: isGiven
+                                          ? (isDark ? "rgba(16, 185, 129, 0.2)" : "#ECFDF5")
+                                          : (isDark ? "rgba(239, 68, 68, 0.2)" : "#FEF2F2"),
+                                        color: isGiven ? "#059669" : "#DC2626",
+                                        boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+                                        transition: "all 0.15s ease",
+                                      }}
+                                    >
+                                      {isGiven ? <CheckCircle2 size={13} color="#10B981" /> : <XCircle size={13} color="#EF4444" />}
+                                      <span>{isGiven ? (isHi ? "दी गई ✓" : "Given ✓") : (isHi ? "नहीं दी गई ✕" : "Not Given ✕")}</span>
+                                    </button>
+                                  ) : (
+                                    <span
+                                      style={{
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: "5px",
+                                        fontSize: "12px",
+                                        fontWeight: 700,
+                                        color: isGiven ? (isDark ? "#34D399" : "#059669") : (isDark ? "#F87171" : "#DC2626"),
+                                        userSelect: "none",
+                                      }}
+                                      title={isCompleted ? (isHi ? "परामर्श पूर्ण - स्थिति लॉक है" : "Consultation is completed. Status cannot be modified.") : ""}
+                                    >
+                                      {isGiven ? <CheckCircle2 size={13} color={isDark ? "#34D399" : "#059669"} /> : <XCircle size={13} color={isDark ? "#F87171" : "#DC2626"} />}
+                                      <span>{isGiven ? (isHi ? "दी गई" : "Given") : (isHi ? "नहीं दी गई" : "Not Given")}</span>
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -3770,46 +4393,74 @@ export default function PharmacyPage({
                 )}
 
                 {/* Action Buttons */}
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", paddingTop: "14px", borderTop: cardBorder }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px", paddingTop: "14px", borderTop: cardBorder }}>
+                  <div>
+                    {modalHasChanges && canEdit && (
+                      <button
+                        type="button"
+                        disabled={savingModalDispense}
+                        onClick={handleSaveModalDispenseChanges}
+                        style={{
+                          padding: "8px 16px",
+                          borderRadius: "10px",
+                          border: "none",
+                          background: "linear-gradient(135deg, #10B981 0%, #059669 100%)",
+                          color: "#FFFFFF",
+                          fontSize: "12px",
+                          fontWeight: 800,
+                          cursor: savingModalDispense ? "wait" : "pointer",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          boxShadow: "0 2px 10px rgba(16, 185, 129, 0.4)",
+                        }}
+                      >
+                        <Save size={13} />
+                        <span>{savingModalDispense ? (isHi ? "सहेजा जा रहा है..." : "Saving Changes...") : (isHi ? "वितरण बदलाव सहेजें" : "Save Dispensation Status")}</span>
+                      </button>
+                    )}
+                  </div>
 
-                  <button
-                    type="button"
-                    onClick={() => handlePrintVisitPrescription(visit)}
-                    style={{
-                      padding: "8px 16px",
-                      borderRadius: "10px",
-                      border: "none",
-                      background: "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)",
-                      color: "#FFFFFF",
-                      fontSize: "12px",
-                      fontWeight: 800,
-                      cursor: "pointer",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "6px",
-                      boxShadow: "0 2px 8px rgba(2, 132, 199, 0.35)",
-                    }}
-                  >
-                    <Printer size={13} />
-                    <span>{isHi ? "डॉक्टर पर्चा प्रिंट करें" : "Print Full Prescription"}</span>
-                  </button>
+                  <div style={{ display: "flex", gap: "10px" }}>
+                    <button
+                      type="button"
+                      onClick={() => handlePrintVisitPrescription(visit)}
+                      style={{
+                        padding: "8px 16px",
+                        borderRadius: "10px",
+                        border: "none",
+                        background: "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)",
+                        color: "#FFFFFF",
+                        fontSize: "12px",
+                        fontWeight: 800,
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        boxShadow: "0 2px 8px rgba(2, 132, 199, 0.35)",
+                      }}
+                    >
+                      <Printer size={13} />
+                      <span>{isHi ? "डॉक्टर पर्चा प्रिंट करें" : "Print Full Prescription"}</span>
+                    </button>
 
-                  <button
-                    type="button"
-                    onClick={() => setSelectedVisitModal(null)}
-                    style={{
-                      padding: "8px 14px",
-                      borderRadius: "10px",
-                      border: cardBorder,
-                      background: isDark ? "#0F172A" : "#FFFFFF",
-                      color: textColor,
-                      fontSize: "12px",
-                      fontWeight: 700,
-                      cursor: "pointer",
-                    }}
-                  >
-                    {isHi ? "बंद करें" : "Close"}
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedVisitModal(null)}
+                      style={{
+                        padding: "8px 14px",
+                        borderRadius: "10px",
+                        border: cardBorder,
+                        background: isDark ? "#0F172A" : "#FFFFFF",
+                        color: textColor,
+                        fontSize: "12px",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {isHi ? "बंद करें" : "Close"}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

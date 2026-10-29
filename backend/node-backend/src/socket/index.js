@@ -1,8 +1,4 @@
-/**
- * socket/index.js
- * ---------------
- * Socket.IO Real-Time Event Management with Tenant/Hospital Isolation.
- */
+
 
 const { Server } = require("socket.io");
 const engine = require("../services/queueEngine");
@@ -30,6 +26,7 @@ function urgencyToPriority(consumerType, urgency) {
   if (urgency === "emergency") return PRIORITY_EMERGENCY;
   return PRIORITY_ROUTINE;
 }
+
 
 async function broadcastQueueUpdate(io, tenantId) {
   const tid = String(tenantId || "city-hospital-01").trim();
@@ -124,7 +121,10 @@ function initSocket(server, corsOrigin = "*") {
           return;
         }
 
-        io.to(tenantId).emit("now_serving", { ticket });
+        io.to(tenantId).emit("now_serving", { ticket, tenant_id: tenantId });
+        io.emit("now_serving", { ticket, tenant_id: tenantId });
+        io.to(tenantId).emit("ticket_called", { ticket, tenant_id: tenantId });
+        io.emit("ticket_called", { ticket, tenant_id: tenantId });
         await broadcastQueueUpdate(io, tenantId);
       } catch (err) {
         socket.emit("error", {
@@ -211,7 +211,10 @@ function initSocket(server, corsOrigin = "*") {
         const targetMode = data.target_mode || "auto";
 
         const recalled = await recallTicket(tenantId, ticketId, doctorInfo, targetMode);
-        io.to(tenantId).emit("ticket_recalled", { ticket: recalled });
+        io.to(tenantId).emit("ticket_recalled", { ticket: recalled, tenant_id: tenantId });
+        io.emit("ticket_recalled", { ticket: recalled, tenant_id: tenantId });
+        io.to(tenantId).emit("now_serving", { ticket: recalled, re_announced: true, tenant_id: tenantId });
+        io.emit("now_serving", { ticket: recalled, re_announced: true, tenant_id: tenantId });
         await broadcastQueueUpdate(io, tenantId);
         socket.emit("recall_success", { ticket: recalled });
       } catch (err) {
@@ -242,13 +245,23 @@ function initSocket(server, corsOrigin = "*") {
         const ticketId = ticket?.ticket_id || data.ticket_id;
         if (ticketId) {
           const updatedTicket = await recordAnnouncement(tenantId, ticketId);
-          io.to(tenantId).emit("now_serving", { ticket: updatedTicket || ticket, re_announced: true });
+          const finalTicket = updatedTicket || ticket;
+          io.to(tenantId).emit("now_serving", { ticket: finalTicket, re_announced: true, tenant_id: tenantId });
+          io.emit("now_serving", { ticket: finalTicket, re_announced: true, tenant_id: tenantId });
+          io.to(tenantId).emit("ticket_announced", { ticket: finalTicket, re_announced: true, tenant_id: tenantId });
+          io.emit("ticket_announced", { ticket: finalTicket, re_announced: true, tenant_id: tenantId });
           await broadcastQueueUpdate(io, tenantId);
         } else if (ticket) {
-          io.to(tenantId).emit("now_serving", { ticket, re_announced: true });
+          io.to(tenantId).emit("now_serving", { ticket, re_announced: true, tenant_id: tenantId });
+          io.emit("now_serving", { ticket, re_announced: true, tenant_id: tenantId });
+          io.to(tenantId).emit("ticket_announced", { ticket, re_announced: true, tenant_id: tenantId });
+          io.emit("ticket_announced", { ticket, re_announced: true, tenant_id: tenantId });
         }
       } catch (e) {
-        if (data.ticket) io.to(data.tenant_id || "city-hospital-01").emit("now_serving", { ticket: data.ticket, re_announced: true });
+        if (data.ticket) {
+          io.to(data.tenant_id || "city-hospital-01").emit("now_serving", { ticket: data.ticket, re_announced: true });
+          io.emit("now_serving", { ticket: data.ticket, re_announced: true });
+        }
       }
     });
 
@@ -384,7 +397,7 @@ function initSocket(server, corsOrigin = "*") {
           socket.emit("doctor_duty_status_current", { duty, doctor_id: docIdentifier, staff_id: docIdentifier });
           socket.emit("staff_duty_status_current", { duty, doctor_id: docIdentifier, staff_id: docIdentifier });
         }
-      } catch (e) {}
+      } catch (e) { }
     };
 
     socket.on("get_doctor_duty_status", handleGetDutyStatus);
@@ -399,7 +412,7 @@ function initSocket(server, corsOrigin = "*") {
 
         socket.emit("queue_update", { snapshot, serving });
         socket.emit("analytics_update", analytics);
-      } catch (e) {}
+      } catch (e) { }
     })();
   });
 

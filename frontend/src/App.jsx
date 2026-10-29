@@ -1296,8 +1296,8 @@ export default function App() {
           setActiveTicket((prev) => ({ ...prev, ...data.ticket, status: newStatus }));
         }
 
-        // Only play audio chime & voice announcement on the Dedicated Waiting Room Kiosk TV (NOT on Patient/User Portal)
-        if (activePageRef.current === "kiosk") {
+        // Play audio chime & voice announcement on Dedicated Waiting Room Kiosk TV and Staff Portal Desk
+        if (activePageRef.current === "kiosk" || activePageRef.current === "staff") {
           playChimeSound();
           announceTicketVoice(data.ticket, languageRef.current || "en");
         }
@@ -1306,7 +1306,16 @@ export default function App() {
 
     socket.on("ticket_announced", (data) => {
       if (data && data.ticket) {
-        if (activePageRef.current === "kiosk") {
+        if (activePageRef.current === "kiosk" || activePageRef.current === "staff") {
+          playChimeSound();
+          announceTicketVoice(data.ticket, languageRef.current || "en");
+        }
+      }
+    });
+
+    socket.on("ticket_called", (data) => {
+      if (data && data.ticket) {
+        if (activePageRef.current === "kiosk" || activePageRef.current === "staff") {
           playChimeSound();
           announceTicketVoice(data.ticket, languageRef.current || "en");
         }
@@ -1542,7 +1551,7 @@ export default function App() {
         if (activePage === "pharmacy") {
           dept = "pharmacy";
         } else if (activePage === "pathology") {
-          dept = "pathology";
+          dept = "laboratory";
         } else if (activePage === "doctor") {
           // Clinical Doctor Consultation Desk should NEVER pull pharmacy tickets!
           dept = (adminDepartment && adminDepartment !== "all" && adminDepartment !== "pharmacy")
@@ -1758,7 +1767,7 @@ export default function App() {
 
   return (
     <div
-      className={`app-main-layout-wrapper ${(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "doctor" || activePage === "pharmacy" || activePage === "pathology" || activePage === "admin") && theme === "dark" ? "dark-theme" : ""} ${activePage === "superadmin" ? "superadmin-page-layout" : ""}`}
+      className={`app-main-layout-wrapper ${(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "doctor" || activePage === "pharmacy" || activePage === "pathology" || activePage === "admin") && theme === "dark" ? "dark-theme" : ""} ${activePage === "superadmin" ? "superadmin-page-layout" : ""} ${activePage === "pathology" || activePage === "pharmacy" ? "portal-wide-layout" : ""}`}
       style={(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "doctor" || activePage === "pharmacy" || activePage === "pathology" || activePage === "admin") && theme === "dark" ? darkAppBgStyle : appBgStyle}
     >
       {inactivityNotice && (
@@ -1820,6 +1829,10 @@ export default function App() {
             max-width: 100%;
             margin: 0;
           }
+          .app-main-layout-wrapper.portal-wide-layout {
+            padding-left: 20px;
+            padding-right: 20px;
+          }
         }
         @media (max-width: 1024px) {
           .app-main-layout-wrapper {
@@ -1840,8 +1853,12 @@ export default function App() {
         .app-main-layout-inner.superadmin-wide {
           max-width: 1680px;
         }
+        .app-main-layout-inner.portal-wide {
+          max-width: 100%;
+          width: 100%;
+        }
       `}</style>
-      <div className={`app-main-layout-inner ${activePage === "superadmin" ? "superadmin-wide" : ""}`}>
+      <div className={`app-main-layout-inner ${activePage === "superadmin" ? "superadmin-wide" : activePage === "pathology" || activePage === "pharmacy" ? "portal-wide" : ""}`}>
         {/* Real-Time Animated Emergency Marquee & Broadcast Ribbon */}
         <EmergencyBroadcastBanner
           broadcasts={activeBroadcasts}
@@ -2064,6 +2081,7 @@ export default function App() {
                     queueSnapshot={queueSnapshot}
                     servingTickets={servingTickets}
                     heldTickets={heldTickets}
+                    handleServeNext={handleServeNext}
                     refreshData={refreshData}
                     language={language}
                     setLanguage={setLanguage}

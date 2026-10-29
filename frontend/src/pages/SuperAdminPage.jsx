@@ -1323,17 +1323,31 @@ export default function SuperAdminPage({
             const handleDutyStatusChange = (data) => {
                 if (!data) return;
                 setLastSyncedAt(new Date());
-                const staffId = data.doctor_id || data.staff_id || data.user_id;
-                const staffEmail = (data.doctor_email || data.staff_email || data.email || "").toLowerCase();
-                const newDuty = (data.duty?.status || "ACTIVE").toUpperCase();
+                const staffId = data.doctor_id || data.staff_id || data.user_id || data.employee_id;
+                const staffCode = String(data.employee_code || data.employee_id || "").trim().toLowerCase();
+                const staffEmail = String(data.doctor_email || data.staff_email || data.email || "").trim().toLowerCase();
+                const staffName = String(data.doctor_name || data.staff_name || data.name || "").trim().toLowerCase();
+                const newDuty = (data.duty?.status || data.status || "ACTIVE").toUpperCase();
                 const isOff = newDuty === "OFF_DUTY" || newDuty === "SHIFT_ENDED";
                 const newStatus = isOff ? "off_duty" : (newDuty === "ACTIVE" ? "active" : newDuty.toLowerCase());
 
                 setHospitalEmployees((prev) =>
                     prev.map((emp) => {
+                        const empName = String(emp.name || "").trim().toLowerCase();
+                        const empUsername = String(emp.username || "").trim().toLowerCase();
+                        const empCode = String(emp.employee_id || emp.employee_code || "").trim().toLowerCase();
+                        const empEmail = String(emp.email || "").trim().toLowerCase();
+
                         const matches =
-                            (staffId && (String(emp.id) === String(staffId) || String(emp.user_id) === String(staffId) || String(emp.employee_id_num) === String(staffId))) ||
-                            (staffEmail && emp.email && emp.email.toLowerCase() === staffEmail);
+                            (staffId && (
+                                String(emp.id) === String(staffId) ||
+                                String(emp.user_id) === String(staffId) ||
+                                String(emp.employee_id_num) === String(staffId)
+                            )) ||
+                            (staffCode && empCode === staffCode) ||
+                            (staffEmail && empEmail && empEmail === staffEmail) ||
+                            (staffName && (empName === staffName || empUsername === staffName));
+
                         if (matches) {
                             return {
                                 ...emp,
@@ -1350,6 +1364,11 @@ export default function SuperAdminPage({
 
             socket.on("doctor_duty_status_changed", handleDutyStatusChange);
             socket.on("staff_duty_status_changed", handleDutyStatusChange);
+            socket.on("hospital_data_changed", (msg) => {
+                if (msg?.type === "duty_status_update" || !msg?.type) {
+                    fetchHospitalDeepDive(hCode, true);
+                }
+            });
             socket.on("ticket_served", () => fetchHospitalDeepDive(hCode, true));
             socket.on("ticket_transferred", () => fetchHospitalDeepDive(hCode, true));
             socket.on("ticket_completed", () => fetchHospitalDeepDive(hCode, true));
@@ -2123,20 +2142,30 @@ export default function SuperAdminPage({
 
     // 12. Toggle Desk Status Handler
     const handleToggleDeskStatus = async (desk) => {
-        if (!selectedHospital) return;
-        const nextStatus = desk.status === "ACTIVE" ? "AVAILABLE" : desk.status === "AVAILABLE" ? "BUSY" : desk.status === "BUSY" ? "OFFLINE" : "ACTIVE";
+        if (!selectedHospital || !desk) return;
+        const currentStatus = (desk.status || "").toUpperCase();
+        const nextStatus = (currentStatus === "ACTIVE" || currentStatus === "AVAILABLE") ? "UNAVAILABLE" : "AVAILABLE";
         try {
             const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/desks/${desk.id}/status`, {
                 method: "PUT",
                 headers: getAuthHeaders(),
                 body: JSON.stringify({ status: nextStatus }),
             });
-            if (res.ok) {
+            const data = await res.json();
+            if (res.ok && data.status === "success") {
+                notify(
+                    isHi
+                        ? `डेस्क '${desk.desk_name}' की स्थिति बदलकर '${nextStatus === "AVAILABLE" ? "सक्रिय (उपलब्ध)" : "अनुपलब्ध"}' की गई!`
+                        : `Desk '${desk.desk_name}' status updated to ${nextStatus === "AVAILABLE" ? "Active (Available)" : "Unavailable"}!`
+                );
                 fetchHospitalDeepDive(selectedHospital.hospital_code);
                 fetchGlobalData();
+            } else {
+                notify(data.detail || data.message || "Failed to update desk status.", "error");
             }
         } catch (e) {
-            console.log("Desk update error:", e);
+            console.error("Desk update error:", e);
+            notify(`Error updating desk: ${e.message}`, "error");
         }
     };
 

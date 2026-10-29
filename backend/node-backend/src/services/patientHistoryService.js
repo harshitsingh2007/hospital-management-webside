@@ -584,6 +584,21 @@ async function recordCompletedVisit({
   const resolvedMedicines = (Array.isArray(medicines) && medicines.length > 0)
     ? medicines
     : (Array.isArray(existingRx.medicines) ? existingRx.medicines : []);
+
+  // Rule 3: If an item was never marked before completion, display it as "Not Given" by default
+  const finalizedMedicines = resolvedMedicines.map((m) => {
+    const isExplicitlyGiven = m.dispensed === true || m.given === true ||
+      String(m.dispense_status || "").toLowerCase() === "given" ||
+      String(m.status || "").toLowerCase() === "dispensed";
+    return {
+      ...m,
+      dispensed: isExplicitlyGiven,
+      given: isExplicitlyGiven,
+      dispense_status: isExplicitlyGiven ? "given" : "not_given",
+      status: isExplicitlyGiven ? "dispensed" : "not_dispensed",
+    };
+  });
+
   const resolvedDiag = diagnosis || existingRx.diagnosis || tkt?.medical_condition || "Consultation Completed";
   const resolvedDoc = (doctor_name && doctor_name !== "Dr. Staff Desk")
     ? doctor_name
@@ -597,7 +612,7 @@ async function recordCompletedVisit({
     ...existingRx,
     doctor_name: resolvedDoc,
     diagnosis: resolvedDiag,
-    medicines: resolvedMedicines,
+    medicines: finalizedMedicines,
     lab_tests: resolvedLab,
     advice: resolvedAdvice,
     follow_up: resolvedFollowUp,

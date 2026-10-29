@@ -755,173 +755,224 @@ export default function ClinicalPrescriptionWorkstation({
 
           {/* Spacious Medication Grid Header */}
           <div style={{ overflowX: "auto" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "32px minmax(200px, 2.2fr) minmax(90px, 1fr) minmax(130px, 1.2fr) minmax(90px, 1fr) minmax(130px, 1.2fr) 32px", gap: "10px", padding: "8px 10px", background: subBg, borderRadius: "8px", fontSize: "11.5px", fontWeight: 800, color: mutedColor, marginBottom: "8px" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "32px minmax(180px, 2fr) minmax(75px, 0.8fr) minmax(110px, 1fr) minmax(75px, 0.8fr) minmax(110px, 1fr) minmax(105px, 1fr) 32px", gap: "10px", padding: "8px 10px", background: subBg, borderRadius: "8px", fontSize: "11.5px", fontWeight: 800, color: mutedColor, marginBottom: "8px" }}>
               <span>#</span>
               <span>{language === "hi" ? "दवा का नाम" : "Medicine Name & Strength"}</span>
               <span>{language === "hi" ? "खुराक" : "Dosage"}</span>
               <span>{language === "hi" ? "आवृत्ति (Frequency)" : "Frequency"}</span>
               <span>{language === "hi" ? "अवधि" : "Duration"}</span>
               <span>{language === "hi" ? "सेवन निर्देश" : "Instructions"}</span>
+              <span>{language === "hi" ? "स्थिति" : "Status"}</span>
               <span></span>
             </div>
 
             {/* Medication Rows */}
             <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              {rxMedicines.map((med, idx) => (
-                <div
-                  key={idx}
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "32px minmax(200px, 2.2fr) minmax(90px, 1fr) minmax(130px, 1.2fr) minmax(90px, 1fr) minmax(130px, 1.2fr) 32px",
-                    gap: "10px",
-                    alignItems: "center",
-                    padding: "8px 10px",
-                    borderRadius: "10px",
-                    background: cardBg,
-                    border: subBorder,
-                    boxShadow: "0 1px 3px rgba(0,0,0,0.02)",
-                  }}
-                >
-                  <span style={{ fontSize: "12px", fontWeight: 800, color: mutedColor, textAlign: "center" }}>
-                    {idx + 1}
-                  </span>
+              {rxMedicines.map((med, idx) => {
+                const isTktCompleted = String(ticket?.status || "").toLowerCase() === "completed";
+                const isItemGiven = med.dispense_status === "given" || med.given === true || med.dispensed === true;
 
-                  {/* Medicine Name Input */}
-                  <input
-                    type="text"
-                    placeholder="e.g. Paracetamol 650mg, Amoxicillin 500mg..."
-                    value={med.name}
-                    onChange={(e) => handleMedicineChange(idx, "name", e.target.value)}
+                return (
+                  <div
+                    key={idx}
                     style={{
-                      width: "100%",
-                      padding: "8px 12px",
-                      borderRadius: "8px",
-                      border: subBorder,
-                      fontSize: "13px",
-                      fontWeight: 600,
-                      background: subBg,
-                      color: textColor,
-                      outline: "none",
-                      boxSizing: "border-box",
-                    }}
-                  />
-
-                  {/* Dosage Input */}
-                  <input
-                    type="text"
-                    placeholder="500mg"
-                    value={med.dosage}
-                    onChange={(e) => handleMedicineChange(idx, "dosage", e.target.value)}
-                    style={{
-                      width: "100%",
+                      display: "grid",
+                      gridTemplateColumns: "32px minmax(180px, 2fr) minmax(75px, 0.8fr) minmax(110px, 1fr) minmax(75px, 0.8fr) minmax(110px, 1fr) minmax(105px, 1fr) 32px",
+                      gap: "10px",
+                      alignItems: "center",
                       padding: "8px 10px",
-                      borderRadius: "8px",
+                      borderRadius: "10px",
+                      background: cardBg,
                       border: subBorder,
-                      fontSize: "12.5px",
-                      background: subBg,
-                      color: textColor,
-                      outline: "none",
-                      boxSizing: "border-box",
-                    }}
-                  />
-
-                  {/* Frequency Select */}
-                  <select
-                    value={med.frequency}
-                    onChange={(e) => handleMedicineChange(idx, "frequency", e.target.value)}
-                    style={{
-                      width: "100%",
-                      padding: "8px 10px",
-                      borderRadius: "8px",
-                      border: subBorder,
-                      fontSize: "12px",
-                      background: subBg,
-                      color: textColor,
-                      outline: "none",
-                      boxSizing: "border-box",
-                      cursor: "pointer",
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.02)",
                     }}
                   >
-                    <option value="1-0-1">1-0-1 (Twice daily)</option>
-                    <option value="1-1-1">1-1-1 (Thrice daily)</option>
-                    <option value="1-0-0">1-0-0 (Morning only)</option>
-                    <option value="0-0-1">0-0-1 (Night only)</option>
-                    <option value="1-0-0-1">1-0-0-1 (4 times daily)</option>
-                    <option value="SOS">SOS (As needed)</option>
-                    <option value="Once weekly">Once weekly</option>
-                  </select>
+                    <span style={{ fontSize: "12px", fontWeight: 800, color: mutedColor, textAlign: "center" }}>
+                      {idx + 1}
+                    </span>
 
-                  {/* Duration Input */}
-                  <input
-                    type="text"
-                    placeholder="5 days"
-                    value={med.duration}
-                    onChange={(e) => handleMedicineChange(idx, "duration", e.target.value)}
-                    style={{
-                      width: "100%",
-                      padding: "8px 10px",
-                      borderRadius: "8px",
-                      border: subBorder,
-                      fontSize: "12.5px",
-                      background: subBg,
-                      color: textColor,
-                      outline: "none",
-                      boxSizing: "border-box",
-                    }}
-                  />
+                    {/* Medicine Name Input */}
+                    <input
+                      type="text"
+                      placeholder="e.g. Paracetamol 650mg, Amoxicillin 500mg..."
+                      value={med.name}
+                      onChange={(e) => handleMedicineChange(idx, "name", e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "8px 12px",
+                        borderRadius: "8px",
+                        border: subBorder,
+                        fontSize: "13px",
+                        fontWeight: 600,
+                        background: subBg,
+                        color: textColor,
+                        outline: "none",
+                        boxSizing: "border-box",
+                      }}
+                    />
 
-                  {/* Instructions Select */}
-                  <select
-                    value={med.instructions}
-                    onChange={(e) => handleMedicineChange(idx, "instructions", e.target.value)}
-                    style={{
-                      width: "100%",
-                      padding: "8px 8px",
-                      borderRadius: "8px",
-                      border: subBorder,
-                      fontSize: "12px",
-                      background: subBg,
-                      color: textColor,
-                      outline: "none",
-                      boxSizing: "border-box",
-                      cursor: "pointer",
-                    }}
-                  >
-                    <option value="After food">After food</option>
-                    <option value="Before food">Before food</option>
-                    <option value="Empty stomach">Empty stomach</option>
-                    <option value="Bedtime">Bedtime</option>
-                    <option value="With warm water">With warm water</option>
-                  </select>
+                    {/* Dosage Input */}
+                    <input
+                      type="text"
+                      placeholder="500mg"
+                      value={med.dosage}
+                      onChange={(e) => handleMedicineChange(idx, "dosage", e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "8px 10px",
+                        borderRadius: "8px",
+                        border: subBorder,
+                        fontSize: "12.5px",
+                        background: subBg,
+                        color: textColor,
+                        outline: "none",
+                        boxSizing: "border-box",
+                      }}
+                    />
 
-                  {/* Delete Button */}
-                  <div>
-                    {rxMedicines.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveMedicineRow(idx)}
-                        style={{
-                          background: isDark ? "rgba(239, 68, 68, 0.2)" : "#FEE2E2",
-                          border: "none",
-                          color: "#EF4444",
-                          width: "28px",
-                          height: "28px",
-                          borderRadius: "6px",
-                          cursor: "pointer",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          fontWeight: 900,
-                          fontSize: "13px",
-                        }}
-                        title="Remove Medicine"
-                      >
-                        ✕
-                      </button>
-                    )}
+                    {/* Frequency Select */}
+                    <select
+                      value={med.frequency}
+                      onChange={(e) => handleMedicineChange(idx, "frequency", e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "8px 10px",
+                        borderRadius: "8px",
+                        border: subBorder,
+                        fontSize: "12px",
+                        background: subBg,
+                        color: textColor,
+                        outline: "none",
+                        boxSizing: "border-box",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <option value="1-0-1">1-0-1 (Twice daily)</option>
+                      <option value="1-1-1">1-1-1 (Thrice daily)</option>
+                      <option value="1-0-0">1-0-0 (Morning only)</option>
+                      <option value="0-0-1">0-0-1 (Night only)</option>
+                      <option value="1-0-0-1">1-0-0-1 (4 times daily)</option>
+                      <option value="SOS">SOS (As needed)</option>
+                      <option value="Once weekly">Once weekly</option>
+                    </select>
+
+                    {/* Duration Input */}
+                    <input
+                      type="text"
+                      placeholder="5 days"
+                      value={med.duration}
+                      onChange={(e) => handleMedicineChange(idx, "duration", e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "8px 10px",
+                        borderRadius: "8px",
+                        border: subBorder,
+                        fontSize: "12.5px",
+                        background: subBg,
+                        color: textColor,
+                        outline: "none",
+                        boxSizing: "border-box",
+                      }}
+                    />
+
+                    {/* Instructions Select */}
+                    <select
+                      value={med.instructions}
+                      onChange={(e) => handleMedicineChange(idx, "instructions", e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "8px 8px",
+                        borderRadius: "8px",
+                        border: subBorder,
+                        fontSize: "12px",
+                        background: subBg,
+                        color: textColor,
+                        outline: "none",
+                        boxSizing: "border-box",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <option value="After food">After food</option>
+                      <option value="Before food">Before food</option>
+                      <option value="Empty stomach">Empty stomach</option>
+                      <option value="Bedtime">Bedtime</option>
+                      <option value="With warm water">With warm water</option>
+                    </select>
+
+                    {/* Given / Not Given Status (Editable dropdown if IN_PROGRESS, plain text if COMPLETED) */}
+                    <div>
+                      {!isTktCompleted ? (
+                        <select
+                          value={isItemGiven ? "given" : "not_given"}
+                          onChange={(e) => {
+                            const isG = e.target.value === "given";
+                            handleMedicineChange(idx, "dispense_status", e.target.value);
+                            handleMedicineChange(idx, "given", isG);
+                            handleMedicineChange(idx, "dispensed", isG);
+                          }}
+                          style={{
+                            width: "100%",
+                            padding: "8px 6px",
+                            borderRadius: "8px",
+                            border: isItemGiven ? "1.5px solid #10B981" : subBorder,
+                            fontSize: "11px",
+                            fontWeight: 700,
+                            background: isItemGiven
+                              ? (isDark ? "rgba(16, 185, 129, 0.18)" : "#ECFDF5")
+                              : subBg,
+                            color: isItemGiven ? "#059669" : textColor,
+                            outline: "none",
+                            boxSizing: "border-box",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <option value="not_given">{language === "hi" ? "नहीं दी गई" : "Not Given"}</option>
+                          <option value="given">{language === "hi" ? "दी गई ✓" : "Given ✓"}</option>
+                        </select>
+                      ) : (
+                        <span
+                          style={{
+                            fontSize: "11.5px",
+                            fontWeight: 700,
+                            color: isItemGiven ? (isDark ? "#34D399" : "#059669") : (isDark ? "#F87171" : "#DC2626"),
+                            display: "block",
+                            textAlign: "center",
+                          }}
+                        >
+                          {isItemGiven ? (language === "hi" ? "दी गई" : "Given") : (language === "hi" ? "नहीं दी गई" : "Not Given")}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Delete Button */}
+                    <div>
+                      {rxMedicines.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveMedicineRow(idx)}
+                          style={{
+                            background: isDark ? "rgba(239, 68, 68, 0.2)" : "#FEE2E2",
+                            border: "none",
+                            color: "#EF4444",
+                            width: "28px",
+                            height: "28px",
+                            borderRadius: "6px",
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontWeight: 900,
+                            fontSize: "13px",
+                          }}
+                          title="Remove Medicine"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>

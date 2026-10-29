@@ -638,9 +638,11 @@ async function deleteHospitalDeskEndpoint(req, res, next) {
 async function updateDeskStatusEndpoint(req, res, next) {
   try {
     const deskId = req.params.desk_id;
+    const hospitalCode = req.params.hospital_code;
     const { status } = req.body;
 
     const desk = await updateDeskStatus(deskId, status);
+    notifyHospitalChange(req, hospitalCode);
     return res.status(200).json({
       status: "success",
       desk,

@@ -11,11 +11,25 @@
  *   "Kripya dhyan dein: Token number T 5 0 1 6 1 2, Mareez Rahul Verma, OPD Department mein padharein."
  */
 
+let lastSpokenTicketKey = "";
+let lastSpokenTimestamp = 0;
+
 export const announceTicketVoice = (ticket, language = "en") => {
-  if (!("speechSynthesis" in window)) {
-    console.warn("Web Speech API is not supported in this browser.");
+  if (!ticket || !("speechSynthesis" in window)) {
+    console.warn("Web Speech API is not supported in this browser or ticket is empty.");
     return;
   }
+
+  const ticketId = ticket.ticket_id || ticket.id || "T-101";
+  const now = Date.now();
+  const currentKey = `${ticketId}_${language}`;
+
+  // Prevent duplicate concurrent speech invocation within 1200ms
+  if (currentKey === lastSpokenTicketKey && now - lastSpokenTimestamp < 1200) {
+    return;
+  }
+  lastSpokenTicketKey = currentKey;
+  lastSpokenTimestamp = now;
 
   try {
     // Cancel any active speech to avoid overlaps
@@ -58,6 +72,9 @@ export const announceTicketVoice = (ticket, language = "en") => {
           PHARMACY: "दवा",
           EMERGENCY: "आपातकालीन",
           LABORATORY: "पैथोलॉजी लैब",
+          PATHOLOGY: "पैथोलॉजी लैब",
+          LAB: "पैथोलॉजी लैब",
+          DIAGNOSTIC: "पैथोलॉजी लैब",
           RADIOLOGY: "रेडियोलॉजी",
           BILLING: "बिलिंग",
         };

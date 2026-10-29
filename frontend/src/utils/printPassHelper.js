@@ -809,12 +809,8 @@ export function buildPrescriptionPdfBlob(rawRxData, lang = "en", branding = null
 
   let stream = [];
 
-  // 1. Top Hospital Branding Header Bar (Cyan / Medical Blue)
-  stream.push("0.008 0.518 0.780 rg"); // #0284C7
-  stream.push("0 831.89 595.28 10 re f");
-
-  // 2. Hospital Logo & Title
-  let textStartX = 82;
+  // 1. Hospital Logo & Title
+  let textStartX = 40;
   if (logoImageMeta && logoImageMeta.bytes) {
     const aspect = logoImageMeta.width / logoImageMeta.height;
     let dispW = 95;
@@ -830,105 +826,93 @@ export function buildPrescriptionPdfBlob(rawRxData, lang = "en", branding = null
     stream.push("/Im1 Do");
     stream.push("Q");
     textStartX = imgX + dispW + 12;
-  } else {
-    stream.push("BT /F2 26 Tf 0.008 0.518 0.780 rg 40 788 Td (Rx) Tj ET");
-    textStartX = 82;
   }
 
-  stream.push("BT /F2 15 Tf 0.059 0.090 0.165 rg " + textStartX + " 798 Td (" + escapePdfText(hospitalName.toUpperCase()) + ") Tj ET");
-  stream.push("BT /F1 8.5 Tf 0.008 0.518 0.780 rg " + textStartX + " 784 Td (" + escapePdfText(brandTagline.toUpperCase()) + " - NABH ACCREDITED HEALTHCARE) Tj ET");
+  stream.push("BT /F2 16 Tf 0.059 0.090 0.165 rg " + textStartX + " 796 Td (" + escapePdfText(hospitalName) + ") Tj ET");
+  stream.push("BT /F1 8.5 Tf 0.35 0.35 0.35 rg " + textStartX + " 782 Td (" + escapePdfText(brandTagline) + ") Tj ET");
 
   // Date, Time & Token (Right header)
-  stream.push("BT /F2 8.5 Tf 0.28 0.33 0.41 rg 420 800 Td (Date: " + escapePdfText(dateStr) + " " + escapePdfText(timeStr) + ") Tj ET");
+  stream.push("BT /F1 8.5 Tf 0.25 0.25 0.25 rg 420 800 Td (Date: " + escapePdfText(dateStr) + (timeStr ? " " + escapePdfText(timeStr) : "") + ") Tj ET");
   if (data.ticket_id) {
-    stream.push("BT /F2 9.5 Tf 0.008 0.518 0.780 rg 420 786 Td (Token Pass: #" + escapePdfText(data.ticket_id) + ") Tj ET");
+    stream.push("BT /F2 9.0 Tf 0.1 0.1 0.1 rg 420 786 Td (Token Pass: #" + escapePdfText(data.ticket_id) + ") Tj ET");
   } else if (data.appointment_id) {
-    stream.push("BT /F2 9.5 Tf 0.008 0.518 0.780 rg 420 786 Td (Apt Ref: " + escapePdfText(data.appointment_id) + ") Tj ET");
+    stream.push("BT /F2 9.0 Tf 0.1 0.1 0.1 rg 420 786 Td (Ref: " + escapePdfText(data.appointment_id) + ") Tj ET");
   }
 
-  // Divider Line
-  stream.push("0.008 0.518 0.780 RG 1.5 w 40 768 m 555 768 l S");
+  // Divider Line (thin black rule)
+  stream.push("0.1 0.1 0.1 RG 1 w 40 768 m 555 768 l S");
 
-  // 3. Patient & Doctor Demographics Card
-  stream.push("0.973 0.980 0.988 rg 40 692 515 68 re f");
-  stream.push("0.85 0.88 0.92 RG 1 w 40 692 515 68 re S");
+  // 2. Patient & Doctor Demographics (Two columns, no background box)
+  // Patient Info (Left)
+  stream.push("BT /F2 8 Tf 0.45 0.45 0.45 rg 40 748 Td (PATIENT) Tj ET");
+  stream.push("BT /F2 11 Tf 0.07 0.07 0.07 rg 40 732 Td (" + escapePdfText(data.patient_name) + ") Tj ET");
+  stream.push("BT /F1 9 Tf 0.25 0.25 0.25 rg 40 718 Td (" + escapePdfText(data.age + " yrs | " + data.gender + (data.phone ? " | Ph: " + data.phone : "") + (data.ticket_id ? " | Token #" + data.ticket_id : "")) + ") Tj ET");
 
-  // Patient Info
-  stream.push("BT /F2 8 Tf 0.392 0.455 0.545 rg 52 743 Td (PATIENT INFORMATION) Tj ET");
-  stream.push("BT /F2 12 Tf 0.059 0.090 0.165 rg 52 728 Td (" + escapePdfText(data.patient_name) + ") Tj ET");
-  stream.push("BT /F1 9 Tf 0.28 0.33 0.41 rg 52 714 Td (" + escapePdfText(data.age + " yrs | " + data.gender + " | " + (data.phone ? "Ph: " + data.phone : "OPD Registered")) + ") Tj ET");
-  if (data.appointment_id) {
-    stream.push("BT /F1 8 Tf 0.392 0.455 0.545 rg 52 702 Td (Appointment ID: " + escapePdfText(data.appointment_id) + ") Tj ET");
-  }
+  // Doctor Info (Right)
+  stream.push("BT /F2 8 Tf 0.45 0.45 0.45 rg 310 748 Td (DOCTOR) Tj ET");
+  stream.push("BT /F2 11 Tf 0.07 0.07 0.07 rg 310 732 Td (" + escapePdfText(data.doctor_name) + ") Tj ET");
+  stream.push("BT /F1 9 Tf 0.25 0.25 0.25 rg 310 718 Td (" + escapePdfText(deptLabel + (data.doctor_employee_id ? " | Reg: " + data.doctor_employee_id : "")) + ") Tj ET");
 
-  // Doctor Info
-  stream.push("BT /F2 8 Tf 0.392 0.455 0.545 rg 310 743 Td (ATTENDING DOCTOR & CLINIC) Tj ET");
-  stream.push("BT /F2 12 Tf 0.008 0.518 0.780 rg 310 728 Td (" + escapePdfText(data.doctor_name) + ") Tj ET");
-  stream.push("BT /F1 9 Tf 0.28 0.33 0.41 rg 310 714 Td (" + escapePdfText(deptLabel + " | Reg ID: " + data.doctor_employee_id) + ") Tj ET");
-  stream.push("BT /F2 8 Tf 0.082 0.502 0.239 rg 310 702 Td (OPD Clinical Consultation Desk) Tj ET");
+  // Divider Line below demographics
+  stream.push("0.9 0.9 0.9 RG 1 w 40 702 m 555 702 l S");
 
-  // 4. Clinical Diagnosis & Lab Investigations Box
-  stream.push("0.941 0.992 0.957 rg 40 638 515 44 re f");
-  stream.push("0.733 0.969 0.816 RG 1 w 40 638 515 44 re S");
-  stream.push("BT /F2 8 Tf 0.082 0.502 0.239 rg 52 668 Td (PROVISIONAL CLINICAL DIAGNOSIS & ASSESSMENT) Tj ET");
-  stream.push("BT /F2 11 Tf 0.086 0.396 0.204 rg 52 654 Td (" + escapePdfText(data.diagnosis) + ") Tj ET");
+  // 3. Clinical Diagnosis (Plain label + bold text, no green box)
+  stream.push("BT /F2 9.5 Tf 0.2 0.2 0.2 rg 40 682 Td (Diagnosis: ) Tj ET");
+  stream.push("BT /F2 10.5 Tf 0.07 0.07 0.07 rg 98 682 Td (" + escapePdfText(data.diagnosis) + ") Tj ET");
   if (data.lab_tests && data.lab_tests !== "no") {
-    stream.push("BT /F1 8.5 Tf 0.008 0.518 0.780 rg 52 642 Td (Diagnostic / Lab Tests Requested: " + escapePdfText(data.lab_tests) + ") Tj ET");
+    stream.push("BT /F1 9 Tf 0.25 0.25 0.25 rg 40 666 Td (Investigations / Tests: " + escapePdfText(data.lab_tests) + ") Tj ET");
   }
 
-  // 5. Prescribed Medications Table
-  stream.push("BT /F2 11 Tf 0.059 0.090 0.165 rg 40 620 Td (Rx PRESCRIBED MEDICATIONS & DOSAGE) Tj ET");
+  // 4. Prescribed Medications Table
+  stream.push("BT /F2 13 Tf 0.07 0.07 0.07 rg 40 640 Td (Rx) Tj ET");
 
-  // Table Header row
-  stream.push("0.945 0.961 0.976 rg 40 592 515 22 re f");
-  stream.push("0.796 0.835 0.882 RG 1 w 40 592 515 22 re S");
-  stream.push("BT /F2 8.5 Tf 0.28 0.33 0.41 rg 48 599 Td (#) Tj ET");
-  stream.push("BT /F2 8.5 Tf 0.28 0.33 0.41 rg 70 599 Td (MEDICINE NAME & STRENGTH) Tj ET");
-  stream.push("BT /F2 8.5 Tf 0.28 0.33 0.41 rg 240 599 Td (DOSAGE) Tj ET");
-  stream.push("BT /F2 8.5 Tf 0.28 0.33 0.41 rg 310 599 Td (FREQUENCY) Tj ET");
-  stream.push("BT /F2 8.5 Tf 0.28 0.33 0.41 rg 390 599 Td (DURATION) Tj ET");
-  stream.push("BT /F2 8.5 Tf 0.28 0.33 0.41 rg 460 599 Td (INSTRUCTIONS) Tj ET");
+  // Table Header row (clean with thin black line below)
+  stream.push("0.1 0.1 0.1 RG 1.5 w 40 618 m 555 618 l S");
+  stream.push("BT /F2 8.5 Tf 0.1 0.1 0.1 rg 44 624 Td (#) Tj ET");
+  stream.push("BT /F2 8.5 Tf 0.1 0.1 0.1 rg 66 624 Td (MEDICINE) Tj ET");
+  stream.push("BT /F2 8.5 Tf 0.1 0.1 0.1 rg 240 624 Td (DOSAGE) Tj ET");
+  stream.push("BT /F2 8.5 Tf 0.1 0.1 0.1 rg 310 624 Td (FREQUENCY) Tj ET");
+  stream.push("BT /F2 8.5 Tf 0.1 0.1 0.1 rg 390 624 Td (DURATION) Tj ET");
+  stream.push("BT /F2 8.5 Tf 0.1 0.1 0.1 rg 460 624 Td (INSTRUCTIONS) Tj ET");
 
-  let currentY = 570;
+  let currentY = 598;
   if (data.medicines && data.medicines.length > 0) {
     data.medicines.forEach((med, idx) => {
-      if (idx % 2 === 1) {
-        stream.push("0.973 0.980 0.988 rg 40 " + (currentY - 6) + " 515 22 re f");
-      }
-      stream.push("0.9 0.92 0.94 RG 0.5 w 40 " + (currentY - 6) + " 515 22 re S");
-      stream.push("BT /F2 8.5 Tf 0.392 0.455 0.545 rg 48 " + (currentY + 2) + " Td (" + (idx + 1) + ") Tj ET");
-      stream.push("BT /F2 9.5 Tf 0.059 0.090 0.165 rg 70 " + (currentY + 2) + " Td (" + escapePdfText(med.name) + ") Tj ET");
-      stream.push("BT /F1 9 Tf 0.008 0.518 0.780 rg 240 " + (currentY + 2) + " Td (" + escapePdfText(med.dosage || "-") + ") Tj ET");
-      stream.push("BT /F2 9 Tf 0.082 0.502 0.239 rg 310 " + (currentY + 2) + " Td (" + escapePdfText(med.frequency || "-") + ") Tj ET");
-      stream.push("BT /F1 9 Tf 0.28 0.33 0.41 rg 390 " + (currentY + 2) + " Td (" + escapePdfText(med.duration || "-") + ") Tj ET");
-      stream.push("BT /F1 8.5 Tf 0.392 0.455 0.545 rg 460 " + (currentY + 2) + " Td (" + escapePdfText(med.instructions || "After food") + ") Tj ET");
+      stream.push("0.9 0.9 0.9 RG 0.5 w 40 " + (currentY - 6) + " 515 22 re S");
+      stream.push("BT /F2 8.5 Tf 0.45 0.45 0.45 rg 44 " + (currentY + 2) + " Td (" + (idx + 1) + ") Tj ET");
+      stream.push("BT /F2 9.5 Tf 0.07 0.07 0.07 rg 66 " + (currentY + 2) + " Td (" + escapePdfText(med.name) + ") Tj ET");
+      stream.push("BT /F1 9 Tf 0.07 0.07 0.07 rg 240 " + (currentY + 2) + " Td (" + escapePdfText(med.dosage || "-") + ") Tj ET");
+      stream.push("BT /F1 9 Tf 0.07 0.07 0.07 rg 310 " + (currentY + 2) + " Td (" + escapePdfText(med.frequency || "-") + ") Tj ET");
+      stream.push("BT /F1 9 Tf 0.25 0.25 0.25 rg 390 " + (currentY + 2) + " Td (" + escapePdfText(med.duration || "-") + ") Tj ET");
+      stream.push("BT /F1 8.5 Tf 0.4 0.4 0.4 rg 460 " + (currentY + 2) + " Td (" + escapePdfText(med.instructions || "After food") + ") Tj ET");
       currentY -= 22;
     });
   } else {
-    stream.push("0.973 0.980 0.988 rg 40 " + (currentY - 14) + " 515 28 re f");
-    stream.push("0.85 0.88 0.92 RG 1 w 40 " + (currentY - 14) + " 515 28 re S");
-    stream.push("BT /F1 9 Tf 0.392 0.455 0.545 rg 52 " + (currentY - 4) + " Td (" + escapePdfText(data.advice || "No specific prescription medications listed. Clinical consultation completed.") + ") Tj ET");
-    currentY -= 28;
+    stream.push("0.9 0.9 0.9 RG 0.5 w 40 " + (currentY - 14) + " 515 24 re S");
+    stream.push("BT /F1 9 Tf 0.4 0.4 0.4 rg 52 " + (currentY - 4) + " Td (" + escapePdfText(data.advice || "No specific prescription medications listed. Clinical consultation completed.") + ") Tj ET");
+    currentY -= 24;
   }
 
-  // 6. Doctor Advice & Care Plan Box
-  currentY -= 15;
-  stream.push("0.97 0.98 1.0 rg 40 " + (currentY - 38) + " 515 44 re f");
-  stream.push("0.73 0.87 0.98 RG 1 w 40 " + (currentY - 38) + " 515 44 re S");
-  stream.push("BT /F2 8 Tf 0.008 0.518 0.780 rg 52 " + (currentY - 3) + " Td (DOCTOR'S ADVICE, DIETARY & LIFESTYLE CARE INSTRUCTIONS) Tj ET");
-  stream.push("BT /F1 9.5 Tf 0.059 0.090 0.165 rg 52 " + (currentY - 18) + " Td (" + escapePdfText(data.advice || "Follow prescribed dosage strictly. Complete the antibiotic course if advised.") + ") Tj ET");
+  // 5. Doctor Advice & Follow-Up (Plain text lines)
+  currentY -= 12;
+  if (data.advice && data.medicines && data.medicines.length > 0) {
+    stream.push("BT /F2 8.5 Tf 0.1 0.1 0.1 rg 40 " + currentY + " Td (Advice: ) Tj ET");
+    stream.push("BT /F1 9 Tf 0.2 0.2 0.2 rg 80 " + currentY + " Td (" + escapePdfText(data.advice) + ") Tj ET");
+    currentY -= 16;
+  }
   if (data.follow_up) {
-    stream.push("BT /F2 9 Tf 0.082 0.502 0.239 rg 52 " + (currentY - 31) + " Td (Review & Next Follow-Up: " + escapePdfText(data.follow_up) + ") Tj ET");
+    stream.push("BT /F2 8.5 Tf 0.1 0.1 0.1 rg 40 " + currentY + " Td (Follow-up: ) Tj ET");
+    stream.push("BT /F1 9 Tf 0.2 0.2 0.2 rg 95 " + currentY + " Td (" + escapePdfText(data.follow_up) + ") Tj ET");
+    currentY -= 16;
   }
 
-  // 7. Official Doctor Signature & Hospital OPD Stamp Box
-  currentY -= 68;
-  stream.push("0.98 0.99 0.98 rg 315 " + (currentY - 74) + " 240 82 re f");
-  stream.push("0.082 0.502 0.239 RG 1.5 w 315 " + (currentY - 74) + " 240 82 re S");
+  // 6. Authentication & Doctor Signature Area
+  currentY -= 20;
+  stream.push("0.9 0.9 0.9 RG 1 w 40 " + currentY + " m 555 " + currentY + " l S");
 
-  // Circular Stamp on left of doctor box
-  const cx = 352, cy = currentY - 33, r = 26;
-  stream.push("0.082 0.502 0.239 RG 1.5 w");
+  // Small B&W Circular Stamp on left
+  const cx = 66, cy = currentY - 36, r = 22;
+  stream.push("0.25 0.25 0.25 RG 1 w");
   stream.push((cx + r) + " " + cy + " m");
   stream.push((cx + r) + " " + (cy + r * 0.552) + " " + (cx + r * 0.552) + " " + (cy + r) + " " + cx + " " + (cy + r) + " c");
   stream.push((cx - r * 0.552) + " " + (cy + r) + " " + (cx - r) + " " + (cy + r * 0.552) + " " + (cx - r) + " " + cy + " c");
@@ -936,8 +920,8 @@ export function buildPrescriptionPdfBlob(rawRxData, lang = "en", branding = null
   stream.push((cx + r * 0.552) + " " + (cy - r) + " " + (cx + r) + " " + (cy - r * 0.552) + " " + (cx + r) + " " + cy + " c S");
 
   // Inner dotted circle
-  const rIn = 21;
-  stream.push("[2 1] 0 d 0.082 0.502 0.239 RG 1 w");
+  const rIn = 18;
+  stream.push("[2 1] 0 d 0.25 0.25 0.25 RG 0.8 w");
   stream.push((cx + rIn) + " " + cy + " m");
   stream.push((cx + rIn) + " " + (cy + rIn * 0.552) + " " + (cx + rIn * 0.552) + " " + (cy + rIn) + " " + cx + " " + (cy + rIn) + " c");
   stream.push((cx - rIn * 0.552) + " " + (cy + rIn) + " " + (cx - rIn) + " " + (cy + rIn * 0.552) + " " + (cx - rIn) + " " + cy + " c");
@@ -945,25 +929,24 @@ export function buildPrescriptionPdfBlob(rawRxData, lang = "en", branding = null
   stream.push((cx + rIn * 0.552) + " " + (cy - rIn) + " " + (cx + rIn) + " " + (cy - rIn * 0.552) + " " + (cx + rIn) + " " + cy + " c S");
   stream.push("[] 0 d"); // reset dash
 
-  // Stamp inner text
-  stream.push("BT /F2 6 Tf 0.082 0.502 0.239 rg 333 " + (cy + 6) + " Td (OPD DESK) Tj ET");
-  stream.push("BT /F2 6.5 Tf 0.082 0.502 0.239 rg 330 " + (cy - 4) + " Td (VERIFIED) Tj ET");
-  stream.push("BT /F1 5.5 Tf 0.082 0.502 0.239 rg 334 " + (cy - 12) + " Td (SIGNED) Tj ET");
+  stream.push("BT /F2 5.5 Tf 0.25 0.25 0.25 rg 50 " + (cy + 4) + " Td (OPD DESK) Tj ET");
+  stream.push("BT /F2 5.5 Tf 0.25 0.25 0.25 rg 48 " + (cy - 5) + " Td (VERIFIED) Tj ET");
 
-  // Doctor Signature Info
-  stream.push("BT /F2 11 Tf 0.059 0.090 0.165 rg 388 " + (currentY - 14) + " Td (" + escapePdfText(data.doctor_name) + ") Tj ET");
-  stream.push("BT /F1 8.5 Tf 0.392 0.455 0.545 rg 388 " + (currentY - 26) + " Td (Consultant Physician | " + escapePdfText(deptLabel) + ") Tj ET");
-  stream.push("BT /F1 8 Tf 0.082 0.502 0.239 rg 388 " + (currentY - 38) + " Td (Reg: " + escapePdfText(data.doctor_employee_id) + ") Tj ET");
-  stream.push("BT /F2 7.5 Tf 0.008 0.518 0.780 rg 388 " + (currentY - 50) + " Td (Digitally Authenticated by Clinical System) Tj ET");
-  stream.push("0.082 0.502 0.239 RG 1 w 388 " + (currentY - 58) + " m 540 " + (currentY - 58) + " l S");
+  // Authentication Text (next to stamp)
+  stream.push("BT /F2 8.5 Tf 0.15 0.15 0.15 rg 98 " + (cy + 6) + " Td (Authenticated outpatient record.) Tj ET");
+  stream.push("BT /F1 7.5 Tf 0.4 0.4 0.4 rg 98 " + (cy - 6) + " Td (Valid across all hospital pharmacy counters & Jan Aushadhi.) Tj ET");
 
-  // Left Legal / Security Authentication Watermark
-  stream.push("0.082 0.502 0.239 RG 1 w 40 " + (currentY - 62) + " m 295 " + (currentY - 62) + " l S");
-  stream.push("BT /F2 8 Tf 0.082 0.502 0.239 rg 40 " + (currentY - 48) + " Td (OFFICIAL CLINICAL E-PRESCRIPTION) Tj ET");
-  stream.push("BT /F1 7.5 Tf 0.392 0.455 0.545 rg 40 " + (currentY - 58) + " Td (Valid across hospital pharmacy, lab diagnostic counters & Jan Aushadhi) Tj ET");
+  // Doctor Signature Info (Right side)
+  stream.push("0.1 0.1 0.1 RG 1 w 390 " + (currentY - 24) + " m 540 " + (currentY - 24) + " l S");
+  stream.push("BT /F2 10.5 Tf 0.07 0.07 0.07 rg 390 " + (currentY - 36) + " Td (" + escapePdfText(data.doctor_name) + ") Tj ET");
+  stream.push("BT /F1 8.5 Tf 0.3 0.3 0.3 rg 390 " + (currentY - 48) + " Td (Consultant Physician) Tj ET");
+  if (data.doctor_employee_id) {
+    stream.push("BT /F1 8 Tf 0.4 0.4 0.4 rg 390 " + (currentY - 58) + " Td (Reg. No: " + escapePdfText(data.doctor_employee_id) + ") Tj ET");
+  }
+  stream.push("BT /F1 7.5 Tf 0.5 0.5 0.5 rg 390 " + (currentY - 68) + " Td (Digitally signed by attending doctor) Tj ET");
 
-  // 8. Bottom Footer
-  stream.push("BT /F1 7.5 Tf 0.58 0.64 0.72 rg 120 28 Td (" + escapePdfText(hospitalName + " - NABH Accredited Healthcare - Generated by AI Queue Health System") + ") Tj ET");
+  // 7. Bottom Footer (Single centered line)
+  stream.push("BT /F1 8 Tf 0.5 0.5 0.5 rg 90 28 Td (This is a computer-generated prescription. Non-transferable. Please keep until consultation is complete.) Tj ET");
 
   const contentStream = stream.join("\n");
   const contentStreamLen = new TextEncoder().encode(contentStream).length;
@@ -1096,9 +1079,7 @@ export function printPrescriptionSlip(rawRxData, lang = "en", branding = null) {
   if (!rxData) return;
 
   const hospitalName = (branding && (branding.hospital_name || branding.name)) || rxData.hospital_name || t("hospitalName", lang);
-  const brandPrimary = (branding && branding.primary_color) || "#0284C7";
   const brandTagline = (branding && branding.tagline) || (lang === "hi" ? "आउटपेशेंट क्लिनिकल ई-प्रिस्क्रिप्शन पर्ची" : "Outpatient Clinical E-Prescription Slip");
-  const footerStr = `${hospitalName} • ${(branding && branding.slip_footer_text) || "NABH Accredited Healthcare • Digitally Validated Clinical Prescription"}`;
   const deptLabel = getCategoryLabel(rxData.doctor_department, lang);
   const dateStr = rxData.prescribed_at ? new Date(rxData.prescribed_at).toLocaleDateString() : new Date().toLocaleDateString();
   const timeStr = rxData.prescribed_at ? new Date(rxData.prescribed_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
@@ -1108,189 +1089,287 @@ export function printPrescriptionSlip(rawRxData, lang = "en", branding = null) {
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>${hospitalName} - Clinical Rx #${rxData.ticket_id || rxData.appointment_id || ""}</title>
+  <title>${hospitalName} - Prescription #${rxData.ticket_id || rxData.appointment_id || ""}</title>
   <style>
-    @page { size: A4 portrait; margin: 10mm 14mm; }
-    @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
-    * { box-sizing: border-box; }
+    @page {
+      size: A4 portrait;
+      margin: 15mm;
+    }
+    @media print {
+      body {
+        -webkit-print-color-adjust: economy;
+        print-color-adjust: economy;
+        padding: 0;
+        margin: 0;
+      }
+      .no-print {
+        display: none !important;
+      }
+    }
+    * {
+      box-sizing: border-box;
+    }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-family: "Inter", Arial, Helvetica, sans-serif;
       margin: 0 auto;
       max-width: 760px;
-      color: #0f172a;
+      color: #111111;
       background: #ffffff;
-      padding: 24px;
-      border: 1.5px solid #cbd5e1;
-      border-radius: 12px;
+      padding: 16px 20px;
+      line-height: 1.45;
+      -webkit-font-smoothing: antialiased;
     }
     .header {
       display: flex;
       justify-content: space-between;
+      align-items: flex-end;
+      border-bottom: 1px solid #111111;
+      padding-bottom: 12px;
+      margin-bottom: 18px;
+    }
+    .header-left {
+      display: flex;
       align-items: center;
-      border-bottom: 2.5px solid ${brandPrimary};
-      padding-bottom: 14px;
-      margin-bottom: 16px;
+      gap: 12px;
     }
-    .rx-symbol {
-      font-size: 38px;
-      font-weight: 900;
-      color: ${brandPrimary};
-      line-height: 1;
-      margin-right: 14px;
+    .hospital-logo {
+      max-height: 48px;
+      max-width: 140px;
+      object-fit: contain;
     }
-    .hosp-name {
-      font-size: 21px;
-      font-weight: 900;
-      color: #0f172a;
-      margin: 0;
-      text-transform: uppercase;
-      letter-spacing: -0.3px;
-    }
-    .hosp-sub {
-      font-size: 11px;
+    .hospital-name {
+      font-size: 17pt;
       font-weight: 700;
-      color: ${brandPrimary};
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
+      color: #0f172a;
+      line-height: 1.2;
+      letter-spacing: -0.2px;
+      margin: 0;
+    }
+    .hospital-tagline {
+      font-size: 9pt;
+      color: #666666;
       margin-top: 3px;
     }
-    .info-grid {
+    .header-right {
+      text-align: right;
+      font-size: 9pt;
+      color: #333333;
+      line-height: 1.45;
+      white-space: nowrap;
+    }
+    .patient-doctor-block {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 12px;
-      background: #f8fafc;
-      padding: 12px 16px;
-      border: 1px solid #e2e8f0;
-      border-radius: 10px;
-      margin-bottom: 16px;
+      gap: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid #E5E5E5;
+      margin-bottom: 18px;
     }
     .info-label {
-      font-size: 10px;
-      font-weight: 800;
-      color: #64748b;
+      font-size: 8.5pt;
+      font-weight: 600;
+      color: #777777;
       text-transform: uppercase;
       letter-spacing: 0.5px;
-    }
-    .info-val {
-      font-size: 13.5px;
-      font-weight: 800;
-      color: #0f172a;
-      margin-top: 2px;
-    }
-    .diag-box {
-      margin-bottom: 16px;
-      padding: 12px 16px;
-      background: #f0fdf4;
-      border: 1px solid #bbf7d0;
-      border-radius: 10px;
-    }
-    .diag-title {
-      font-size: 10.5px;
-      font-weight: 800;
-      color: #15803d;
-      text-transform: uppercase;
       margin-bottom: 4px;
     }
-    .diag-val {
-      font-size: 14px;
-      font-weight: 800;
-      color: #166534;
+    .info-name {
+      font-size: 11pt;
+      font-weight: 700;
+      color: #111111;
+      margin-bottom: 3px;
+    }
+    .info-sub {
+      font-size: 9.5pt;
+      color: #444444;
+      line-height: 1.4;
+    }
+    .diagnosis-block {
+      margin-bottom: 18px;
+      font-size: 10pt;
+      line-height: 1.5;
+      color: #222222;
+    }
+    .diagnosis-block .label {
+      font-weight: 600;
+      color: #333333;
+    }
+    .diagnosis-block .val {
+      font-weight: 700;
+      color: #111111;
+    }
+    .lab-tests-line {
+      margin-top: 4px;
+      font-size: 9.5pt;
+      color: #333333;
+    }
+    .rx-heading {
+      font-size: 13pt;
+      font-weight: 700;
+      color: #111111;
+      margin-bottom: 8px;
     }
     .meds-table {
       width: 100%;
       border-collapse: collapse;
-      margin-bottom: 16px;
-      font-size: 12px;
+      margin-bottom: 18px;
+      font-size: 10pt;
     }
     .meds-table th {
-      background: #f1f5f9;
-      padding: 9px 10px;
+      padding: 8px 6px;
+      font-weight: 700;
+      color: #111111;
+      border-bottom: 1.5px solid #111111;
+      background: transparent;
       text-align: left;
-      font-weight: 800;
-      color: #475569;
-      border-bottom: 2px solid #cbd5e1;
     }
     .meds-table td {
-      padding: 9px 10px;
-      border-bottom: 1px solid #f1f5f9;
+      padding: 8px 6px;
+      border-bottom: 1px solid #E5E5E5;
+      color: #111111;
+      vertical-align: top;
     }
-    .meds-table tr:nth-child(even) {
-      background: #f8fafc;
+    .meds-table tr {
+      page-break-inside: avoid;
     }
-    .doctor-stamp-container {
-      border: 1.5px solid #15803d;
-      background: #f8fafc;
-      border-radius: 10px;
-      padding: 12px 18px;
-      margin-top: 20px;
+    .meds-table .instructions {
+      color: #555555;
+      font-style: italic;
+    }
+    .no-meds {
+      padding: 10px 0;
+      font-size: 9.5pt;
+      color: #555555;
+      font-style: italic;
+      margin-bottom: 18px;
+      border-bottom: 1px solid #E5E5E5;
+    }
+    .meta-line {
+      font-size: 9.5pt;
+      color: #222222;
+      margin-bottom: 10px;
+      line-height: 1.45;
+    }
+    .meta-line strong {
+      font-weight: 600;
+      color: #111111;
+    }
+    .signature-section {
       display: flex;
       justify-content: space-between;
+      align-items: flex-end;
+      margin-top: 24px;
+      padding-top: 14px;
+      border-top: 1px solid #E5E5E5;
+      page-break-inside: avoid;
+    }
+    .auth-box {
+      display: flex;
       align-items: center;
-      flex-wrap: wrap;
-      gap: 16px;
+      gap: 10px;
+      max-width: 340px;
+    }
+    .auth-text {
+      font-size: 8.5pt;
+      line-height: 1.4;
+      color: #555555;
+    }
+    .auth-title {
+      font-weight: 600;
+      color: #222222;
+    }
+    .auth-subtitle {
+      color: #666666;
+      margin-top: 1px;
+    }
+    .doctor-signature-box {
+      text-align: right;
+      min-width: 170px;
+      page-break-inside: avoid;
+    }
+    .doc-name {
+      font-size: 10.5pt;
+      font-weight: 700;
+      color: #111111;
+      margin-top: 3px;
+    }
+    .doc-title {
+      font-size: 9pt;
+      color: #444444;
+    }
+    .doc-reg {
+      font-size: 8.5pt;
+      color: #666666;
+    }
+    .doc-meta {
+      font-size: 8pt;
+      color: #888888;
+      margin-top: 2px;
     }
     .footer {
       text-align: center;
-      font-size: 10px;
-      color: #94a3b8;
-      margin-top: 16px;
-      text-transform: uppercase;
+      font-size: 8.5pt;
+      color: #888888;
+      margin-top: 24px;
+      padding-top: 10px;
+      border-top: 1px solid #E5E5E5;
+      page-break-inside: avoid;
     }
   </style>
 </head>
 <body>
   <div class="header">
-    <div style="display: flex; align-items: center; gap: 14px;">
+    <div class="header-left">
       ${logoUrl ? `
-        <img src="${logoUrl}" alt="Hospital Logo" style="max-height: 52px; max-width: 140px; object-fit: contain; border-radius: 6px;" />
-      ` : `
-        <span class="rx-symbol">℞</span>
-      `}
+        <img src="${logoUrl}" alt="Hospital Logo" class="hospital-logo" />
+      ` : ""}
       <div>
-        <h1 class="hosp-name">${hospitalName}</h1>
-        <div class="hosp-sub">${brandTagline}</div>
+        <h1 class="hospital-name">${hospitalName}</h1>
+        <div class="hospital-tagline">${brandTagline}</div>
       </div>
     </div>
-    <div style="text-align: right; font-size: 11px; color: #64748b;">
-      <div><strong>Date:</strong> ${dateStr}</div>
-      <div><strong>Time:</strong> ${timeStr}</div>
-      ${rxData.ticket_id ? `<div style="color: ${brandPrimary}; font-weight: 800; margin-top: 2px;">Token #${rxData.ticket_id}</div>` : ""}
+    <div class="header-right">
+      <div>Date: ${dateStr}</div>
+      ${timeStr ? `<div>Time: ${timeStr}</div>` : ""}
+      ${rxData.ticket_id ? `<div>Token: #${rxData.ticket_id}</div>` : (rxData.appointment_id ? `<div>Ref: ${rxData.appointment_id}</div>` : "")}
     </div>
   </div>
 
-  <div class="info-grid">
-    <div>
-      <div class="info-label">${t("patientDemographics", lang)}</div>
-      <div class="info-val">${rxData.patient_name}</div>
-      <div style="font-size: 11.5px; color: #475569; margin-top: 3px;">
-        ${rxData.age || 30} yrs • ${formatCleanText(t(rxData.gender || "male", lang), lang)} ${rxData.ticket_id ? `• Token #${rxData.ticket_id}` : ""} ${rxData.phone ? `• ${rxData.phone}` : ""}
+  <div class="patient-doctor-block">
+    <div class="info-col">
+      <div class="info-label">PATIENT</div>
+      <div class="info-name">${rxData.patient_name}</div>
+      <div class="info-sub">
+        ${rxData.age ? `${rxData.age} yrs` : ""} ${rxData.gender ? `• ${formatCleanText(t(rxData.gender, lang), lang)}` : ""}
+        ${rxData.phone ? `• Ph: ${rxData.phone}` : ""}
+        ${rxData.ticket_id ? `• Token #${rxData.ticket_id}` : ""}
       </div>
     </div>
-    <div>
-      <div class="info-label">Attending Doctor & Department</div>
-      <div class="info-val" style="color: ${brandPrimary};">${rxData.doctor_name}</div>
-      <div style="font-size: 11.5px; color: #475569; margin-top: 3px;">
-        ${deptLabel} ${rxData.doctor_employee_id ? `(Reg: ${rxData.doctor_employee_id})` : ""}
+    <div class="info-col">
+      <div class="info-label">DOCTOR</div>
+      <div class="info-name">${rxData.doctor_name}</div>
+      <div class="info-sub">
+        ${deptLabel}
+        ${rxData.doctor_employee_id ? `• Reg. No: ${rxData.doctor_employee_id}` : ""}
       </div>
     </div>
   </div>
 
-  <div class="diag-box">
-    <div class="diag-title">Clinical Diagnosis / Provisional Assessment:</div>
-    <div class="diag-val">${rxData.diagnosis}</div>
-    ${rxData.lab_tests && rxData.lab_tests !== "no" ? `<div style="font-size: 12px; color: #0284c7; margin-top: 6px;"><strong>🧪 Lab Tests / Investigations:</strong> ${rxData.lab_tests}</div>` : ""}
+  <div class="diagnosis-block">
+    <div><span class="label">Diagnosis:</span> <span class="val">${rxData.diagnosis || "General Clinical Consultation"}</span></div>
+    ${rxData.lab_tests && rxData.lab_tests !== "no" ? `
+    <div class="lab-tests-line"><span class="label">Investigations / Tests:</span> <span>${rxData.lab_tests}</span></div>
+    ` : ""}
   </div>
 
-  <div style="font-size: 12px; font-weight: 800; text-transform: uppercase; color: #0f172a; margin-bottom: 8px;">
-    ℞ Prescribed Medications & Instructions
-  </div>
+  <div class="rx-heading">Rx</div>
 
   ${rxData.medicines && rxData.medicines.length > 0 ? `
   <table class="meds-table">
     <thead>
       <tr>
-        <th style="width: 30px;">#</th>
-        <th>Medicine Name</th>
+        <th style="width: 28px;">#</th>
+        <th>Medicine</th>
         <th>Dosage</th>
         <th>Frequency</th>
         <th>Duration</th>
@@ -1300,71 +1379,60 @@ export function printPrescriptionSlip(rawRxData, lang = "en", branding = null) {
     <tbody>
       ${rxData.medicines.map((m, idx) => `
         <tr>
-          <td style="font-weight: 700; color: #64748b;">${idx + 1}</td>
-          <td style="font-weight: 800; color: #0f172a;">${m.name || "-"}</td>
-          <td style="color: #0284c7; font-weight: 700;">${m.dosage || "-"}</td>
-          <td style="color: #15803d; font-weight: 700;">${m.frequency || "-"}</td>
+          <td style="color: #666666;">${idx + 1}</td>
+          <td style="font-weight: 600; color: #111111;">${m.name || "-"}</td>
+          <td>${m.dosage || "-"}</td>
+          <td>${m.frequency || "-"}</td>
           <td>${m.duration || "-"}</td>
-          <td style="color: #64748b; font-style: italic;">${m.instructions || "After food"}</td>
+          <td class="instructions">${m.instructions || "After food"}</td>
         </tr>
       `).join("")}
     </tbody>
   </table>` : `
-  <div style="padding: 12px 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 12px; color: #475569; font-style: italic; margin-bottom: 16px;">
+  <div class="no-meds">
     ${rxData.advice || "No specific prescription medications listed. Consultation completed."}
   </div>`}
 
-  ${rxData.advice ? `
-  <div style="margin-bottom: 14px; padding: 10px 14px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px;">
-    <div style="font-size: 11px; font-weight: 800; color: #15803d; text-transform: uppercase; margin-bottom: 2px;">Doctor's Advice & Care Plan:</div>
-    <div style="font-size: 12.5px; color: #166534;">${rxData.advice}</div>
+  ${rxData.advice && rxData.medicines && rxData.medicines.length > 0 ? `
+  <div class="meta-line">
+    <strong>Doctor's Advice:</strong> <span>${rxData.advice}</span>
   </div>` : ""}
 
   ${rxData.follow_up ? `
-  <div style="font-size: 12px; color: #475569; margin-bottom: 14px;">
-    <strong>🗓️ Follow-Up Review:</strong> ${rxData.follow_up}
+  <div class="meta-line">
+    <strong>Follow-up:</strong> <span>${rxData.follow_up}</span>
   </div>` : ""}
 
-  <!-- Doctor Signature & Official OPD Stamp -->
-  <div class="doctor-stamp-container">
-    <div style="display: flex; align-items: center; gap: 14px;">
-      <!-- Circular Clinical Stamp Seal -->
-      <svg width="72" height="72" viewBox="0 0 76 76">
-        <circle cx="38" cy="38" r="35" fill="none" stroke="#15803d" stroke-width="2" stroke-dasharray="3 2"/>
-        <circle cx="38" cy="38" r="30" fill="none" stroke="#15803d" stroke-width="1.2"/>
-        <circle cx="38" cy="38" r="14" fill="#dcfce7" stroke="#16a34a" stroke-width="1"/>
-        <polyline points="33,38 36,41 43,34" fill="none" stroke="#15803d" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-        <text x="38" y="20" font-size="5" font-weight="900" fill="#15803d" text-anchor="middle">OPD CLINICAL DESK</text>
-        <text x="38" y="58" font-size="5" font-weight="900" fill="#15803d" text-anchor="middle">VERIFIED</text>
+  <div class="signature-section">
+    <div class="auth-box">
+      <svg width="44" height="44" viewBox="0 0 76 76" style="flex-shrink: 0;">
+        <circle cx="38" cy="38" r="35" fill="none" stroke="#222222" stroke-width="1.5" stroke-dasharray="3 2"/>
+        <circle cx="38" cy="38" r="30" fill="none" stroke="#222222" stroke-width="1"/>
+        <circle cx="38" cy="38" r="14" fill="none" stroke="#222222" stroke-width="1"/>
+        <polyline points="33,38 36,41 43,34" fill="none" stroke="#111111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <text x="38" y="21" font-size="5" font-weight="700" fill="#222222" text-anchor="middle">OPD CLINICAL</text>
+        <text x="38" y="58" font-size="5" font-weight="700" fill="#222222" text-anchor="middle">VERIFIED</text>
       </svg>
-      <div>
-        <div style="font-size: 11px; font-weight: 800; color: #15803d; text-transform: uppercase;">
-          ✓ Authenticated Outpatient Record
-        </div>
-        <div style="font-size: 10px; color: #64748b; margin-top: 2px;">
-          Valid across all hospital pharmacy counters & Jan Aushadhi
-        </div>
+      <div class="auth-text">
+        <div class="auth-title">Authenticated outpatient record.</div>
+        <div class="auth-subtitle">Valid across all hospital pharmacy counters &amp; Jan Aushadhi.</div>
       </div>
     </div>
 
-    <!-- Doctor Signature Stamp -->
-    <div style="text-align: right; min-width: 170px;">
-      <svg width="130" height="34" viewBox="0 0 130 34" fill="none">
-        <path d="M5 24C18 10 32 6 42 16C50 24 55 28 65 14C72 4 80 8 92 18C100 24 112 12 125 15" stroke="#0369a1" stroke-width="2" stroke-linecap="round"/>
-        <path d="M38 18C44 26 50 30 58 20" stroke="#0369a1" stroke-width="1.5" stroke-linecap="round"/>
-        <line x1="8" y1="28" x2="122" y2="28" stroke="#cbd5e1" stroke-width="1"/>
+    <div class="doctor-signature-box">
+      <svg width="125" height="32" viewBox="0 0 130 34" fill="none">
+        <path d="M5 24C18 10 32 6 42 16C50 24 55 28 65 14C72 4 80 8 92 18C100 24 112 12 125 15" stroke="#111111" stroke-width="1.8" stroke-linecap="round"/>
+        <path d="M38 18C44 26 50 30 58 20" stroke="#111111" stroke-width="1.4" stroke-linecap="round"/>
+        <line x1="8" y1="28" x2="122" y2="28" stroke="#CCCCCC" stroke-width="1"/>
       </svg>
-      <div style="font-size: 13px; font-weight: 900; color: #0f172a;">${rxData.doctor_name}</div>
-      <div style="font-size: 10.5px; font-weight: 700; color: #64748b;">
-        Consultant Physician • Reg: ${rxData.doctor_employee_id}
-      </div>
-      <div style="font-size: 9.5px; font-weight: 800; color: #15803d; margin-top: 1px;">
-        Digitally Signed by Attending Doctor
-      </div>
+      <div class="doc-name">${rxData.doctor_name}</div>
+      <div class="doc-title">Consultant Physician</div>
+      ${rxData.doctor_employee_id ? `<div class="doc-reg">Reg. No: ${rxData.doctor_employee_id}</div>` : ""}
+      <div class="doc-meta">Digitally signed by attending doctor</div>
     </div>
   </div>
 
-  <div class="footer">${footerStr}</div>
+  <div class="footer">This is a computer-generated prescription. Non-transferable. Please keep until consultation is complete.</div>
 </body>
 </html>`;
 

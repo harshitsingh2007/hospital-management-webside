@@ -965,10 +965,36 @@ export default function StaffRosterTab({
                                             {(() => {
                                                 const d = (emp.duty_status || "").toUpperCase();
                                                 const s = (emp.status || "").toLowerCase();
-                                                const isOnBreak = d === "ON_BREAK" || s === "on_break";
-                                                const isEmergency = d === "EMERGENCY_ROUND" || s === "emergency_round";
-                                                const isShiftEnded = d === "OFF_DUTY" || d === "SHIFT_ENDED" || s === "off_duty" || s === "shift_ended";
-                                                const isActiveOnline = (s === "active" || d === "ACTIVE") && !isOnBreak && !isEmergency && !isShiftEnded;
+                                                const isAccountInactive = s === "inactive";
+                                                const isProcessing = !isAccountInactive && (d === "PROCESSING" || s === "processing");
+                                                const isOnBreak = !isAccountInactive && (d === "ON_BREAK" || s === "on_break");
+                                                const isEmergency = !isAccountInactive && (d === "EMERGENCY_ROUND" || s === "emergency_round");
+                                                const isShiftEnded = !isAccountInactive && (d === "SHIFT_ENDED" || s === "shift_ended" || d === "OFF_DUTY" || s === "off_duty");
+                                                const isActiveOnline = !isAccountInactive && !isProcessing && !isOnBreak && !isEmergency && !isShiftEnded;
+
+                                                if (isProcessing) {
+                                                    return (
+                                                        <span
+                                                            style={{
+                                                                display: "inline-flex",
+                                                                alignItems: "center",
+                                                                gap: "5px",
+                                                                padding: "3px 9px",
+                                                                borderRadius: "999px",
+                                                                fontSize: "11px",
+                                                                fontWeight: 800,
+                                                                background: "#E0F2FE",
+                                                                color: "#0284C7",
+                                                                border: "1px solid #BAE6FD",
+                                                                whiteSpace: "nowrap",
+                                                            }}
+                                                            title={isHi ? "नमूना प्रसंस्करण में" : "Processing Samples"}
+                                                        >
+                                                            <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#0284C7" }} />
+                                                            <span>{isHi ? "प्रसंस्करण" : "PROCESSING"}</span>
+                                                        </span>
+                                                    );
+                                                }
 
                                                 if (isOnBreak) {
                                                     return (
@@ -1093,9 +1119,7 @@ export default function StaffRosterTab({
                                             <div style={{ display: "inline-flex", gap: "6px", alignItems: "center" }}>
                                                 {/* 1. Toggle Online/Offline Status */}
                                                 {(() => {
-                                                    const d = (emp.duty_status || "").toUpperCase();
-                                                    const s = (emp.status || "").toLowerCase();
-                                                    const isOnDuty = (s === "active" || d === "ACTIVE" || d === "ON_BREAK" || s === "on_break" || d === "EMERGENCY_ROUND" || s === "emergency_round") && d !== "OFF_DUTY" && d !== "SHIFT_ENDED" && s !== "off_duty" && s !== "shift_ended";
+                                                    const isAccountActive = (emp.status || "").toLowerCase() !== "inactive";
 
                                                     return (
                                                         <button
@@ -1104,16 +1128,16 @@ export default function StaffRosterTab({
                                                             onClick={() => onToggleStatus && onToggleStatus(emp)}
                                                             style={{
                                                                 ...editSmallBtnStyle,
-                                                                background: isOnDuty ? "rgba(239, 68, 68, 0.1)" : "rgba(16, 185, 129, 0.1)",
-                                                                color: isOnDuty ? "#DC2626" : "#059669",
-                                                                border: isOnDuty ? "1px solid rgba(239, 68, 68, 0.3)" : "1px solid rgba(16, 185, 129, 0.3)",
+                                                                background: isAccountActive ? "rgba(239, 68, 68, 0.1)" : "rgba(16, 185, 129, 0.1)",
+                                                                color: isAccountActive ? "#DC2626" : "#059669",
+                                                                border: isAccountActive ? "1px solid rgba(239, 68, 68, 0.3)" : "1px solid rgba(16, 185, 129, 0.3)",
                                                                 fontWeight: 700,
                                                                 fontSize: "11px",
                                                                 opacity: isTogglingEmpStatus === (emp.user_id || emp.id || emp.employee_id_num) ? 0.6 : 1,
                                                             }}
-                                                            title={isOnDuty ? (isHi ? "ऑफलाइन सेट करें" : "Set to Offline") : (isHi ? "ऑनलाइन सेट करें" : "Set to Online")}
+                                                            title={isAccountActive ? (isHi ? "ऑफलाइन सेट करें" : "Set to Offline") : (isHi ? "ऑनलाइन सेट करें" : "Set to Online")}
                                                         >
-                                                            {isOnDuty
+                                                            {isAccountActive
                                                                 ? (isHi ? "ऑफलाइन करें" : "Set Offline")
                                                                 : (isHi ? "सक्रिय करें" : "Set Active")}
                                                         </button>

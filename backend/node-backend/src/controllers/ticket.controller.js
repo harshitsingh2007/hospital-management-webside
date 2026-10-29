@@ -173,6 +173,20 @@ async function savePrescriptionEndpoint(req, res, next) {
       return res.status(400).json({ status: "error", message: "Ticket ID is required." });
     }
 
+    // Rule 4: Reject any update request to Given / Not Given when consultation status is COMPLETED
+    const existingTicket = await prisma.tickets.findUnique({
+      where: { ticket_id: String(tid).trim() },
+      select: { status: true },
+    });
+
+    if (existingTicket && String(existingTicket.status || "").trim().toLowerCase() === "completed") {
+      return res.status(400).json({
+        status: "error",
+        success: false,
+        message: "Consultation is completed. Status cannot be modified.",
+      });
+    }
+
     const updatedTicket = await saveTicketPrescription(tenantId, tid, prescription);
 
     const io = getIo();

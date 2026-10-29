@@ -830,23 +830,24 @@ async function getHospitalEmployees(hospitalCode) {
   return employees.map((e) => {
     let dutyInfo = null;
     try {
-      dutyInfo = getDoctorDutyStatus(e.user_id, e.email);
+      dutyInfo = getDoctorDutyStatus(e.user_id, e.email, e.employee_code, e.name);
     } catch (_) {}
 
     // Prioritize real-time duty status from memory store if present
     const memoryStatus = dutyInfo?.status ? String(dutyInfo.status).toUpperCase() : null;
     const isDutyActive = memoryStatus === "ACTIVE";
+    const isDutyProcessing = memoryStatus === "PROCESSING" || e.status === "processing";
     const isDutyBreak = memoryStatus === "ON_BREAK" || e.status === "on_break";
     const isDutyEmergency = memoryStatus === "EMERGENCY_ROUND" || e.status === "emergency_round";
     const isDutyOff = memoryStatus === "OFF_DUTY" || memoryStatus === "SHIFT_ENDED" || e.status === "off_duty" || e.status === "shift_ended";
-    const isExplicitlyInactive = !memoryStatus && e.status === "inactive";
+    const isAccountInactive = (e.status && e.status.toLowerCase() === "inactive") || (e.users?.status && e.users.status.toLowerCase() === "inactive");
 
-    let effectiveStatus = "active";
+    let effectiveStatus = isAccountInactive ? "inactive" : "active";
     let dutyStatusLabel = "ACTIVE";
 
-    if (isDutyActive) {
-      effectiveStatus = "active";
-      dutyStatusLabel = "ACTIVE";
+    if (isAccountInactive) {
+      effectiveStatus = "inactive";
+      dutyStatusLabel = "OFF_DUTY";
     } else if (isDutyBreak) {
       effectiveStatus = "on_break";
       dutyStatusLabel = "ON_BREAK";
@@ -856,14 +857,14 @@ async function getHospitalEmployees(hospitalCode) {
     } else if (isDutyOff) {
       effectiveStatus = "off_duty";
       dutyStatusLabel = (memoryStatus === "SHIFT_ENDED" || e.status === "shift_ended") ? "SHIFT_ENDED" : "OFF_DUTY";
-    } else if (isExplicitlyInactive) {
-      effectiveStatus = "inactive";
-      dutyStatusLabel = "OFF_DUTY";
+    } else if (isDutyProcessing) {
+      effectiveStatus = "processing";
+      dutyStatusLabel = "PROCESSING";
+    } else if (isDutyActive) {
+      effectiveStatus = "active";
+      dutyStatusLabel = "ACTIVE";
     } else {
-      const lastLoginTime = e.users?.last_login_at ? new Date(e.users.last_login_at).getTime() : null;
-      const isStale = !lastLoginTime || (now - lastLoginTime > SESSION_MAX_AGE_MS);
-      effectiveStatus = (e.status === "active" && e.users?.status === "active" && !isStale) ? "active" : "inactive";
-      dutyStatusLabel = effectiveStatus === "active" ? "ACTIVE" : "OFF_DUTY";
+      dutyStatusLabel = (effectiveStatus === "active") ? "ACTIVE" : "OFF_DUTY";
     }
 
     return {
@@ -941,7 +942,7 @@ async function addHospitalEmployee({
         username: name,
         password_hash: pwdHash,
         role,
-        status: "inactive",
+        status: "active",
         phone,
       },
     });
@@ -973,7 +974,7 @@ async function addHospitalEmployee({
       gender: cleanGender,
       experience_years: parsedExp,
       room_number: String(room_number || "").trim(),
-      status: "inactive",
+      status: "active",
     },
     update: {
       department_id: dept?.id || null,
@@ -1013,16 +1014,16 @@ async function addHospitalEmployee({
  */
 async function updateHospitalEmployee(userId, updateData = {}) {
   let uid = parseInt(userId, 10);
-  let emp = await prisma.employees.findUnique({ where: { id: uid } });
-  let user = null;
+  let emp = await prisma.employees.findFirst({
+    where: { OR: [{ id: uid }, { user_id: uid }] },
+    include: { users: true },
+  });
+  let user = emp?.users || null;
 
-  if (emp) {
-    uid = emp.user_id;
+  if (!user && uid) {
     user = await prisma.users.findUnique({ where: { id: uid } });
-  } else {
-    user = await prisma.users.findUnique({ where: { id: uid } });
-    if (user) {
-      emp = await prisma.employees.findFirst({ where: { user_id: uid } });
+    if (user && !emp) {
+      emp = await prisma.employees.findFirst({ where: { user_id: user.id } });
     }
   }
 
@@ -1068,7 +1069,7 @@ async function updateHospitalEmployee(userId, updateData = {}) {
 
   if (user) {
     await prisma.users.update({
-      where: { id: uid },
+      where: { id: user.id },
       data: userData,
     });
   }
@@ -1297,9 +1298,7 @@ async function getHospitalDesks(hospitalCode) {
   const now = Date.now();
 
   return rows.map((d) => {
-    const lastLoginTime = d.employees?.users?.last_login_at ? new Date(d.employees.users.last_login_at).getTime() : null;
-    const isStale = !lastLoginTime || (now - lastLoginTime > SESSION_MAX_AGE_MS);
-    const empStatus = (d.employees?.status === "active" && d.employees?.users?.status === "active" && !isStale) ? "active" : "inactive";
+    const empStatus = (d.employees?.status === "active" && (d.employees?.users ? d.employees.users.status === "active" : true)) ? "active" : "inactive";
 
     return {
       id: d.id,
@@ -1363,15 +1362,14 @@ async function addHospitalDesk(hospitalCode, deptCode, deskName, status = "AVAIL
       throw err;
     }
 
-    // Availability enforcement
-    const SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000;
-    const lastLogin = empRec.users?.last_login_at ? new Date(empRec.users.last_login_at).getTime() : null;
-    const isStale = !lastLogin || (Date.now() - lastLogin > SESSION_MAX_AGE_MS);
-    const isOnline = empRec.status === "active" && empRec.users?.status === "active" && !isStale;
+    // Availability enforcement: only block explicitly inactive employees
+    const isExplicitlyInactive =
+      (empRec.status && empRec.status.toLowerCase() === "inactive") ||
+      (empRec.users && empRec.users.status && empRec.users.status.toLowerCase() === "inactive");
 
-    if (!isOnline) {
+    if (isExplicitlyInactive) {
       const err = new Error(
-        `Cannot assign desk: Doctor/Staff '${empRec.name}' is currently INACTIVE / OFFLINE. An employee must be actively logged in before being assigned to an active desk.`
+        `Cannot assign desk: Doctor/Staff '${empRec.name}' is currently INACTIVE. Please ensure the employee account is active before assigning to a desk.`
       );
       err.status = 409;
       err.code = "EMPLOYEE_INACTIVE";
@@ -1441,19 +1439,22 @@ async function assignHospitalDesk(hospitalCode, deskId, employeeId) {
       throw err;
     }
 
-    // Availability enforcement
-    const SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000;
-    const lastLogin = empRec.users?.last_login_at ? new Date(empRec.users.last_login_at).getTime() : null;
-    const isStale = !lastLogin || (Date.now() - lastLogin > SESSION_MAX_AGE_MS);
-    const isOnline = empRec.status === "active" && empRec.users?.status === "active" && !isStale;
+    // Auto-activate employee and user when assigned to an active desk by Super Admin
+    const isExplicitlyInactive =
+      (empRec.status && empRec.status.toLowerCase() === "inactive") ||
+      (empRec.users && empRec.users.status && empRec.users.status.toLowerCase() === "inactive");
 
-    if (!isOnline) {
-      const err = new Error(
-        `Cannot assign desk: Doctor/Staff '${empRec.name}' is currently INACTIVE / OFFLINE. An employee must be actively logged in before being assigned to an active desk.`
-      );
-      err.status = 409;
-      err.code = "EMPLOYEE_INACTIVE";
-      throw err;
+    if (isExplicitlyInactive) {
+      await prisma.employees.update({
+        where: { id: empRec.id },
+        data: { status: "active", updated_at: new Date() },
+      });
+      if (empRec.user_id) {
+        await prisma.users.update({
+          where: { id: empRec.user_id },
+          data: { status: "active", last_login_at: new Date(), updated_at: new Date() },
+        });
+      }
     }
 
     empId = empRec.id;
@@ -1552,15 +1553,14 @@ async function updateHospitalDesk(hospitalCode, deskId, deskName, deptCode, assi
         throw err;
       }
 
-      // Availability enforcement
-      const SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000;
-      const lastLogin = empRec.users?.last_login_at ? new Date(empRec.users.last_login_at).getTime() : null;
-      const isStale = !lastLogin || (Date.now() - lastLogin > SESSION_MAX_AGE_MS);
-      const isOnline = empRec.status === "active" && empRec.users?.status === "active" && !isStale;
+      // Availability enforcement: only block explicitly inactive employees
+      const isExplicitlyInactive =
+        (empRec.status && empRec.status.toLowerCase() === "inactive") ||
+        (empRec.users && empRec.users.status && empRec.users.status.toLowerCase() === "inactive");
 
-      if (!isOnline) {
+      if (isExplicitlyInactive) {
         const err = new Error(
-          `Cannot assign desk: Doctor/Staff '${empRec.name}' is currently INACTIVE / OFFLINE. An employee must be actively logged in before being assigned to an active desk.`
+          `Cannot assign desk: Doctor/Staff '${empRec.name}' is currently INACTIVE. Please ensure the employee account is active before assigning to a desk.`
         );
         err.status = 409;
         err.code = "EMPLOYEE_INACTIVE";
