@@ -696,14 +696,6 @@ export default function RadiologyPage({
     setViewerBrightness(100);
   };
 
-  // Refresh
-  const [refreshing, setRefreshing] = useState(false);
-  const handleManualRefresh = () => {
-    setRefreshing(true);
-    if (refreshData) refreshData();
-    setTimeout(() => setRefreshing(false), 800);
-  };
-
   // Build Payload
   const buildReportPayload = () => ({
     modality,
@@ -1939,32 +1931,6 @@ export default function RadiologyPage({
                 </div>
               )}
             </div>
-
-            {/* Quick Refresh Button */}
-            <button
-              type="button"
-              onClick={handleManualRefresh}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "5px",
-                background: "rgba(255, 255, 255, 0.12)",
-                border: "1px solid rgba(255, 255, 255, 0.25)",
-                borderRadius: "10px",
-                padding: "6px 12px",
-                backdropFilter: "blur(8px)",
-                color: "#FFFFFF",
-                cursor: "pointer",
-                outline: "none",
-                fontSize: "11.5px",
-                fontWeight: 800,
-                transition: "all 0.15s ease",
-              }}
-              title={isHi ? "कतार रीफ्रेश करें" : "Refresh Radiology Queue"}
-            >
-              <RefreshCw size={12} className={refreshing ? "spin-icon" : ""} style={{ color: "#38BDF8" }} />
-              <span>{isHi ? "रीफ्रेश" : "Refresh"}</span>
-            </button>
           </div>
         </div>
 

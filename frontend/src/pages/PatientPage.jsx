@@ -769,16 +769,33 @@ export default function PatientPage({
       }))
       : HOSPITAL_CONFIG.categories;
 
-    // Clinical Workflow Rule: Pharmacy is a fulfillment stage routed by doctor prescription, NOT a direct patient booking/walk-in entry
+    // Clinical Workflow Rules:
+    // 1. Pharmacy is a fulfillment stage routed by doctor prescription, NOT a direct patient booking/walk-in entry
+    // 2. Emergency is a triage priority level (P1 vs P2), NOT an OPD walk-in/booking service department
     return list.filter((d) => {
       const code = String(d.id || "").toLowerCase().trim();
       const label = String(d.label || "").toLowerCase().trim();
-      return code !== "pharmacy" && !label.includes("pharmacy") && !label.includes("दवा");
+      const isPharmacy = code === "pharmacy" || label.includes("pharmacy") || label.includes("दवा");
+      const isEmergency =
+        code === "emergency" ||
+        code === "triage" ||
+        label.includes("emergency") ||
+        label.includes("triage") ||
+        label.includes("आपातकालीन") ||
+        label.includes("ट्राइएज");
+      return !isPharmacy && !isEmergency;
     });
   }, [hospitalDepartments]);
 
   useEffect(() => {
-    if (category === "pharmacy" || (availableDepartments.length > 0 && !availableDepartments.some((d) => String(d.id).toLowerCase() === String(category).toLowerCase()))) {
+    const isInvalidCategory =
+      category === "pharmacy" ||
+      category === "emergency" ||
+      category === "triage" ||
+      (availableDepartments.length > 0 &&
+        !availableDepartments.some((d) => String(d.id).toLowerCase() === String(category).toLowerCase()));
+
+    if (isInvalidCategory) {
       if (availableDepartments.length > 0) {
         setCategory(availableDepartments[0].id);
       }
@@ -4817,6 +4834,7 @@ export default function PatientPage({
                 <span>{language === "hi" ? "पर्ची प्रिंट करें" : "Print Rx Slip"}</span>
               </button>
 
+
               <button
                 type="button"
                 onClick={() => {
@@ -4864,3 +4882,5 @@ export default function PatientPage({
     </div>
   );
 }
+
+
