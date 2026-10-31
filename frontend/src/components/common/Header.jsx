@@ -130,7 +130,7 @@ export default function Header({
     if (onToggleTheme) onToggleTheme(nextTheme);
   };
 
-  const isDarkHeader = theme === "dark" && (activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "admin" || activePage === "pharmacy" || activePage === "pathology" || activePage === "radiology" || activePage === "doctor");
+  const isDarkHeader = theme === "dark" && (activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "admin" || activePage === "pharmacy" || activePage === "pathology" || activePage === "radiology" || activePage === "billing" || activePage === "doctor");
 
   // Multi-Hospital Facility Active Display
   const [hospitalsList, setHospitalsList] = useState([]);
@@ -267,16 +267,18 @@ export default function Header({
       currentUser.is_superadmin === true
     )
   );
-  const userDept = (currentUser?.department || currentUser?.primary_department || "").toLowerCase().trim();
+  const userDept = (currentUser?.department || currentUser?.primary_department || currentUser?.department_code || currentUser?.dept || "").toLowerCase().trim();
   const isPharmacist = ["pharmacist", "pharmacy"].includes(userRole) || userDept === "pharmacy";
   const isPharmacistAccess = Boolean(currentUser) && (isSuperAdmin || isPharmacist);
   const isPathologist = ["pathologist", "pathology", "lab", "lab_technician"].includes(userRole) || userDept === "pathology" || userDept === "laboratory" || userDept === "lab";
   const isPathologistAccess = Boolean(currentUser) && (isSuperAdmin || isPathologist || ["doctor", "physician", "admin"].includes(userRole));
   const isRadiologist = ["radiologist", "radiology", "radiographer", "xray", "imaging", "radiology_technician"].includes(userRole) || userDept === "radiology" || userDept === "imaging" || userDept === "xray" || userDept === "x-ray";
   const isRadiologistAccess = Boolean(currentUser) && (isSuperAdmin || isRadiologist || ["doctor", "physician", "admin"].includes(userRole));
-  const isDoctorAccess = Boolean(currentUser) && !isPharmacist && !isPathologist && !isRadiologist && (["doctor", "physician", "admin"].includes(userRole) || (isSuperAdmin && !isPharmacist));
-  const isStaffAccess = Boolean(currentUser) && !isPharmacist && !isPathologist && !isRadiologist && (["staff", "receptionist", "nurse", "admin"].includes(userRole) || (isSuperAdmin && !isPharmacist));
-  const isStaffOrDoctor = ["admin", "doctor", "staff", "receptionist", "pharmacist", "pathologist", "radiologist", "physician"].includes(userRole);
+  const isCashier = ["cashier", "billing", "accountant", "billing_clerk", "cash_counter"].includes(userRole) || userDept === "billing" || userDept === "cashier" || userDept === "accounts";
+  const isBillingAccess = Boolean(currentUser) && (isSuperAdmin || isCashier || ["doctor", "physician", "admin", "staff", "receptionist"].includes(userRole));
+  const isDoctorAccess = Boolean(currentUser) && !isPharmacist && !isPathologist && !isRadiologist && !isCashier && (["doctor", "physician", "admin"].includes(userRole) || (isSuperAdmin && !isPharmacist));
+  const isStaffAccess = Boolean(currentUser) && !isPharmacist && !isPathologist && !isRadiologist && !isCashier && (["staff", "receptionist", "nurse", "admin"].includes(userRole) || (isSuperAdmin && !isPharmacist));
+  const isStaffOrDoctor = ["admin", "doctor", "staff", "receptionist", "pharmacist", "pathologist", "radiologist", "cashier", "billing", "physician"].includes(userRole);
   const isPatientOrGuest = !currentUser || userRole === "user" || userRole === "patient";
 
   // Hospital switcher is enabled on the patient portal for all visitors and patients
@@ -848,6 +850,8 @@ export default function Header({
               navigateTo("pathology");
             } else if (isRadiologist) {
               navigateTo("radiology");
+            } else if (isCashier) {
+              navigateTo("billing");
             } else if (role === "doctor" || role === "physician") {
               navigateTo("doctor");
             } else if (["staff", "receptionist", "nurse"].includes(role)) {
@@ -1003,6 +1007,32 @@ export default function Header({
                   </button>
                 )}
 
+                {/* Central Billing & Cashier Workstation */}
+                {(isBillingAccess || isSuperAdmin) && activePage !== "doctor" && activePage !== "superadmin" && !["doctor", "physician"].includes(userRole) && (
+                  <button
+                    type="button"
+                    onClick={() => navigateTo("billing")}
+                    className={`header-nav-btn ${activePage === "billing" ? "active" : ""}`}
+                    style={{
+                      padding: "6px 14px",
+                      borderRadius: "10px",
+                      fontSize: "12px",
+                      fontWeight: activePage === "billing" ? 800 : 700,
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      border: activePage === "billing" ? "1.5px solid #0284C7" : undefined,
+                      background: activePage === "billing" ? (isDarkHeader ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE") : undefined,
+                      color: activePage === "billing" ? (isDarkHeader ? "#38BDF8" : "#0284C7") : undefined,
+                    }}
+                    title={language === "hi" ? "कैशियर एवं सेंट्रल बिलिंग पोर्टल" : "Central Billing & Cashier Desk"}
+                  >
+                    <span style={{ fontSize: "14px" }}>💳</span>
+                    <span>{language === "hi" ? "बिलिंग / कैशियर" : "Billing & Cashier"}</span>
+                  </button>
+                )}
+
                 {/* Reception Desk (Hidden for Pharmacy Staff & SuperAdmin Portal) */}
                 {(isStaffAccess || isSuperAdmin) && !isPharmacist && activePage !== "superadmin" && (
                   <button
@@ -1085,7 +1115,7 @@ export default function Header({
         {/* 3. Right: Theme Toggle (User Portal Only), Language Selector & Patient Profile Dropdown */}
         <div style={{ display: "flex", alignItems: "center", gap: "8px", position: "relative", flexShrink: 0 }}>
           {/* Theme Toggle Switch (Available across all portals including Pharmacy, Doctor and Pathology) */}
-          {(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "admin" || activePage === "pharmacy" || activePage === "doctor" || activePage === "pathology" || activePage === "radiology") && (
+          {(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "admin" || activePage === "pharmacy" || activePage === "doctor" || activePage === "pathology" || activePage === "radiology" || activePage === "billing") && (
             <button
               type="button"
               onClick={handleToggleTheme}
@@ -1355,7 +1385,7 @@ export default function Header({
                     </>
                   )}
 
-                  {/* Staff Workspace Direct Links (Pharmacy hidden on Doctor portal and for Doctor roles) */}
+                  {/* Staff Workspace Direct Links (Targeted by Department & Role) */}
                   {isPharmacist && activePage !== "doctor" && !["doctor", "physician"].includes(userRole) && (
                     <button
                       type="button"
@@ -1369,7 +1399,46 @@ export default function Header({
                       <span>{language === "hi" ? "फार्मेसी वितरण वर्कस्टेशन" : "Pharmacy Dispensing Portal"}</span>
                     </button>
                   )}
-                  {!isSuperAdmin && activePage !== "superadmin" && ["doctor", "physician"].includes(userRole) && !isPharmacist && (
+                  {isPathologist && (
+                    <button
+                      type="button"
+                      className={`header-dropdown-item ${activePage === "pathology" ? "active" : ""}`}
+                      onClick={() => {
+                        setProfileDropdownOpen(false);
+                        navigateTo("pathology");
+                      }}
+                    >
+                      <span style={{ fontSize: "14px" }}>🔬</span>
+                      <span>{language === "hi" ? "पैथोलॉजी प्रयोगशाला पोर्टल" : "Pathology & Diagnostic Lab"}</span>
+                    </button>
+                  )}
+                  {isRadiologist && (
+                    <button
+                      type="button"
+                      className={`header-dropdown-item ${activePage === "radiology" ? "active" : ""}`}
+                      onClick={() => {
+                        setProfileDropdownOpen(false);
+                        navigateTo("radiology");
+                      }}
+                    >
+                      <span style={{ fontSize: "14px" }}>🩻</span>
+                      <span>{language === "hi" ? "रेडियोलॉजी एवं इमेजिंग पोर्टल" : "Radiology & Imaging Portal"}</span>
+                    </button>
+                  )}
+                  {isCashier && (
+                    <button
+                      type="button"
+                      className={`header-dropdown-item ${activePage === "billing" ? "active" : ""}`}
+                      onClick={() => {
+                        setProfileDropdownOpen(false);
+                        navigateTo("billing");
+                      }}
+                    >
+                      <span style={{ fontSize: "14px" }}>💳</span>
+                      <span>{language === "hi" ? "सेंट्रल बिलिंग एवं कैशियर डेस्क" : "Central Billing & Cashier Desk"}</span>
+                    </button>
+                  )}
+                  {!isSuperAdmin && activePage !== "superadmin" && ["doctor", "physician"].includes(userRole) && !isPharmacist && !isPathologist && !isRadiologist && !isCashier && (
                     <button
                       type="button"
                       className={`header-dropdown-item ${activePage === "doctor" ? "active" : ""}`}
@@ -1382,7 +1451,7 @@ export default function Header({
                       <span>{language === "hi" ? "डॉक्टर परामर्श डेस्क" : "Doctor Consultation Desk"}</span>
                     </button>
                   )}
-                  {!isSuperAdmin && activePage !== "superadmin" && ["staff", "receptionist", "nurse"].includes(userRole) && !isPharmacist && (
+                  {!isSuperAdmin && activePage !== "superadmin" && activePage !== "billing" && !isCashier && isStaffAccess && (
                     <button
                       type="button"
                       className={`header-dropdown-item ${activePage === "staff" ? "active" : ""}`}

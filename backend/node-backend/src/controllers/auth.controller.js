@@ -1915,7 +1915,28 @@ async function addFamilyMemberFromStaff(req, res, next) {
   }
 }
 
+async function getGuestToken(req, res, next) {
+  try {
+    const token = generateToken(
+      {
+        id: null,
+        email: "guest@patient.local",
+        role: "patient",
+        is_guest: true,
+      },
+      "7d"
+    );
+    return res.status(200).json({
+      status: "success",
+      token,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
+  getGuestToken,
   signupSuperAdmin,
   signupAdmin,
   signupPatient,

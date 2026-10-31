@@ -1,27 +1,18 @@
-import React from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
     IconHospital,
     IconPlus,
+    IconDesk,
     IconSearch,
-    IconStethoscope,
-    IconEdit,
-    IconX,
-    IconUser,
-    IconZap,
-    IconAlertTriangle,
 } from "../SuperAdminIcons";
-import {
-    standaloneCardStyle,
-    actionBtnStyle,
-    fieldInputStyle,
-    deptDeskBoxStyle,
-    deskCardItemStyle,
-    deskStatusPillStyle,
-    deleteDeskIconBtnStyle,
-    toggleDeskBtnStyle,
-} from "../superAdminStyles";
-import { getCategoryLabel } from "../../../utils/i18n";
+import { standaloneCardStyle, actionBtnStyle } from "../superAdminStyles";
 import "../SuperAdmin.css";
+
+import DeskSummaryStrip from "./desks/DeskSummaryStrip";
+import DeskToolbar from "./desks/DeskToolbar";
+import DepartmentSection from "./desks/DepartmentSection";
+import DeskTable from "./desks/DeskTable";
+import { getCategoryLabel } from "../../../utils/i18n";
 
 export default function DesksManagementTab({
     selectedHospital,
@@ -44,31 +35,231 @@ export default function DesksManagementTab({
     notify,
     showConfirm,
 }) {
-    const q = deskSearchQuery.trim().toLowerCase();
+    // -------------------------------------------------------------
+    // View Mode: Grid vs Table with localStorage persistence
+    // -------------------------------------------------------------
+    const [viewMode, setViewMode] = useState(() => {
+        try {
+            return localStorage.getItem("superadmin_desk_view_mode") || "grid";
+        } catch (_) {
+            return "grid";
+        }
+    });
+
+    const handleViewModeChange = (mode) => {
+        setViewMode(mode);
+        try {
+            localStorage.setItem("superadmin_desk_view_mode", mode);
+        } catch (_) {}
+    };
+
+    // -------------------------------------------------------------
+    // Filter States: Status filter & Department Chip selection
+    // -------------------------------------------------------------
+    const [statusFilter, setStatusFilter] = useState("all");
+    const [selectedDept, setSelectedDept] = useState("all");
+
+    // -------------------------------------------------------------
+    // Collapsible Departments State (Map of dept_code -> boolean)
+    // -------------------------------------------------------------
+    const [collapsedDepts, setCollapsedDepts] = useState({});
+    const [allCollapsed, setAllCollapsed] = useState(false);
+
+    const toggleDeptCollapse = (deptCode) => {
+        setCollapsedDepts((prev) => ({
+            ...prev,
+            [deptCode]: !prev[deptCode],
+        }));
+    };
+
+    const handleToggleCollapseAll = () => {
+        const nextState = !allCollapsed;
+        setAllCollapsed(nextState);
+        const updated = {};
+        (hospitalDesksData.departments || []).forEach((d) => {
+            updated[d.dept_code] = nextState;
+        });
+        setCollapsedDepts(updated);
+    };
+
+    // -------------------------------------------------------------
+    // Compute Summary Stats across all desks in the hospital
+    // -------------------------------------------------------------
     const rawGroups = hospitalDesksData.departments || [];
-    const filteredDeptGroups = rawGroups.map((deptGroup) => {
-        if (!q) return deptGroup;
-        const matchesDept = (deptGroup.dept_code || "").toLowerCase().includes(q) ||
-            (deptGroup.name || "").toLowerCase().includes(q) ||
-            getCategoryLabel(deptGroup.dept_code, language).toLowerCase().includes(q);
-        const matchingDesks = (deptGroup.desks || []).filter(
-            (desk) => matchesDept || (desk.desk_name || "").toLowerCase().includes(q)
-        );
-        return {
-            ...deptGroup,
-            desks: matchingDesks,
-        };
-    }).filter((g) => (g.desks && g.desks.length > 0) || (!q && hospitalDepts.some((d) => d.dept_code === g.dept_code)));
+
+    const allDesksFlat = useMemo(() => {
+        const list = [];
+        rawGroups.forEach((dept) => {
+            (dept.desks || []).forEach((desk) => {
+                list.push({
+                    ...desk,
+                    dept_code: dept.dept_code,
+                    dept_name: dept.name,
+                });
+            });
+        });
+        return list;
+    }, [rawGroups]);
+
+    const totalDesksCount = allDesksFlat.length;
+    const activeDesksCount = allDesksFlat.filter((d) =>
+        ["AVAILABLE", "ACTIVE", "BUSY", "SERVING"].includes((d.status || "").toUpperCase())
+    ).length;
+    const servingDesksCount = allDesksFlat.filter(
+        (d) =>
+            (d.status || "").toUpperCase() === "BUSY" ||
+            (d.status || "").toUpperCase() === "SERVING" ||
+            Boolean(d.current_ticket_id)
+    ).length;
+    const staffOfflineDesksCount = allDesksFlat.filter(
+        (d) => Boolean(d.assigned_employee_id) && (d.assigned_employee_status || "").toLowerCase() !== "active"
+    ).length;
+    const unstaffedDesksCount = allDesksFlat.filter((d) => !d.assigned_employee_id).length;
+
+    // List of departments with total desks for the toolbar chips
+    const deptChipList = useMemo(() => {
+        return rawGroups.map((d) => ({
+            dept_code: d.dept_code,
+            name: d.name,
+            total_desks: (d.desks || []).length,
+        }));
+    }, [rawGroups]);
+
+    // -------------------------------------------------------------
+    // Filter Departments and Desks based on search, dept, status
+    // -------------------------------------------------------------
+    const q = (deskSearchQuery || "").trim().toLowerCase();
+
+    const filteredDeptGroups = useMemo(() => {
+        return rawGroups
+            .filter((deptGroup) => {
+                if (selectedDept !== "all" && deptGroup.dept_code !== selectedDept) return false;
+                return true;
+            })
+            .map((deptGroup) => {
+                const matchingDesks = (deptGroup.desks || []).filter((desk) => {
+                    // 1. Text Search matching
+                    if (q) {
+                        const matchesDeskName = (desk.desk_name || "").toLowerCase().includes(q);
+                        const matchesDeskNumber = String(desk.desk_number || "").includes(q);
+                        const matchesDeptCode = (deptGroup.dept_code || "").toLowerCase().includes(q);
+                        const matchesDeptName = (deptGroup.name || "").toLowerCase().includes(q);
+                        const matchesDeptLabel = getCategoryLabel(deptGroup.dept_code, language).toLowerCase().includes(q);
+                        const matchesStaffName = (desk.assigned_employee_name || desk.staff_name || "").toLowerCase().includes(q);
+                        const matchesStaffRole = (desk.assigned_employee_role || "").toLowerCase().includes(q);
+
+                        if (
+                            !matchesDeskName &&
+                            !matchesDeskNumber &&
+                            !matchesDeptCode &&
+                            !matchesDeptName &&
+                            !matchesDeptLabel &&
+                            !matchesStaffName &&
+                            !matchesStaffRole
+                        ) {
+                            return false;
+                        }
+                    }
+
+                    // 2. Status Filter matching
+                    const st = (desk.status || "").toUpperCase();
+                    const isServing = st === "BUSY" || st === "SERVING" || Boolean(desk.current_ticket_id);
+                    const isActive = st === "AVAILABLE" || st === "ACTIVE" || isServing;
+                    const hasStaff = Boolean(desk.assigned_employee_id);
+                    const isStaffOnline = (desk.assigned_employee_status || "").toLowerCase() === "active";
+
+                    if (statusFilter === "active" && !isActive) return false;
+                    if (statusFilter === "serving" && !isServing) return false;
+                    if (statusFilter === "inactive" && isActive) return false;
+                    if (statusFilter === "staff_offline" && (!hasStaff || isStaffOnline)) return false;
+                    if (statusFilter === "unstaffed" && hasStaff) return false;
+
+                    return true;
+                });
+
+                return {
+                    ...deptGroup,
+                    desks: matchingDesks,
+                };
+            })
+            .filter((deptGroup) => {
+                // If filters are active, only show departments that have matching desks
+                if (q || statusFilter !== "all" || selectedDept !== "all") {
+                    return deptGroup.desks.length > 0;
+                }
+                // When no search or filters, show all depts with desks, plus empty depts configured in hospitalDepts
+                return (
+                    (deptGroup.desks && deptGroup.desks.length > 0) ||
+                    hospitalDepts.some((d) => d.dept_code === deptGroup.dept_code)
+                );
+            });
+    }, [rawGroups, q, selectedDept, statusFilter, hospitalDepts, language]);
+
+    // Flatten matching desks for Table View
+    const filteredDesksFlat = useMemo(() => {
+        const list = [];
+        filteredDeptGroups.forEach((dept) => {
+            (dept.desks || []).forEach((desk) => {
+                list.push({
+                    ...desk,
+                    dept_code: dept.dept_code,
+                    dept_name: dept.name,
+                });
+            });
+        });
+        return list;
+    }, [filteredDeptGroups]);
+
+    // Reset all applied filters helper
+    const handleResetFilters = () => {
+        if (setDeskSearchQuery) setDeskSearchQuery("");
+        setSelectedDept("all");
+        setStatusFilter("all");
+    };
+
+    const hasActiveFilters = Boolean(q || statusFilter !== "all" || selectedDept !== "all");
 
     return (
         <div style={standaloneCardStyle}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "10px" }}>
+            {/* --------------------------------------------------------- */}
+            {/* A. Page Header: Title, Facility Selector, Primary Add Desk */}
+            {/* --------------------------------------------------------- */}
+            <div
+                style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: "16px",
+                    flexWrap: "wrap",
+                    gap: "12px",
+                }}
+            >
                 <div>
-                    <h2 style={{ margin: "0 0 4px 0", fontSize: "20px", color: "var(--superadmin-text-main, #0F172A)", fontWeight: 800 }}>
+                    <h2
+                        style={{
+                            margin: "0 0 4px 0",
+                            fontSize: "20px",
+                            color: "var(--superadmin-text-main, #0F172A)",
+                            fontWeight: 800,
+                        }}
+                    >
                         {isHi ? "सक्रिय काउंटर एवं डेस्क प्रबंधन" : "Active Desk & Counter Management"}
                     </h2>
+
+                    {/* Facility Selector */}
                     {hospitals && hospitals.length > 1 ? (
-                        <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "var(--superadmin-sub-card, #F1F5F9)", padding: "4px 10px", borderRadius: "10px", border: "1px solid var(--superadmin-card-border, #CBD5E1)", marginTop: "2px" }}>
+                        <div
+                            style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "6px",
+                                background: "var(--superadmin-sub-card, #F1F5F9)",
+                                padding: "4px 10px",
+                                borderRadius: "10px",
+                                border: "1px solid var(--superadmin-card-border, #CBD5E1)",
+                                marginTop: "2px",
+                            }}
+                        >
                             <IconHospital size={14} color="#0284C7" />
                             <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--superadmin-text-muted, #64748B)" }}>
                                 {isHi ? "शाखा:" : "Facility:"}
@@ -96,22 +287,36 @@ export default function DesksManagementTab({
                                 ))}
                             </select>
                             <span style={{ fontSize: "11px", color: "#0284C7", fontWeight: 700, marginLeft: "4px" }}>
-                                • {hospitalDesksData.active_desks || 0} / {hospitalDesksData.total_desks || 0} {isHi ? "सक्रिय डेस्क" : "Active Desks"}
+                                • {activeDesksCount} / {totalDesksCount} {isHi ? "सक्रिय" : "Active"}
                             </span>
                         </div>
                     ) : (
-                        <span style={{ fontSize: "12px", color: "#0284C7", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                        <span
+                            style={{
+                                fontSize: "12px",
+                                color: "#0284C7",
+                                fontWeight: 700,
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "5px",
+                            }}
+                        >
                             <IconHospital size={14} color="#0284C7" />
-                            <span>{selectedHospital ? selectedHospital.name : "Select a Hospital"} ({hospitalDesksData.active_desks || 0} / {hospitalDesksData.total_desks || 0} Active Desks)</span>
+                            <span>
+                                {selectedHospital ? selectedHospital.name : "Select a Hospital"} ({activeDesksCount} / {totalDesksCount} Active)
+                            </span>
                         </span>
                     )}
                 </div>
 
+                {/* Primary Add New Desk Button */}
                 <button
                     type="button"
                     onClick={() => {
                         if (hospitalDepts.length === 0) {
-                            const msg = isHi ? "डेस्क जोड़ने से पहले कृपया कम से कम एक विभाग बनाएं।" : "Please create at least one clinical department in the Departments tab before adding a desk.";
+                            const msg = isHi
+                                ? "डेस्क जोड़ने से पहले कृपया कम से कम एक विभाग बनाएं।"
+                                : "Please create at least one clinical department in the Departments tab before adding a desk.";
                             if (notify) notify(msg, "warn");
                             return;
                         }
@@ -120,464 +325,207 @@ export default function DesksManagementTab({
                     style={actionBtnStyle}
                 >
                     <IconPlus size={14} color="#FFFFFF" />
-                    <span>{isHi ? "नया डेस्क जोड़ें" : "+ Add New Desk"}</span>
+                    <span>{isHi ? "+ नया डेस्क जोड़ें" : "+ Add New Desk"}</span>
                 </button>
             </div>
 
-            {/* Desk Search Input */}
-            <div style={{ marginBottom: "14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
-                <div style={{ position: "relative", minWidth: "260px", flex: "1 1 260px" }}>
-                    <input
-                        type="text"
-                        placeholder={isHi ? "डेस्क या विभाग से खोजें..." : "Filter desks by name or department..."}
-                        value={deskSearchQuery}
-                        onChange={(e) => setDeskSearchQuery && setDeskSearchQuery(e.target.value)}
-                        style={{ ...fieldInputStyle, paddingLeft: "32px", fontSize: "12.5px" }}
-                    />
-                    <span style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", color: "#94A3B8", display: "flex", alignItems: "center" }}>
-                        <IconSearch size={14} color="#94A3B8" />
-                    </span>
-                </div>
-                {deskSearchQuery && (
-                    <span style={{ fontSize: "12px", color: "var(--superadmin-text-muted, #64748B)", fontWeight: 600 }}>
-                        Filtered across {filteredDeptGroups.length} departments
-                    </span>
-                )}
-            </div>
+            {/* --------------------------------------------------------- */}
+            {/* B. Summary Strip: 5 Interactive Stat Cards                */}
+            {/* --------------------------------------------------------- */}
+            <DeskSummaryStrip
+                totalDesks={totalDesksCount}
+                activeDesks={activeDesksCount}
+                servingDesks={servingDesksCount}
+                staffOfflineDesks={staffOfflineDesksCount}
+                unstaffedDesks={unstaffedDesksCount}
+                statusFilter={statusFilter}
+                onSelectStatusFilter={(filterKey) => setStatusFilter(filterKey)}
+                isHi={isHi}
+            />
 
-            {/* Department Desks */}
-            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-                {filteredDeptGroups.length === 0 ? (
-                    <div style={{ textAlign: "center", padding: "32px", color: "var(--superadmin-text-muted, #64748B)", background: "var(--superadmin-sub-card, #F8FAFC)", borderRadius: "12px", border: "1px solid var(--superadmin-card-border, #E2E8F0)" }}>
-                        {deskSearchQuery ? "No desks match your filter." : "No desks found for this hospital. Click '+ Add New Desk' above."}
+            {/* --------------------------------------------------------- */}
+            {/* C. Toolbar: Search, Dept Chips, Status Dropdown, View Toggle */}
+            {/* --------------------------------------------------------- */}
+            <DeskToolbar
+                searchQuery={deskSearchQuery}
+                onSearchChange={setDeskSearchQuery}
+                selectedDept={selectedDept}
+                onSelectDept={(deptCode) => setSelectedDept(deptCode)}
+                departmentList={deptChipList}
+                statusFilter={statusFilter}
+                onStatusFilterChange={(status) => setStatusFilter(status)}
+                viewMode={viewMode}
+                onViewModeChange={handleViewModeChange}
+                allCollapsed={allCollapsed}
+                onToggleCollapseAll={handleToggleCollapseAll}
+                language={language}
+                isHi={isHi}
+            />
+
+            {/* --------------------------------------------------------- */}
+            {/* D. Main Content Area: Grid View OR Table View             */}
+            {/* --------------------------------------------------------- */}
+            {/* Case 1: Entire Hospital Has Zero Desks */}
+            {totalDesksCount === 0 && !hasActiveFilters ? (
+                <div
+                    style={{
+                        textAlign: "center",
+                        padding: "54px 20px",
+                        background: "var(--superadmin-sub-card, #F8FAFC)",
+                        borderRadius: "16px",
+                        border: "1.5px dashed var(--superadmin-card-border, #CBD5E1)",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        gap: "12px",
+                    }}
+                >
+                    <div
+                        style={{
+                            width: "60px",
+                            height: "60px",
+                            borderRadius: "50%",
+                            background: "rgba(2, 132, 199, 0.1)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                        }}
+                    >
+                        <IconDesk size={28} color="#0284C7" />
                     </div>
-                ) : (
-                    filteredDeptGroups.map((deptGroup) => (
-                        <div key={deptGroup.dept_code} style={deptDeskBoxStyle}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px", borderBottom: "1px solid var(--superadmin-card-border, #E2E8F0)", paddingBottom: "6px", flexWrap: "wrap", gap: "8px" }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                                    <IconStethoscope size={16} color="#38BDF8" />
-                                    <h4 style={{ margin: 0, fontSize: "15px", color: "var(--superadmin-text-main, #0F172A)", fontWeight: 800 }}>
-                                        {getCategoryLabel(deptGroup.dept_code, language)}
-                                    </h4>
-                                </div>
-
-                                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                                    <span style={{ fontSize: "11px", fontWeight: 800, color: "#38BDF8", background: "rgba(2, 132, 199, 0.15)", border: "1px solid rgba(2, 132, 199, 0.3)", padding: "2px 8px", borderRadius: "6px" }}>
-                                        {deptGroup.active_desks} / {deptGroup.total_desks} Active
-                                    </span>
-                                    {/* Bulk Deactivate / Activate per Department */}
-                                    <button
-                                        type="button"
-                                        onClick={() => onBulkDeskStatus && onBulkDeskStatus(deptGroup.dept_code, "UNAVAILABLE")}
-                                        style={{
-                                            fontSize: "11px",
-                                            fontWeight: 700,
-                                            padding: "3px 8px",
-                                            background: "rgba(220, 38, 38, 0.15)",
-                                            color: "#EF4444",
-                                            border: "1px solid rgba(220, 38, 38, 0.3)",
-                                            borderRadius: "6px",
-                                            cursor: "pointer",
-                                        }}
-                                        title="Deactivate all desks in this department"
-                                    >
-                                        Deactivate All
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => onBulkDeskStatus && onBulkDeskStatus(deptGroup.dept_code, "AVAILABLE")}
-                                        style={{
-                                            fontSize: "11px",
-                                            fontWeight: 700,
-                                            padding: "3px 8px",
-                                            background: "rgba(22, 163, 74, 0.15)",
-                                            color: "#10B981",
-                                            border: "1px solid rgba(22, 163, 74, 0.3)",
-                                            borderRadius: "6px",
-                                            cursor: "pointer",
-                                        }}
-                                        title="Activate all desks in this department"
-                                    >
-                                        Activate All
-                                    </button>
-                                </div>
-                            </div>
-
-                            {(!deptGroup.desks || deptGroup.desks.length === 0) ? (
-                                <div style={{ padding: "14px 16px", background: "var(--superadmin-sub-card, #1E293B)", borderRadius: "8px", border: "1px dashed var(--superadmin-card-border, #334155)", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px" }}>
-                                    <span style={{ fontSize: "12px", color: "var(--superadmin-text-muted, #94A3B8)" }}>
-                                        {isHi ? "इस विभाग में अभी कोई डेस्क नहीं है।" : "No desks created in this department yet."}
-                                    </span>
-                                    <button
-                                        type="button"
-                                        onClick={() => onOpenAddDesk && onOpenAddDesk(deptGroup.dept_code)}
-                                        style={{ ...actionBtnStyle, padding: "5px 12px", fontSize: "11.5px" }}
-                                    >
-                                        <IconPlus size={12} color="#FFFFFF" />
-                                        <span>{isHi ? "डेस्क जोड़ें" : "+ Add Desk"}</span>
-                                    </button>
-                                </div>
-                            ) : (
-                                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: "14px" }}>
-                                    {deptGroup.desks.map((desk) => (
-                                        <div key={desk.id} style={deskCardItemStyle(desk.status)}>
-                                            {/* Desk Header: Title, Status Badge, Edit & Delete */}
-                                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "10px" }}>
-                                                <div style={{ minWidth: 0, flex: 1, display: "flex", flexDirection: "column", gap: "4px" }}>
-                                                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                                                        <span
-                                                            style={{
-                                                                fontSize: "14.5px",
-                                                                fontWeight: 800,
-                                                                color: "var(--superadmin-text-main, #0F172A)",
-                                                                letterSpacing: "0.2px",
-                                                                lineHeight: 1.3,
-                                                                wordBreak: "break-word",
-                                                            }}
-                                                        >
-                                                            {desk.desk_name}
-                                                        </span>
-                                                        <span style={deskStatusPillStyle(desk.status)}>
-                                                            {desk.status}
-                                                        </span>
-                                                    </div>
-                                                </div>
-
-                                                <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
-                                                    {/* Edit Desk Button */}
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => onOpenEditDesk && onOpenEditDesk(desk, deptGroup.dept_code)}
-                                                        style={{
-                                                            ...deleteDeskIconBtnStyle,
-                                                            color: "#0284C7",
-                                                            background: "rgba(2, 132, 199, 0.08)",
-                                                            border: "1px solid rgba(2, 132, 199, 0.25)",
-                                                        }}
-                                                        title={isHi ? "डेस्क संपादित करें" : "Edit Desk"}
-                                                    >
-                                                        <IconEdit size={13} color="#0284C7" />
-                                                    </button>
-                                                    {/* Delete Desk Button */}
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => onDeleteDesk && onDeleteDesk(desk)}
-                                                        style={deleteDeskIconBtnStyle}
-                                                        title={isHi ? "डेस्क हटाएं" : "Remove Desk"}
-                                                    >
-                                                        <IconX size={15} />
-                                                    </button>
-                                                </div>
-                                            </div>
-
-                                            {/* Assigned Doctor / Staff Card Section */}
-                                            {desk.assigned_employee_id ? (() => {
-                                                const isDoc = (desk.assigned_employee_role || "").toLowerCase() === "doctor";
-                                                const isOnline = (desk.assigned_employee_status || "").toLowerCase() === "active";
-                                                const isDeskOpen = ["AVAILABLE", "ACTIVE", "BUSY", "OCCUPIED"].includes((desk.status || "").toUpperCase());
-
-                                                return (
-                                                    <React.Fragment>
-                                                        <div
-                                                            style={{
-                                                                display: "flex",
-                                                                flexDirection: "column",
-                                                                gap: "10px",
-                                                                background: isDoc
-                                                                    ? (isOnline ? "rgba(16, 185, 129, 0.07)" : "rgba(239, 68, 68, 0.06)")
-                                                                    : "var(--superadmin-sub-card, #F8FAFC)",
-                                                                border: isDoc
-                                                                    ? (isOnline ? "1px solid rgba(16, 185, 129, 0.28)" : "1px solid rgba(239, 68, 68, 0.22)")
-                                                                    : "1px solid var(--superadmin-card-border, #E2E8F0)",
-                                                                borderRadius: "10px",
-                                                                padding: "10px 12px",
-                                                                margin: "4px 0",
-                                                            }}
-                                                        >
-                                                            {/* Doctor Info Row: Icon, Name & Role/Activity */}
-                                                            <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
-                                                                <div
-                                                                    style={{
-                                                                        width: "34px",
-                                                                        height: "34px",
-                                                                        borderRadius: "8px",
-                                                                        display: "flex",
-                                                                        alignItems: "center",
-                                                                        justifyContent: "center",
-                                                                        fontSize: "16px",
-                                                                        background: isDoc
-                                                                            ? (isOnline ? "rgba(16, 185, 129, 0.16)" : "rgba(239, 68, 68, 0.12)")
-                                                                            : "rgba(100, 116, 139, 0.12)",
-                                                                        flexShrink: 0,
-                                                                    }}
-                                                                >
-                                                                    {isDoc ? "🩺" : "👤"}
-                                                                </div>
-                                                                <div style={{ minWidth: 0, flex: 1 }}>
-                                                                    <div
-                                                                        style={{
-                                                                            fontSize: "13px",
-                                                                            fontWeight: 800,
-                                                                            color: "var(--superadmin-text-main, #0F172A)",
-                                                                            lineHeight: 1.3,
-                                                                            wordBreak: "break-word",
-                                                                        }}
-                                                                    >
-                                                                        {desk.assigned_employee_name || desk.staff_name}
-                                                                    </div>
-                                                                    <div
-                                                                        style={{
-                                                                            fontSize: "11px",
-                                                                            color: isDoc ? (isOnline ? "#059669" : "#DC2626") : "var(--superadmin-text-muted, #64748B)",
-                                                                            fontWeight: 600,
-                                                                            marginTop: "2px",
-                                                                            display: "flex",
-                                                                            alignItems: "center",
-                                                                            gap: "6px",
-                                                                            flexWrap: "wrap",
-                                                                        }}
-                                                                    >
-                                                                        <span style={{ textTransform: "capitalize" }}>{desk.assigned_employee_role || "Staff"}</span>
-                                                                        {desk.assigned_employee_last_login && isOnline && (
-                                                                            <span style={{ opacity: 0.85 }}>
-                                                                                • {formatRelativeLogin ? formatRelativeLogin(desk.assigned_employee_last_login) : desk.assigned_employee_last_login}
-                                                                            </span>
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-
-                                                            {/* Doctor Status Badge & Action Controls */}
-                                                            <div
-                                                                style={{
-                                                                    display: "flex",
-                                                                    alignItems: "center",
-                                                                    justifyContent: "space-between",
-                                                                    paddingTop: "8px",
-                                                                    borderTop: isDoc
-                                                                        ? (isOnline ? "1px solid rgba(16, 185, 129, 0.18)" : "1px solid rgba(239, 68, 68, 0.15)")
-                                                                        : "1px solid var(--superadmin-card-border, #E2E8F0)",
-                                                                    gap: "8px",
-                                                                }}
-                                                            >
-                                                                {/* Online / Offline Pill */}
-                                                                <span
-                                                                    style={{
-                                                                        display: "inline-flex",
-                                                                        alignItems: "center",
-                                                                        gap: "5px",
-                                                                        padding: "2px 8px",
-                                                                        borderRadius: "999px",
-                                                                        fontSize: "10.5px",
-                                                                        fontWeight: 700,
-                                                                        background: isOnline ? "rgba(16, 185, 129, 0.15)" : "rgba(100, 116, 139, 0.15)",
-                                                                        color: isOnline ? "#059669" : "#64748B",
-                                                                        border: isOnline ? "1px solid rgba(16, 185, 129, 0.3)" : "1px solid rgba(100, 116, 139, 0.3)",
-                                                                    }}
-                                                                >
-                                                                    <span
-                                                                        style={{
-                                                                            width: "6px",
-                                                                            height: "6px",
-                                                                            borderRadius: "50%",
-                                                                            background: isOnline ? "#10B981" : "#94A3B8",
-                                                                        }}
-                                                                    />
-                                                                    <span>{isOnline ? (isHi ? "ऑनलाइन" : "Online") : (isHi ? "ऑफलाइन" : "Offline")}</span>
-                                                                </span>
-
-                                                                {/* Change & Unassign Actions */}
-                                                                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => onOpenAssignDesk && onOpenAssignDesk(desk, String(desk.assigned_employee_id || ""))}
-                                                                        style={{
-                                                                            background: "#FFFFFF",
-                                                                            border: "1px solid #CBD5E1",
-                                                                            borderRadius: "6px",
-                                                                            padding: "3px 8px",
-                                                                            fontSize: "11px",
-                                                                            fontWeight: 700,
-                                                                            color: "#0284C7",
-                                                                            cursor: "pointer",
-                                                                            boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
-                                                                        }}
-                                                                        title={isHi ? "कार्मिक बदलें" : "Reassign Doctor / Staff"}
-                                                                    >
-                                                                        {isHi ? "बदलें" : "Change"}
-                                                                    </button>
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => {
-                                                                            const staffName = desk.assigned_employee_name || desk.staff_name || "Doctor";
-                                                                            const confirmMsg = isHi
-                                                                                ? `क्या आप वाकई '${desk.desk_name}' से '${staffName}' को हटाना (अनअसाइन) चाहते हैं?`
-                                                                                : `Unassign '${staffName}' from '${desk.desk_name}'?`;
-                                                                            if (showConfirm) {
-                                                                                showConfirm({
-                                                                                    title: isHi ? "डेस्क अनअसाइन करें" : "Unassign Desk",
-                                                                                    message: confirmMsg,
-                                                                                    confirmText: isHi ? "हाँ, अनअसाइन करें" : "Unassign",
-                                                                                    cancelText: isHi ? "रद्द करें" : "Cancel",
-                                                                                    isDestructive: true,
-                                                                                    onConfirm: () => {
-                                                                                        if (onUnassignDesk) onUnassignDesk(desk);
-                                                                                    },
-                                                                                });
-                                                                            } else {
-                                                                                if (onUnassignDesk) onUnassignDesk(desk);
-                                                                            }
-                                                                        }}
-                                                                        style={{
-                                                                            background: "rgba(239, 68, 68, 0.1)",
-                                                                            border: "1px solid rgba(239, 68, 68, 0.25)",
-                                                                            borderRadius: "6px",
-                                                                            width: "26px",
-                                                                            height: "26px",
-                                                                            display: "inline-flex",
-                                                                            alignItems: "center",
-                                                                            justifyContent: "center",
-                                                                            color: "#EF4444",
-                                                                            cursor: "pointer",
-                                                                            transition: "all 0.15s ease",
-                                                                        }}
-                                                                        title={isHi ? "अनअसाइन करें" : "Unassign Desk"}
-                                                                    >
-                                                                        <IconX size={14} color="#EF4444" />
-                                                                    </button>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-
-                                                        {/* Warning banner if open desk has logged-out doctor */}
-                                                        {!isOnline && isDeskOpen && (
-                                                            <div
-                                                                style={{
-                                                                    display: "flex",
-                                                                    alignItems: "center",
-                                                                    gap: "6px",
-                                                                    padding: "6px 10px",
-                                                                    background: "rgba(245, 158, 11, 0.1)",
-                                                                    border: "1px solid rgba(245, 158, 11, 0.3)",
-                                                                    borderRadius: "7px",
-                                                                    marginBottom: "4px",
-                                                                    fontSize: "11px",
-                                                                    color: "#92400E",
-                                                                    fontWeight: 600,
-                                                                    lineHeight: 1.35,
-                                                                }}
-                                                            >
-                                                                <IconAlertTriangle size={15} color="#D97706" style={{ flexShrink: 0 }} />
-                                                                <span>{isHi ? "सावधानी: नियुक्त कार्मिक वर्तमान में ऑफलाइन हैं" : "Assigned doctor is currently offline"}</span>
-                                                            </div>
-                                                        )}
-                                                    </React.Fragment>
-                                                );
-                                            })() : (
-                                                <div
-                                                    style={{
-                                                        display: "flex",
-                                                        alignItems: "center",
-                                                        justifyContent: "space-between",
-                                                        background: "var(--superadmin-sub-card, #F8FAFC)",
-                                                        border: "1px dashed var(--superadmin-card-border, #CBD5E1)",
-                                                        borderRadius: "10px",
-                                                        padding: "10px 12px",
-                                                        margin: "4px 0",
-                                                        gap: "10px",
-                                                    }}
-                                                >
-                                                    <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0, flex: 1 }}>
-                                                        <div
-                                                            style={{
-                                                                width: "32px",
-                                                                height: "32px",
-                                                                borderRadius: "8px",
-                                                                background: "rgba(245, 158, 11, 0.15)",
-                                                                display: "flex",
-                                                                alignItems: "center",
-                                                                justifyContent: "center",
-                                                                flexShrink: 0,
-                                                            }}
-                                                        >
-                                                            <IconZap size={16} color="#D97706" />
-                                                        </div>
-                                                        <div style={{ minWidth: 0 }}>
-                                                            <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--superadmin-text-main, #334155)" }}>
-                                                                {isHi ? "स्वचालित बे" : "Auto Bay / Unassigned"}
-                                                            </div>
-                                                            <div style={{ fontSize: "10.5px", color: "var(--superadmin-text-muted, #64748B)" }}>
-                                                                {isHi ? "कोई डॉक्टर नियुक्त नहीं" : "No doctor assigned"}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => onOpenAssignDesk && onOpenAssignDesk(desk, "")}
-                                                        style={{
-                                                            background: "#0284C7",
-                                                            border: "none",
-                                                            borderRadius: "6px",
-                                                            padding: "5px 12px",
-                                                            fontSize: "11px",
-                                                            fontWeight: 700,
-                                                            color: "#FFFFFF",
-                                                            cursor: "pointer",
-                                                            display: "inline-flex",
-                                                            alignItems: "center",
-                                                            gap: "4px",
-                                                            flexShrink: 0,
-                                                            boxShadow: "0 1px 3px rgba(2, 132, 199, 0.25)",
-                                                        }}
-                                                    >
-                                                        <span>+</span>
-                                                        <span>{isHi ? "सौंपें" : "Assign"}</span>
-                                                    </button>
-                                                </div>
-                                            )}
-
-                                            {/* Desk Footer Actions */}
-                                            <div style={{ display: "flex", gap: "8px", marginTop: "2px" }}>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => onToggleDeskStatus && onToggleDeskStatus(desk)}
-                                                    style={{ ...toggleDeskBtnStyle, flex: 1, margin: 0, padding: "7px 10px", fontSize: "11.5px" }}
-                                                >
-                                                    {isHi ? "स्थिति बदलें" : "Toggle Status"}
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => onOpenAssignDesk && onOpenAssignDesk(desk, String(desk.assigned_employee_id || ""))}
-                                                    style={{
-                                                        padding: "7px 12px",
-                                                        fontSize: "11.5px",
-                                                        fontWeight: 700,
-                                                        background: "#F0F9FF",
-                                                        border: "1px solid #BAE6FD",
-                                                        borderRadius: "8px",
-                                                        color: "#0369A1",
-                                                        cursor: "pointer",
-                                                        display: "inline-flex",
-                                                        alignItems: "center",
-                                                        gap: "5px",
-                                                        transition: "all 0.15s ease",
-                                                        whiteSpace: "nowrap",
-                                                    }}
-                                                    title={isHi ? "डॉक्टर या स्टाफ सौंपें" : "Assign Doctor or Staff"}
-                                                >
-                                                    <IconUser size={14} />
-                                                    <span>{desk.assigned_employee_id ? (isHi ? "पुनः" : "Reassign") : (isHi ? "सौंपें" : "Assign")}</span>
-                                                </button>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    ))
-                )}
-            </div>
+                    <h3
+                        style={{
+                            margin: 0,
+                            fontSize: "17px",
+                            fontWeight: 800,
+                            color: "var(--superadmin-text-main, #0F172A)",
+                        }}
+                    >
+                        {isHi ? "अभी कोई डेस्क कॉन्फ़िगर नहीं है" : "No Desks Configured Yet"}
+                    </h3>
+                    <p
+                        style={{
+                            margin: 0,
+                            fontSize: "13px",
+                            color: "var(--superadmin-text-muted, #64748B)",
+                            maxWidth: "420px",
+                            lineHeight: 1.5,
+                        }}
+                    >
+                        {isHi
+                            ? "रोगी कतारों का संचालन करने के लिए अपने क्लिनिकल विभागों में काउंटर और परामर्श डेस्क जोड़ें।"
+                            : "Set up counters and consultation desks for your clinical departments to begin managing queue stations."}
+                    </p>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            if (hospitalDepts.length === 0) {
+                                const msg = isHi
+                                    ? "डेस्क जोड़ने से पहले कृपया कम से कम एक विभाग बनाएं।"
+                                    : "Please create at least one department first.";
+                                if (notify) notify(msg, "warn");
+                                return;
+                            }
+                            if (onOpenAddDesk) onOpenAddDesk();
+                        }}
+                        style={{ ...actionBtnStyle, marginTop: "6px" }}
+                    >
+                        <IconPlus size={14} color="#FFFFFF" />
+                        <span>{isHi ? "+ पहला डेस्क जोड़ें" : "+ Add First Desk"}</span>
+                    </button>
+                </div>
+            ) : filteredDeptGroups.length === 0 || (viewMode === "table" && filteredDesksFlat.length === 0) ? (
+                /* Case 2: Filters Return Zero Matches */
+                <div
+                    style={{
+                        textAlign: "center",
+                        padding: "44px 20px",
+                        background: "var(--superadmin-sub-card, #F8FAFC)",
+                        borderRadius: "14px",
+                        border: "1px solid var(--superadmin-card-border, #E2E8F0)",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        gap: "10px",
+                    }}
+                >
+                    <div
+                        style={{
+                            width: "48px",
+                            height: "48px",
+                            borderRadius: "50%",
+                            background: "rgba(100, 116, 139, 0.1)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                        }}
+                    >
+                        <IconSearch size={22} color="#64748B" />
+                    </div>
+                    <div style={{ fontSize: "15px", fontWeight: 800, color: "var(--superadmin-text-main, #0F172A)" }}>
+                        {isHi ? "फ़िल्टर से कोई डेस्क नहीं मिला" : "No desks match your filter criteria"}
+                    </div>
+                    <div style={{ fontSize: "12.5px", color: "var(--superadmin-text-muted, #64748B)", maxWidth: "380px" }}>
+                        {isHi
+                            ? "कृपया खोज शब्द बदलें या सक्रिय फ़िल्टर साफ़ करें।"
+                            : "Try adjusting your search query, changing status, or clearing department filters."}
+                    </div>
+                    <button
+                        type="button"
+                        onClick={handleResetFilters}
+                        style={{
+                            padding: "7px 16px",
+                            borderRadius: "8px",
+                            background: "#0284C7",
+                            color: "#FFFFFF",
+                            border: "none",
+                            fontWeight: 700,
+                            fontSize: "12px",
+                            cursor: "pointer",
+                            marginTop: "4px",
+                        }}
+                    >
+                        {isHi ? "फ़िल्टर हटाएं" : "Reset All Filters"}
+                    </button>
+                </div>
+            ) : viewMode === "table" ? (
+                /* Case 3: Table View */
+                <DeskTable
+                    desks={filteredDesksFlat}
+                    onOpenEditDesk={onOpenEditDesk}
+                    onToggleDeskStatus={onToggleDeskStatus}
+                    onOpenAssignDesk={onOpenAssignDesk}
+                    onUnassignDesk={onUnassignDesk}
+                    onDeleteDesk={onDeleteDesk}
+                    formatRelativeLogin={formatRelativeLogin}
+                    showConfirm={showConfirm}
+                    language={language}
+                    isHi={isHi}
+                />
+            ) : (
+                /* Case 4: Grid View (Department Sections with Responsive Cards) */
+                <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                    {filteredDeptGroups.map((deptGroup) => (
+                        <DepartmentSection
+                            key={deptGroup.dept_code}
+                            deptGroup={deptGroup}
+                            isCollapsed={Boolean(collapsedDepts[deptGroup.dept_code])}
+                            onToggleCollapse={() => toggleDeptCollapse(deptGroup.dept_code)}
+                            onBulkDeskStatus={onBulkDeskStatus}
+                            onOpenAddDesk={onOpenAddDesk}
+                            onOpenEditDesk={onOpenEditDesk}
+                            onToggleDeskStatus={onToggleDeskStatus}
+                            onOpenAssignDesk={onOpenAssignDesk}
+                            onUnassignDesk={onUnassignDesk}
+                            onDeleteDesk={onDeleteDesk}
+                            formatRelativeLogin={formatRelativeLogin}
+                            showConfirm={showConfirm}
+                            language={language}
+                            isHi={isHi}
+                        />
+                    ))}
+                </div>
+            )}
         </div>
     );
 }

@@ -6,6 +6,7 @@
 
 const express = require("express");
 const {
+  getGuestToken,
   signupSuperAdmin,
   signupAdmin,
   signupPatient,
@@ -28,6 +29,9 @@ const {
 const { authenticate, optionalAuth } = require("../middleware/auth");
 
 const router = express.Router();
+
+// Guest anonymous patient token
+router.get("/guest-token", getGuestToken);
 
 // Real-Time Validation & Verification (Email & Mobile OTP)
 router.get("/check-email", checkEmail);

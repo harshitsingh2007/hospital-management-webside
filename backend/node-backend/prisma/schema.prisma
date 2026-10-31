@@ -103,28 +103,34 @@ model desks {
 }
 
 model employees {
-  id               Int          @id @default(autoincrement())
-  user_id          Int
-  hospital_id      Int
-  department_id    Int?
-  employee_code    String?      @default("") @db.VarChar(100)
-  name             String       @db.VarChar(255)
-  email            String?      @default("") @db.VarChar(255)
-  phone            String?      @default("") @db.VarChar(100)
-  qualification    String?      @default("") @db.VarChar(255)
-  specialization   String?      @default("") @db.VarChar(255)
-  license_number   String?      @default("") @db.VarChar(100)
-  gender           String?      @default("other") @db.VarChar(50)
-  experience_years Int?         @default(0)
-  room_number      String?      @default("") @db.VarChar(100)
-  profile_json     Json?        @default("{}")
-  status           String       @default("active") @db.VarChar(50)
-  created_at       DateTime     @default(now()) @db.Timestamptz(6)
-  updated_at       DateTime     @default(now()) @db.Timestamptz(6)
-  desks            desks[]
-  departments      departments? @relation(fields: [department_id], references: [id], onUpdate: NoAction)
-  hospitals        hospitals    @relation(fields: [hospital_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  users            users        @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                                     Int           @id @default(autoincrement())
+  user_id                                Int
+  hospital_id                            Int
+  department_id                          Int?
+  employee_code                          String?       @default("") @db.VarChar(100)
+  name                                   String        @db.VarChar(255)
+  phone                                  String?       @default("") @db.VarChar(100)
+  status                                 String        @default("active") @db.VarChar(50)
+  created_at                             DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at                             DateTime      @default(now()) @db.Timestamptz(6)
+  email                                  String?       @default("") @db.VarChar(255)
+  qualification                          String?       @default("") @db.VarChar(255)
+  specialization                         String?       @default("") @db.VarChar(255)
+  license_number                         String?       @default("") @db.VarChar(100)
+  gender                                 String?       @default("other") @db.VarChar(50)
+  experience_years                       Int?          @default(0)
+  room_number                            String?       @default("") @db.VarChar(100)
+  profile_json                           Json?         @default("{}")
+  bills_bills_approved_byToemployees     bills[]       @relation("bills_approved_byToemployees")
+  bills_bills_created_byToemployees      bills[]       @relation("bills_created_byToemployees")
+  cash_shifts                            cash_shifts[]
+  desks                                  desks[]
+  departments                            departments?  @relation(fields: [department_id], references: [id], onUpdate: NoAction)
+  hospitals                              hospitals     @relation(fields: [hospital_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users                                  users         @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  payments                               payments[]
+  refunds_refunds_approved_byToemployees refunds[]     @relation("refunds_approved_byToemployees")
+  refunds_refunds_created_byToemployees  refunds[]     @relation("refunds_created_byToemployees")
 
   @@unique([hospital_id, user_id])
   @@index([department_id], map: "idx_employees_department")
@@ -152,35 +158,39 @@ model family_members {
 }
 
 model hospitals {
-  id                     Int                      @id @default(autoincrement())
-  hospital_code          String                   @unique @db.VarChar(100)
-  name                   String                   @db.VarChar(255)
-  address                String?                  @default("")
-  phone                  String?                  @default("") @db.VarChar(100)
-  email                  String?                  @default("") @db.VarChar(255)
-  description            String?                  @default("")
-  logo_url               String?                  @default("")
-  branding_json          Json?                    @default("{}")
-  status                 String                   @default("active") @db.VarChar(50)
-  owner_user_id          Int?
-  created_at             DateTime                 @default(now()) @db.Timestamptz(6)
-  updated_at             DateTime                 @default(now()) @db.Timestamptz(6)
-  appointments           appointments[]
-  audit_logs             audit_logs[]
-  departments            departments[]
-  desks                  desks[]
-  employees              employees[]
-  users                  users?                   @relation(fields: [owner_user_id], references: [id], onUpdate: NoAction)
-  kiosks                 kiosks[]
-  queue_events           queue_events[]
-  service_logs           service_logs[]
-  tenant_config          tenant_config?
-  tenant_historical_data tenant_historical_data[]
-  tenant_mapping         tenant_mapping?
-  tickets                tickets[]
-  visit_history          visit_history[]
-  prescriptions          prescriptions[]
-  medical_reports        medical_reports[]
+  id                        Int                         @id @default(autoincrement())
+  hospital_code             String                      @unique @db.VarChar(100)
+  name                      String                      @db.VarChar(255)
+  address                   String?                     @default("")
+  phone                     String?                     @default("") @db.VarChar(100)
+  email                     String?                     @default("") @db.VarChar(255)
+  description               String?                     @default("")
+  logo_url                  String?                     @default("")
+  status                    String                      @default("active") @db.VarChar(50)
+  owner_user_id             Int?
+  created_at                DateTime                    @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime                    @default(now()) @db.Timestamptz(6)
+  branding_json             Json?                       @default("{}")
+  appointments              appointments[]
+  audit_logs                audit_logs[]
+  bills                     bills[]
+  cash_shifts               cash_shifts[]
+  departments               departments[]
+  desks                     desks[]
+  employees                 employees[]
+  hospital_billing_counters hospital_billing_counters[]
+  users                     users?                      @relation(fields: [owner_user_id], references: [id], onUpdate: NoAction)
+  kiosks                    kiosks[]
+  medical_reports           medical_reports[]
+  prescriptions             prescriptions[]
+  queue_events              queue_events[]
+  service_logs              service_logs[]
+  service_tariffs           service_tariffs[]
+  tenant_config             tenant_config?
+  tenant_historical_data    tenant_historical_data[]
+  tenant_mapping            tenant_mapping?
+  tickets                   tickets[]
+  visit_history             visit_history[]
 
   @@index([hospital_code], map: "idx_hospitals_code")
 }
@@ -206,67 +216,69 @@ model kiosks {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model patients {
-  id             Int              @id @default(autoincrement())
-  user_id        Int?
-  medical_id     String?          @default("") @db.VarChar(100)
-  name           String           @db.VarChar(255)
-  phone          String?          @default("") @db.VarChar(100)
-  gender         String?          @default("other") @db.VarChar(50)
-  age            Int?             @default(0)
-  created_at     DateTime         @default(now()) @db.Timestamptz(6)
-  updated_at     DateTime         @default(now()) @db.Timestamptz(6)
-  appointments   appointments[]
-  family_members family_members[]
-  users          users?           @relation(fields: [user_id], references: [id], onUpdate: NoAction)
-  tickets        tickets[]
-  visit_history  visit_history[]
-  prescriptions  prescriptions[]
+  id              Int               @id @default(autoincrement())
+  user_id         Int?
+  medical_id      String?           @default("") @db.VarChar(100)
+  name            String            @db.VarChar(255)
+  phone           String?           @default("") @db.VarChar(100)
+  gender          String?           @default("other") @db.VarChar(50)
+  age             Int?              @default(0)
+  created_at      DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime          @default(now()) @db.Timestamptz(6)
+  appointments    appointments[]
+  bills           bills[]
+  family_members  family_members[]
   medical_reports medical_reports[]
+  users           users?            @relation(fields: [user_id], references: [id], onUpdate: NoAction)
+  prescriptions   prescriptions[]
+  tickets         tickets[]
+  visit_history   visit_history[]
 
   @@index([user_id], map: "idx_patients_user")
 }
 
 model visit_history {
-  id              Int           @id @default(autoincrement())
+  id              Int               @id @default(autoincrement())
   patient_id      Int
   hospital_id     Int
-  ticket_id       String?       @unique @db.VarChar(100)
-  appointment_id  String?       @db.VarChar(100)
+  ticket_id       String?           @unique @db.VarChar(100)
+  appointment_id  String?           @db.VarChar(100)
   doctor_id       Int?
-  doctor_name     String?       @default("") @db.VarChar(255)
+  doctor_name     String?           @default("") @db.VarChar(255)
   department_id   Int?
-  department_name String?       @default("") @db.VarChar(255)
-  visit_date      DateTime      @default(now()) @db.Date
-  diagnosis       String?       @default("") @db.VarChar(255)
-  clinical_notes  String?       @default("")
-  advice          String?       @default("")
-  created_at      DateTime      @default(now()) @db.Timestamptz(6)
-  prescriptions   prescriptions[]
+  department_name String?           @default("") @db.VarChar(255)
+  visit_date      DateTime          @default(now()) @db.Date
+  diagnosis       String?           @default("") @db.VarChar(255)
+  clinical_notes  String?           @default("")
+  advice          String?           @default("")
+  created_at      DateTime          @default(now()) @db.Timestamptz(6)
+  bills           bills[]
   medical_reports medical_reports[]
-  patients        patients      @relation(fields: [patient_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  hospitals       hospitals     @relation(fields: [hospital_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  prescriptions   prescriptions[]
+  hospitals       hospitals         @relation(fields: [hospital_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  patients        patients          @relation(fields: [patient_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([patient_id, hospital_id], map: "idx_visit_history_patient_hospital")
   @@index([hospital_id, visit_date], map: "idx_visit_history_hospital_date")
 }
 
 model prescriptions {
-  id              Int            @id @default(autoincrement())
-  patient_id      Int
-  visit_id        Int?
-  hospital_id     Int
-  ticket_id       String?        @db.VarChar(100)
-  doctor_id       Int?
-  doctor_name     String?        @default("") @db.VarChar(255)
-  diagnosis       String?        @default("") @db.VarChar(255)
-  medicines_json  Json?          @default("[]")
-  lab_tests_json  Json?          @default("[]")
-  advice          String?        @default("")
-  follow_up       String?        @default("")
-  created_at      DateTime       @default(now()) @db.Timestamptz(6)
-  visit_history   visit_history? @relation(fields: [visit_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  patients        patients       @relation(fields: [patient_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  hospitals       hospitals      @relation(fields: [hospital_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id             Int            @id @default(autoincrement())
+  patient_id     Int
+  visit_id       Int?
+  hospital_id    Int
+  ticket_id      String?        @db.VarChar(100)
+  doctor_id      Int?
+  doctor_name    String?        @default("") @db.VarChar(255)
+  diagnosis      String?        @default("") @db.VarChar(255)
+  medicines_json Json?          @default("[]")
+  lab_tests_json Json?          @default("[]")
+  advice         String?        @default("")
+  follow_up      String?        @default("")
+  created_at     DateTime       @default(now()) @db.Timestamptz(6)
+  hospitals      hospitals      @relation(fields: [hospital_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  patients       patients       @relation(fields: [patient_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  visit_history  visit_history? @relation(fields: [visit_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([patient_id, hospital_id], map: "idx_prescriptions_patient_hospital")
 }
@@ -281,9 +293,9 @@ model medical_reports {
   report_url    String?        @default("")
   report_date   DateTime       @default(now()) @db.Date
   created_at    DateTime       @default(now()) @db.Timestamptz(6)
-  visit_history visit_history? @relation(fields: [visit_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  patients      patients       @relation(fields: [patient_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   hospitals     hospitals      @relation(fields: [hospital_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  patients      patients       @relation(fields: [patient_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  visit_history visit_history? @relation(fields: [visit_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([patient_id, hospital_id], map: "idx_medical_reports_patient_hospital")
 }
@@ -434,10 +446,10 @@ model users {
   role                       String                       @default("user") @db.VarChar(50)
   status                     String                       @default("active") @db.VarChar(50)
   phone                      String?                      @default("") @db.VarChar(100)
-  primary_hospital_code      String?                      @default("city-hospital-01") @db.VarChar(100)
   created_at                 DateTime                     @default(now()) @db.Timestamptz(6)
   updated_at                 DateTime                     @default(now()) @db.Timestamptz(6)
   last_login_at              DateTime?                    @db.Timestamptz(6)
+  primary_hospital_code      String?                      @default("city-hospital-01") @db.VarChar(100)
   appointment_status_history appointment_status_history[]
   audit_logs                 audit_logs[]
   employees                  employees[]
@@ -453,12 +465,186 @@ model verification_tokens {
   id         Int      @id @default(autoincrement())
   email      String   @db.VarChar(255)
   token      String   @db.VarChar(255)
-  type       String   @db.VarChar(50) // "email_verification" | "password_reset" | "mobile_verification"
+  type       String   @db.VarChar(50)
   expires_at DateTime @db.Timestamptz(6)
   used       Boolean  @default(false)
   created_at DateTime @default(now()) @db.Timestamptz(6)
   attempts   Int?     @default(0)
 
   @@index([email, type], map: "idx_verification_tokens_email_type")
+}
+
+model bill_items {
+  id              Int              @id @default(autoincrement())
+  bill_id         Int
+  tariff_id       Int?
+  description     String           @db.VarChar(255)
+  department_code String?          @default("") @db.VarChar(100)
+  quantity        Decimal          @default(1.00) @db.Decimal(10, 2)
+  unit_price      Decimal          @default(0.00) @db.Decimal(12, 2)
+  tax_percent     Decimal          @default(0.00) @db.Decimal(5, 2)
+  line_total      Decimal          @default(0.00) @db.Decimal(12, 2)
+  source          String           @default("manual") @db.VarChar(50)
+  created_at      DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime         @default(now()) @db.Timestamptz(6)
+  bills           bills            @relation(fields: [bill_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  service_tariffs service_tariffs? @relation(fields: [tariff_id], references: [id], onUpdate: NoAction)
+
+  @@index([bill_id], map: "idx_bill_items_bill_id")
+}
+
+model bills {
+  id                                     Int            @id @default(autoincrement())
+  bill_number                            String         @db.VarChar(100)
+  hospital_id                            Int
+  patient_id                             Int?
+  ticket_id                              String?        @db.VarChar(100)
+  visit_id                               Int?
+  status                                 String         @default("Draft") @db.VarChar(50)
+  subtotal                               Decimal        @default(0.00) @db.Decimal(12, 2)
+  discount_amount                        Decimal        @default(0.00) @db.Decimal(12, 2)
+  discount_reason                        String?        @default("") @db.VarChar(255)
+  tax_amount                             Decimal        @default(0.00) @db.Decimal(12, 2)
+  grand_total                            Decimal        @default(0.00) @db.Decimal(12, 2)
+  amount_paid                            Decimal        @default(0.00) @db.Decimal(12, 2)
+  balance_due                            Decimal        @default(0.00) @db.Decimal(12, 2)
+  created_by                             Int?
+  approved_by                            Int?
+  notes                                  String?        @default("")
+  created_at                             DateTime       @default(now()) @db.Timestamptz(6)
+  updated_at                             DateTime       @default(now()) @db.Timestamptz(6)
+  bill_items                             bill_items[]
+  employees_bills_approved_byToemployees employees?     @relation("bills_approved_byToemployees", fields: [approved_by], references: [id], onUpdate: NoAction)
+  employees_bills_created_byToemployees  employees?     @relation("bills_created_byToemployees", fields: [created_by], references: [id], onUpdate: NoAction)
+  hospitals                              hospitals      @relation(fields: [hospital_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  patients                               patients?      @relation(fields: [patient_id], references: [id], onUpdate: NoAction)
+  visit_history                          visit_history? @relation(fields: [visit_id], references: [id], onUpdate: NoAction)
+  payments                               payments[]
+  refunds                                refunds[]
+
+  @@unique([hospital_id, bill_number], map: "uq_bills_hosp_bill_number")
+  @@index([hospital_id, created_at], map: "idx_bills_hosp_created")
+  @@index([hospital_id, status], map: "idx_bills_hosp_status")
+  @@index([hospital_id, ticket_id], map: "idx_bills_hosp_ticket")
+  @@index([patient_id], map: "idx_bills_patient")
+}
+
+model cash_shifts {
+  id            Int       @id @default(autoincrement())
+  hospital_id   Int
+  cashier_id    Int
+  opened_at     DateTime  @default(now()) @db.Timestamptz(6)
+  closed_at     DateTime? @db.Timestamptz(6)
+  opening_cash  Decimal   @default(0.00) @db.Decimal(12, 2)
+  expected_cash Decimal   @default(0.00) @db.Decimal(12, 2)
+  counted_cash  Decimal?  @db.Decimal(12, 2)
+  difference    Decimal?  @default(0.00) @db.Decimal(12, 2)
+  notes         String?   @default("")
+  created_at    DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime  @default(now()) @db.Timestamptz(6)
+  employees     employees @relation(fields: [cashier_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  hospitals     hospitals @relation(fields: [hospital_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([hospital_id, cashier_id, closed_at], map: "idx_cash_shifts_hosp_cashier")
+}
+
+model hospital_billing_counters {
+  id               Int       @id @default(autoincrement())
+  hospital_id      Int
+  year             Int
+  last_bill_seq    Int       @default(0)
+  last_receipt_seq Int       @default(0)
+  updated_at       DateTime  @default(now()) @db.Timestamptz(6)
+  hospitals        hospitals @relation(fields: [hospital_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([hospital_id, year], map: "uq_hosp_billing_counter_year")
+}
+
+model payments {
+  id             Int        @id @default(autoincrement())
+  bill_id        Int
+  receipt_number String     @db.VarChar(100)
+  mode           String     @default("Cash") @db.VarChar(50)
+  amount         Decimal    @default(0.00) @db.Decimal(12, 2)
+  reference_no   String?    @default("") @db.VarChar(100)
+  received_by    Int?
+  received_at    DateTime   @default(now()) @db.Timestamptz(6)
+  status         String     @default("Success") @db.VarChar(50)
+  created_at     DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime   @default(now()) @db.Timestamptz(6)
+  bills          bills      @relation(fields: [bill_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  employees      employees? @relation(fields: [received_by], references: [id], onUpdate: NoAction)
+  refunds        refunds[]
+
+  @@index([bill_id], map: "idx_payments_bill_id")
+  @@index([receipt_number], map: "idx_payments_receipt_no")
+  @@index([received_at], map: "idx_payments_received_at")
+}
+
+model refunds {
+  id                                       Int        @id @default(autoincrement())
+  bill_id                                  Int
+  payment_id                               Int?
+  amount                                   Decimal    @default(0.00) @db.Decimal(12, 2)
+  reason                                   String     @db.VarChar(255)
+  approved_by                              Int?
+  created_by                               Int?
+  status                                   String     @default("Approved") @db.VarChar(50)
+  created_at                               DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at                               DateTime   @default(now()) @db.Timestamptz(6)
+  employees_refunds_approved_byToemployees employees? @relation("refunds_approved_byToemployees", fields: [approved_by], references: [id], onUpdate: NoAction)
+  bills                                    bills      @relation(fields: [bill_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  employees_refunds_created_byToemployees  employees? @relation("refunds_created_byToemployees", fields: [created_by], references: [id], onUpdate: NoAction)
+  payments                                 payments?  @relation(fields: [payment_id], references: [id], onUpdate: NoAction)
+
+  @@index([bill_id], map: "idx_refunds_bill_id")
+  @@index([payment_id], map: "idx_refunds_payment_id")
+}
+
+model service_tariffs {
+  id              Int          @id @default(autoincrement())
+  hospital_id     Int
+  department_code String       @default("general") @db.VarChar(100)
+  service_code    String       @db.VarChar(100)
+  service_name    String       @db.VarChar(255)
+  category        String       @default("Consultation") @db.VarChar(100)
+  base_price      Decimal      @default(0.00) @db.Decimal(12, 2)
+  tax_percent     Decimal      @default(0.00) @db.Decimal(5, 2)
+  is_active       Boolean      @default(true)
+  created_at      DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime     @default(now()) @db.Timestamptz(6)
+  bill_items      bill_items[]
+  hospitals       hospitals    @relation(fields: [hospital_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([hospital_id, service_code], map: "uq_service_tariffs_hosp_code")
+  @@index([hospital_id, category], map: "idx_tariffs_hosp_cat")
+  @@index([hospital_id, department_code], map: "idx_tariffs_hosp_dept")
+}
+
+model broadcasts {
+  id                 String    @id @db.VarChar(100)
+  hospital_code      String    @default("all") @db.VarChar(100)
+  type               String    @default("notice") @db.VarChar(50)
+  severity           String    @default("info") @db.VarChar(50)
+  title              String    @db.VarChar(255)
+  message            String
+  sound              Boolean   @default(true)
+  target_surfaces    Json      @default("{\"patient_portal\": true, \"doctor_desk\": true, \"staff_desk\": true, \"kiosk_display\": true}")
+  duration_minutes   Int       @default(30)
+  scheduled_at       DateTime? @db.Timestamptz(6)
+  starts_at          DateTime  @default(now()) @db.Timestamptz(6)
+  expires_at         DateTime? @db.Timestamptz(6)
+  status             String    @default("active") @db.VarChar(50)
+  created_by_user_id Int?
+  created_by_name    String?   @db.VarChar(255)
+  dismissed_by       String?   @db.VarChar(255)
+  dismissed_at       DateTime? @db.Timestamptz(6)
+  delivered_count    Int       @default(0)
+  created_at         DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([status], map: "idx_broadcasts_status")
+  @@index([hospital_code], map: "idx_broadcasts_hospital_code")
+  @@index([created_at(sort: Desc)], map: "idx_broadcasts_created_at")
 }
 

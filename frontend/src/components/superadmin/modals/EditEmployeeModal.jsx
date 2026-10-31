@@ -76,7 +76,7 @@ export default function EditEmployeeModal({
                         <div>
                             <label style={fieldLabelStyle}>{isHi ? "भूमिका" : "Role"}</label>
                             <select
-                                value={editEmployeeForm.role || "doctor"}
+                                value={(editEmployeeForm.role || "doctor").toLowerCase()}
                                 onChange={(e) => setEditEmployeeForm({ ...editEmployeeForm, role: e.target.value })}
                                 style={fieldInputStyle}
                             >
@@ -186,7 +186,7 @@ export default function EditEmployeeModal({
                         <div>
                             <label style={fieldLabelStyle}>{isHi ? "लिंग" : "Gender"}</label>
                             <select
-                                value={editEmployeeForm.gender || "other"}
+                                value={(editEmployeeForm.gender || "other").toLowerCase()}
                                 onChange={(e) => setEditEmployeeForm({ ...editEmployeeForm, gender: e.target.value })}
                                 style={fieldInputStyle}
                             >

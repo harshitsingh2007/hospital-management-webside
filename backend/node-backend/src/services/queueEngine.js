@@ -156,7 +156,7 @@ class NodeQueueEngine {
             description: dDesc,
             status: "active",
           },
-        }).catch(() => {});
+        }).catch(() => { });
       }
 
       return created.id;
@@ -953,10 +953,45 @@ class NodeQueueEngine {
     const totalServed = Math.max(logs.length, completedTicketsCount);
     const avgService =
       logs.length > 0
-        ? logs.reduce((acc, l) => acc + l.service_duration_minutes, 0) / logs.length
-        : 12.0;
+        ? Math.round((logs.reduce((acc, l) => acc + l.service_duration_minutes, 0) / logs.length) * 10) / 10
+        : null;
 
-    // Calculate realistic active counters grounded in actual hospital desks
+    // Calculate actual wait time for tickets served today: (serve_start_time - join_timestamp)
+    let avgActualWait = null;
+    try {
+      const servedWhere = {
+        hospital_id: hid,
+        queue_date: queueDateToPrismaDate(targetDate),
+        serve_start_time: { not: null },
+      };
+      if (deptFilter && deptFilter !== "all") {
+        servedWhere.service_category = { equals: deptFilter, mode: "insensitive" };
+      }
+      const servedRows = await prisma.tickets.findMany({
+        where: servedWhere,
+        select: { join_timestamp: true, serve_start_time: true },
+      });
+      if (servedRows.length > 0) {
+        let totalWaitMin = 0;
+        let validCount = 0;
+        for (const row of servedRows) {
+          if (row.serve_start_time && row.join_timestamp) {
+            const startMs = new Date(row.serve_start_time).getTime();
+            const joinMs = new Date(row.join_timestamp).getTime();
+            const diffMin = (startMs - joinMs) / (1000 * 60);
+            if (diffMin >= 0) {
+              totalWaitMin += diffMin;
+              validCount++;
+            }
+          }
+        }
+        if (validCount > 0) {
+          avgActualWait = Math.round((totalWaitMin / validCount) * 10) / 10;
+        }
+      }
+    } catch (_) {}
+
+    // Calculate real active desks grounded in actual hospital desks (0 if none, NOT forced to 1)
     let realActiveDesks = 0;
     try {
       const deskWhere = { hospital_id: hid };
@@ -974,15 +1009,14 @@ class NodeQueueEngine {
             ["ACTIVE", "OCCUPIED", "BUSY", "SERVING", "serving"].includes(d.status) ||
             (d.status === "AVAILABLE" && d.assigned_employee_id !== null)
         ).length;
-        realActiveDesks = activeCount > 0 ? activeCount : (serving.length > 0 ? serving.length : 1);
-        realActiveDesks = Math.min(realActiveDesks, allHospitalDesks.length);
+        realActiveDesks = activeCount;
       }
-    } catch (_) {}
+    } catch (_) { }
 
-    const resolvedActiveCounters = realActiveDesks > 0
-      ? realActiveDesks
-      : (tenant.active_counters || (serving.length > 0 ? serving.length : 1));
+    const resolvedActiveCounters = realActiveDesks;
     tenant.active_counters = resolvedActiveCounters;
+
+    const estimatedWaitWaiting = waiting.length > 0 ? Math.round(avgWait * 10) / 10 : null;
 
     return {
       tenant_id: tenantId,
@@ -994,8 +1028,10 @@ class NodeQueueEngine {
       currently_serving: serving.length,
       completed_today: totalServed,
       total_completed: totalServed,
-      avg_wait_minutes: Math.round(avgWait * 10) / 10,
-      avg_service_minutes: Math.round(avgService * 10) / 10,
+      avg_actual_wait_minutes: avgActualWait,
+      estimated_wait_minutes_waiting: estimatedWaitWaiting,
+      avg_wait_minutes: avgActualWait != null ? avgActualWait : estimatedWaitWaiting,
+      avg_service_minutes: avgService,
     };
   }
 }
@@ -1003,3 +1039,4 @@ class NodeQueueEngine {
 // Export singleton instance
 const queueEngine = new NodeQueueEngine();
 module.exports = queueEngine;
+

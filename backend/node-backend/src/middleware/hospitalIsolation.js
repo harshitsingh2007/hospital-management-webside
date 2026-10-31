@@ -52,6 +52,11 @@ async function verifyHospitalAccess(hospitalCode, user) {
     "xray",
     "imaging",
     "radiology_technician",
+    "cashier",
+    "billing",
+    "accountant",
+    "billing_clerk",
+    "cash_counter",
   ];
   if (staffRoles.includes(role)) {
     const emp = await prisma.employees.findFirst({

@@ -398,6 +398,8 @@ async function serveNext(tenantId, department = null, deskId = null, doctorInfo 
     if (isPharma(req) && isPharma(cat)) return true;
     const isRad = (d) => ["radiology", "imaging", "xray", "x-ray", "radiology_dept", "ultrasound", "mri", "ct_scan", "ct-scan", "sonography"].includes(d);
     if (isRad(req) && isRad(cat)) return true;
+    const isBilling = (d) => ["billing", "cashier", "central_billing", "accounts", "cash_counter"].includes(d);
+    if (isBilling(req) && isBilling(cat)) return true;
     return false;
   };
 

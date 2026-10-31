@@ -6,6 +6,7 @@
 
 const express = require("express");
 const {
+  checkHospitalCodeEndpoint,
   getHospitalInfoEndpoint,
   getPublicHospitalsEndpoint,
   getSuperadminOverviewEndpoint,
@@ -34,6 +35,7 @@ const {
   bulkUpdateDeskStatusEndpoint,
   getDbOverviewEndpoint,
   getHospitalVisitsEndpoint,
+  getHospitalLiveSummaryEndpoint,
   bulkAddHospitalEmployeesEndpoint,
   bulkAddHospitalVisitsEndpoint,
 } = require("../controllers/hospital.controller");
@@ -52,9 +54,11 @@ router.get("/hospitals/:hospital_code/departments", optionalAuth, getHospitalDep
 // SuperAdmin operations
 router.get("/superadmin/overview", optionalAuth, getSuperadminOverviewEndpoint);
 router.get("/superadmin/hospitals", optionalAuth, getSuperadminHospitalsEndpoint);
+router.get("/superadmin/hospitals/check-code", optionalAuth, checkHospitalCodeEndpoint);
 router.post("/superadmin/hospitals", optionalAuth, createHospitalEndpoint);
 router.get("/superadmin/hospitals/:hospital_code", optionalAuth, getHospitalDetailEndpoint);
 router.get("/superadmin/hospitals/:hospital_code/visits", optionalAuth, getHospitalVisitsEndpoint);
+router.get("/superadmin/hospitals/:hospital_code/live-summary", optionalAuth, getHospitalLiveSummaryEndpoint);
 router.put("/superadmin/hospitals/:hospital_code", optionalAuth, updateHospitalEndpoint);
 router.get("/superadmin/hospitals/:hospital_code/branding", optionalAuth, getHospitalBrandingEndpoint);
 router.put("/superadmin/hospitals/:hospital_code/branding", optionalAuth, updateHospitalBrandingEndpoint);

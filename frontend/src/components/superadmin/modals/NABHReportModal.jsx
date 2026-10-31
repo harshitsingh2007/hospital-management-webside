@@ -45,24 +45,26 @@ export default function NABHReportModal({
     const safeTotalPatients = hospitalVisitsData?.summary?.total_patients_visited_all_time ?? (hospitalAnalytics?.total_patients_visited_all_time || visitsList.length);
     const safeCompleted = hospitalVisitsData?.summary?.today_completed ?? hospitalAnalytics?.completed_today ?? 0;
     const safeWaiting = hospitalAnalytics?.waiting_count ?? queueList.filter((q) => (q.status || "").toLowerCase() === "waiting").length;
-    const safeAvgWait = hospitalAnalytics?.avg_wait_minutes ?? 12;
+    const safeAvgWait = hospitalAnalytics?.avg_actual_wait_minutes ?? hospitalAnalytics?.avg_wait_minutes ?? null;
     const activeDoctorsCount = (hospitalEmployees || []).filter((e) => {
         const role = (e.role || "").toLowerCase();
         return (role === "doctor" || role === "physician") && (e.status || "").toLowerCase() === "active";
-    }).length || 1;
+    }).length;
 
     const nabhReportData = {
-        hospitalName: targetHosp?.name || "City General Hospital",
-        hospitalCode: targetHosp?.hospital_code || "HOSP-HQ",
-        address: targetHosp?.address || brandingForm?.address || "742 Evergreen Healthcare Ave",
+        hospitalName: targetHosp?.name || "Not available",
+        hospitalCode: targetHosp?.hospital_code || "—",
+        address: targetHosp?.address || brandingForm?.address || "Not available",
         totalPatients: safeTotalPatients,
         completedCount: safeCompleted,
         waitingCount: safeWaiting,
-        avgWaitTime: safeAvgWait,
-        peakRushWindow: hourlyAnalytics?.peakHourLabel || "10:00 AM – 12:00 PM",
+        avgWaitTime: safeAvgWait !== null ? (Math.round(Number(safeAvgWait) * 10) / 10) : null,
+        peakRushWindow: hourlyAnalytics?.peakHourLabel || "Not available",
         doctorsOnDuty: activeDoctorsCount,
-        totalStaff: (hospitalEmployees || []).length || 5,
-        complianceScore: Math.min(100, Math.max(88, 100 - (safeWaiting > 10 ? 12 : safeWaiting > 4 ? 6 : 0))),
+        totalStaff: (hospitalEmployees || []).length,
+        complianceScore: (safeTotalPatients > 0 || safeCompleted > 0 || safeWaiting > 0)
+            ? Math.min(100, Math.max(0, Math.round(100 - (safeWaiting > 10 ? 12 : safeWaiting > 4 ? 6 : 0))))
+            : null,
         primaryRecommendation: (bottleneckAnalytics || []).find((d) => d.severity === "SEVERE")?.recommendation || (isHi ? "सभी विभाग सामान्य मानक के अंतर्गत संचालित हैं।" : "All departments operating well within NABH benchmark wait thresholds."),
         departmentBreakdown: bottleneckAnalytics || [],
     };
@@ -103,8 +105,12 @@ export default function NABHReportModal({
                         </div>
                     </div>
                     <div style={{ textAlign: "right" }}>
-                        <span style={{ fontSize: "16px", fontWeight: 900, color: "#10B981" }}>{nabhReportData.complianceScore}%</span>
-                        <div style={{ fontSize: "9.5px", color: "#10B981", fontWeight: 700 }}>COMPLIANT</div>
+                        <span style={{ fontSize: "16px", fontWeight: 900, color: "#10B981" }}>
+                            {nabhReportData.complianceScore !== null ? `${nabhReportData.complianceScore}%` : "—"}
+                        </span>
+                        <div style={{ fontSize: "9.5px", color: "#10B981", fontWeight: 700 }}>
+                            {nabhReportData.complianceScore !== null ? "COMPLIANT" : "NO DATA"}
+                        </div>
                     </div>
                 </div>
 
@@ -120,7 +126,9 @@ export default function NABHReportModal({
                     </div>
                     <div className="overview-inner-card" style={{ padding: "10px 12px", borderRadius: "10px", border: "1px solid var(--superadmin-card-border, #E2E8F0)" }}>
                         <div style={{ fontSize: "10.5px", color: "var(--superadmin-text-muted, #64748B)", fontWeight: 700, textTransform: "uppercase" }}>Avg Wait Time (TAT)</div>
-                        <div style={{ fontSize: "18px", fontWeight: 900, color: "#818CF8", marginTop: "2px" }}>{nabhReportData.avgWaitTime} min</div>
+                        <div style={{ fontSize: "18px", fontWeight: 900, color: "#818CF8", marginTop: "2px" }}>
+                            {nabhReportData.avgWaitTime !== null ? `${nabhReportData.avgWaitTime} min` : "—"}
+                        </div>
                     </div>
                     <div className="overview-inner-card" style={{ padding: "10px 12px", borderRadius: "10px", border: "1px solid var(--superadmin-card-border, #E2E8F0)" }}>
                         <div style={{ fontSize: "10.5px", color: "var(--superadmin-text-muted, #64748B)", fontWeight: 700, textTransform: "uppercase" }}>Peak Rush Period</div>

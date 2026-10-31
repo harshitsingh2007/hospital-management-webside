@@ -100,7 +100,7 @@ export default function EmergencyBroadcastBanner({
     for (const b of visibleBroadcasts) {
       if (!prevBroadcastIdsRef.current.has(b.id)) {
         if (b.sound !== false) {
-          if (b.type === "code_blue" || b.severity === "critical") {
+          if (b.type === "code_blue" || b.type === "code_red" || b.severity === "critical") {
             hasNewCritical = true;
           } else {
             hasNewGeneral = true;
@@ -131,8 +131,10 @@ export default function EmergencyBroadcastBanner({
 
   const currentBroadcast = visibleBroadcasts[activeIdx % visibleBroadcasts.length] || visibleBroadcasts[0];
   const type = currentBroadcast.type || "general";
-  const isEmergency = type === "code_blue" || currentBroadcast.severity === "critical";
-  const isWarning = type === "maintenance" || currentBroadcast.severity === "warning";
+  const isCodeRed = type === "code_red";
+  const isCodeBlue = type === "code_blue";
+  const isEmergency = isCodeBlue || isCodeRed || currentBroadcast.severity === "critical";
+  const isWarning = type === "maintenance" || type === "notice" || currentBroadcast.severity === "warning";
 
   // Visual styling configuration based on alert tone
   let themeStyles = {
@@ -145,20 +147,30 @@ export default function EmergencyBroadcastBanner({
     icon: <IconMegaphone size={18} color="#FFFFFF" />,
   };
 
-  if (isEmergency) {
+  if (isCodeRed) {
     themeStyles = {
-      background: "linear-gradient(90deg, #7F1D1D 0%, #DC2626 50%, #991B1B 100%)",
-      borderColor: "rgba(254, 202, 202, 0.45)",
+      background: "linear-gradient(90deg, #881337 0%, #E11D48 50%, #9F1239 100%)",
+      borderColor: "rgba(254, 205, 211, 0.55)",
       badgeBg: "rgba(255, 255, 255, 0.25)",
-      badgeColor: "#FEF2F2",
-      glowShadow: "0 4px 22px rgba(220, 38, 38, 0.38)",
+      badgeColor: "#FFF1F2",
+      glowShadow: "0 4px 22px rgba(225, 29, 72, 0.4)",
+      label: isHi ? "आपातकालीन कोड रेड" : "CODE RED EMERGENCY",
+      icon: <IconSiren size={20} color="#FFFFFF" />,
+    };
+  } else if (isCodeBlue) {
+    themeStyles = {
+      background: "linear-gradient(90deg, #1E3A8A 0%, #2563EB 50%, #1D4ED8 100%)",
+      borderColor: "rgba(147, 197, 253, 0.65)",
+      badgeBg: "rgba(255, 255, 255, 0.25)",
+      badgeColor: "#EFF6FF",
+      glowShadow: "0 4px 22px rgba(37, 99, 235, 0.45)",
       label: isHi ? "आपातकालीन कोड ब्लू" : "CODE BLUE EMERGENCY",
       icon: <IconSiren size={20} color="#FFFFFF" />,
     };
   } else if (isWarning) {
     themeStyles = {
       background: "linear-gradient(90deg, #78350F 0%, #D97706 50%, #92400E 100%)",
-      borderColor: "rgba(253, 230, 138, 0.45)",
+      borderColor: "rgba(253, 230, 138, 0.5)",
       badgeBg: "rgba(0, 0, 0, 0.25)",
       badgeColor: "#FFFBEB",
       glowShadow: "0 4px 18px rgba(217, 119, 6, 0.3)",
@@ -178,7 +190,15 @@ export default function EmergencyBroadcastBanner({
 
   return (
     <aside
-      className={`emergency-broadcast-ribbon ${isEmergency ? "is-critical-pulse" : ""}`}
+      className={`emergency-broadcast-ribbon ${
+        isCodeBlue
+          ? "is-code-blue-pulse"
+          : isCodeRed
+          ? "is-code-red-pulse"
+          : isEmergency
+          ? "is-critical-pulse"
+          : ""
+      }`}
       role="alert"
       aria-live={isEmergency ? "assertive" : "polite"}
       style={{
@@ -212,12 +232,22 @@ export default function EmergencyBroadcastBanner({
           0%, 100% { transform: scale(1); opacity: 1; }
           50% { transform: scale(1.15); opacity: 0.85; }
         }
-        @keyframes emergencyFlash {
-          0%, 100% { box-shadow: 0 4px 22px rgba(220, 38, 38, 0.45); }
-          50% { box-shadow: 0 4px 32px rgba(239, 68, 68, 0.75); }
+        @keyframes emergencyFlashRed {
+          0%, 100% { box-shadow: 0 4px 22px rgba(225, 29, 72, 0.45); }
+          50% { box-shadow: 0 4px 32px rgba(244, 63, 94, 0.75); }
+        }
+        @keyframes emergencyFlashBlue {
+          0%, 100% { box-shadow: 0 4px 22px rgba(37, 99, 235, 0.45); }
+          50% { box-shadow: 0 4px 32px rgba(96, 165, 250, 0.75); }
+        }
+        .is-code-red-pulse {
+          animation: emergencyFlashRed 1.8s infinite ease-in-out;
+        }
+        .is-code-blue-pulse {
+          animation: emergencyFlashBlue 1.8s infinite ease-in-out;
         }
         .is-critical-pulse {
-          animation: emergencyFlash 1.8s infinite ease-in-out;
+          animation: emergencyFlashRed 1.8s infinite ease-in-out;
         }
         .broadcast-ticker-track {
           display: inline-flex;

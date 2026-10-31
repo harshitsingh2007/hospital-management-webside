@@ -6,7 +6,6 @@ import { generateOperatingHoursText } from "../utils/operatingHoursHelper";
 import Footer from "../components/common/Footer";
 import "../components/superadmin/SuperAdmin.css";
 import { InAppToast, InAppConfirmModal } from "../components/common/InAppNotification";
-
 // Modular SuperAdmin Components
 import {
     IconShield,
@@ -419,7 +418,7 @@ export default function SuperAdminPage({
         if (!rawBranding && selectedHospital) {
             if (selectedHospital.branding_json) {
                 if (typeof selectedHospital.branding_json === "string") {
-                    try { rawBranding = JSON.parse(selectedHospital.branding_json); } catch (_) {}
+                    try { rawBranding = JSON.parse(selectedHospital.branding_json); } catch (_) { }
                 } else if (typeof selectedHospital.branding_json === "object") {
                     rawBranding = selectedHospital.branding_json;
                 }
@@ -527,10 +526,14 @@ export default function SuperAdminPage({
             const idx = h - effectiveStart;
             if (idx >= 0 && idx < totalSlots) {
                 realHourCounts[idx] += 1;
-                const wait = Number(v.wait_time_minutes ?? v.waitTime ?? 0);
-                const consult = Number(v.service_duration_minutes ?? v.serviceDuration ?? 0);
-                realWaitMinutes[idx] += wait;
-                realConsultMinutes[idx] += consult;
+                const waitRaw = v.wait_time_minutes ?? v.waitTime;
+                if (waitRaw !== null && waitRaw !== undefined && !isNaN(Number(waitRaw))) {
+                    realWaitMinutes[idx] += Number(waitRaw);
+                }
+                const consultRaw = v.service_duration_minutes ?? v.serviceDuration ?? v.duration_minutes;
+                if (consultRaw !== null && consultRaw !== undefined && !isNaN(Number(consultRaw))) {
+                    realConsultMinutes[idx] += Number(consultRaw);
+                }
                 totalRealVisits += 1;
             }
         });
@@ -575,7 +578,7 @@ export default function SuperAdminPage({
             const isCurrent = isCurrentlyActive && i === currentHourIdx;
             const isFuture = isCurrentlyActive ? i > currentHourIdx : (currHour < effectiveStart);
             const compliancePct = count === 0
-                ? 100
+                ? null
                 : Math.max(50, Math.min(100, Math.round(100 - Math.max(0, avgWait - 15) * 3.2)));
 
             hours.push({
@@ -601,9 +604,9 @@ export default function SuperAdminPage({
             hourlyData: hours,
             maxVolume: maxVolume,
             totalVisits: totalRealVisits + liveQueueCount,
-            peakHourLabel: peakHour
+            peakHourLabel: peakHour && maxVolume > 0
                 ? `${peakHour.label || ""} – ${hours[Math.min(hours.length - 1, peakIndex + 1)]?.label || (isHi ? "समापन" : "Close")}`
-                : (isHi ? "कोई आवक नहीं" : "No Activity"),
+                : null,
             peakVolume: peakHour ? peakHour.count : 0,
             peakAvgWait: peakHour ? peakHour.avgWait : 0,
             currentHourIdx: isCurrentlyActive ? currentHourIdx : (currHour > effectiveEnd ? hours.length - 1 : 0),
@@ -704,15 +707,15 @@ export default function SuperAdminPage({
             });
             const timeStr = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
 
-            const safeHospName = reportData?.hospitalName || "City General Hospital";
-            const safeHospCode = reportData?.hospitalCode || "HOSP-HQ";
-            const safeAddress = reportData?.address || "742 Evergreen Healthcare Ave";
+            const safeHospName = reportData?.hospitalName || selectedHospital?.name || "Not available";
+            const safeHospCode = reportData?.hospitalCode || selectedHospital?.hospital_code || "—";
+            const safeAddress = reportData?.address || selectedHospital?.address || "Not available";
             const safeTotalPatients = reportData?.totalPatients ?? 0;
             const safeCompleted = reportData?.completedCount ?? 0;
             const safeWaiting = reportData?.waitingCount ?? 0;
-            const safeAvgWait = reportData?.avgWaitTime ?? 12;
-            const safePeakRush = reportData?.peakRushWindow || "10:00 AM – 12:00 PM";
-            const safeScore = reportData?.complianceScore ?? 98;
+            const safeAvgWait = (reportData?.avgWaitTime !== null && reportData?.avgWaitTime !== undefined) ? `${reportData.avgWaitTime} min` : "Not available";
+            const safePeakRush = reportData?.peakRushWindow || "Not available";
+            const safeScore = (reportData?.complianceScore !== null && reportData?.complianceScore !== undefined) ? `${reportData.complianceScore}%` : "—";
             const safeRec = reportData?.primaryRecommendation || "All clinical departments operating within standard NABH benchmark wait thresholds.";
             const depts = reportData?.departmentBreakdown || [];
 
@@ -885,17 +888,17 @@ export default function SuperAdminPage({
     // 1-Click NABH Executive Daily CSV / Excel Export Handler with UTF-8 BOM
     const handleDownloadNABHExcel = (reportData) => {
         try {
-            const safeHospName = reportData?.hospitalName || "City General Hospital";
-            const safeHospCode = reportData?.hospitalCode || "HOSP-HQ";
-            const safeAddress = reportData?.address || "742 Evergreen Healthcare Ave";
+            const safeHospName = reportData?.hospitalName || selectedHospital?.name || "Not available";
+            const safeHospCode = reportData?.hospitalCode || selectedHospital?.hospital_code || "—";
+            const safeAddress = reportData?.address || selectedHospital?.address || "Not available";
             const safeTotalPatients = reportData?.totalPatients ?? 0;
             const safeCompleted = reportData?.completedCount ?? 0;
             const safeWaiting = reportData?.waitingCount ?? 0;
-            const safeAvgWait = reportData?.avgWaitTime ?? 12;
-            const safePeakRush = reportData?.peakRushWindow || "10:00 AM – 12:00 PM";
+            const safeAvgWait = (reportData?.avgWaitTime !== null && reportData?.avgWaitTime !== undefined) ? `${reportData.avgWaitTime} min` : "Not available";
+            const safePeakRush = reportData?.peakRushWindow || "Not available";
             const safeDocs = reportData?.doctorsOnDuty ?? 0;
             const safeStaff = reportData?.totalStaff ?? 0;
-            const safeScore = reportData?.complianceScore ?? 98;
+            const safeScore = (reportData?.complianceScore !== null && reportData?.complianceScore !== undefined) ? `${reportData.complianceScore}%` : "—";
             const depts = reportData?.departmentBreakdown || [];
 
             const headers = [
@@ -1099,8 +1102,8 @@ export default function SuperAdminPage({
                 );
                 notify(
                     isHi
-                        ? `'${emp.name || emp.username}' की स्थिति '${newStatus === "active" ? "सक्रिय (ऑनलाइन)" : "निष्क्रिय (ऑफलाइन)"}' में बदली गई!`
-                        : `Status for '${emp.name || emp.username}' changed to ${newStatus === "active" ? "Active (Online)" : "Inactive (Offline)"}!`
+                        ? `'${emp.name || emp.username}' की स्थिति '${newStatus === "active" ? "सक्रिय" : "निष्क्रिय"}' में बदली गई!`
+                        : `Status for '${emp.name || emp.username}' changed to ${newStatus === "active" ? "Active" : "Inactive"}!`
                 );
                 fetchHospitalDeepDive(selectedHospital.hospital_code);
             } else {
@@ -1209,19 +1212,89 @@ export default function SuperAdminPage({
         }
     }, [getAuthHeaders, currentUser]);
 
-    // 2. Fetch Selected Hospital Deep-Dive Data
-    const fetchHospitalDeepDive = useCallback(async (hCode, silent = false) => {
+    // Live Sync Error Tracking & Visits Period Filter State
+    const [deepDiveError, setDeepDiveError] = useState(null);
+    const [visitsPeriod, setVisitsPeriod] = useState("today");
+    const lastSyncedAtRef = useRef(lastSyncedAt);
+    const hospitalDeptsRef = useRef(hospitalDepts);
+    useEffect(() => { lastSyncedAtRef.current = lastSyncedAt; }, [lastSyncedAt]);
+    useEffect(() => { hospitalDeptsRef.current = hospitalDepts; }, [hospitalDepts]);
+
+    // 2A. Fetch Lightweight Live Telemetry Metrics (Snapshot, Serving, Desks, Live Summary)
+    const fetchHospitalLiveMetrics = useCallback(async (hCode, silent = false) => {
         if (!hCode) return;
         try {
             const headers = getAuthHeaders();
-            const [detailRes, empRes, desksRes, deptsRes, analyticsRes, snapshotRes, visitsRes] = await Promise.all([
-                fetch(`${API_BASE}/api/v1/superadmin/hospitals/${hCode}`, { headers }).then((r) => r.json()).catch(() => null),
-                fetch(`${API_BASE}/api/v1/superadmin/hospitals/${hCode}/employees`, { headers }).then((r) => r.json()).catch(() => null),
-                fetch(`${API_BASE}/api/v1/superadmin/hospitals/${hCode}/desks`, { headers }).then((r) => r.json()).catch(() => null),
-                fetch(`${API_BASE}/api/v1/superadmin/hospitals/${hCode}/departments`, { headers }).then((r) => r.json()).catch(() => null),
-                fetch(`${API_BASE}/api/v1/plugin/analytics/${hCode}`).then((r) => r.json()).catch(() => null),
-                fetch(`${API_BASE}/api/v1/plugin/queue/snapshot/${hCode}`).then((r) => r.json()).catch(() => null),
-                fetch(`${API_BASE}/api/v1/superadmin/hospitals/${hCode}/visits?limit=500`, { headers }).then((r) => r.json()).catch(() => null),
+            const [summaryRes, analyticsRes, snapshotRes, desksRes] = await Promise.all([
+                fetch(`${API_BASE}/api/v1/superadmin/hospitals/${hCode}/live-summary`, { headers }).then(async (r) => {
+                    if (!r.ok) throw new Error(`Live summary error (${r.status})`);
+                    return r.json();
+                }),
+                fetch(`${API_BASE}/api/v1/plugin/analytics/${hCode}`).then(async (r) => {
+                    if (!r.ok) throw new Error(`Analytics error (${r.status})`);
+                    return r.json();
+                }),
+                fetch(`${API_BASE}/api/v1/plugin/queue/snapshot/${hCode}`).then(async (r) => {
+                    if (!r.ok) throw new Error(`Snapshot error (${r.status})`);
+                    return r.json();
+                }),
+                fetch(`${API_BASE}/api/v1/superadmin/hospitals/${hCode}/desks`, { headers }).then(async (r) => {
+                    if (!r.ok) throw new Error(`Desks error (${r.status})`);
+                    return r.json();
+                }),
+            ]);
+
+            if (summaryRes && summaryRes.status === "success") {
+                setHospitalAnalytics((prev) => {
+                    const merged = { ...(prev || {}), ...summaryRes };
+                    return JSON.stringify(prev) === JSON.stringify(merged) ? prev : merged;
+                });
+            }
+            if (analyticsRes) {
+                setHospitalAnalytics((prev) => (JSON.stringify(prev) === JSON.stringify(analyticsRes) ? prev : analyticsRes));
+            }
+            if (snapshotRes) {
+                const nextSnap = Array.isArray(snapshotRes.snapshot) ? snapshotRes.snapshot : [];
+                const nextServing = Array.isArray(snapshotRes.serving) ? snapshotRes.serving : [];
+                setHospitalQueueSnapshot((prev) => (JSON.stringify(prev) === JSON.stringify(nextSnap) ? prev : nextSnap));
+                setHospitalServingTickets((prev) => (JSON.stringify(prev) === JSON.stringify(nextServing) ? prev : nextServing));
+            }
+            if (desksRes && desksRes.status === "success") {
+                const normDesks = normalizeDesksData(desksRes.desks, hospitalDeptsRef.current || []);
+                setHospitalDesksData((prev) => (JSON.stringify(prev) === JSON.stringify(normDesks) ? prev : normDesks));
+            }
+
+            setDeepDiveError(null);
+            setLastSyncedAt(new Date());
+        } catch (e) {
+            console.error("Live metrics refresh error:", e);
+            const timeStr = lastSyncedAtRef.current ? new Date(lastSyncedAtRef.current).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+            setDeepDiveError(`Live data could not be refreshed. Showing last known data from ${timeStr}`);
+        }
+    }, [getAuthHeaders, normalizeDesksData]);
+
+    // 2B. Fetch Hospital Metadata (Hospital Details, Employees, Departments, Aggregated Period Visits)
+    const fetchHospitalMetadata = useCallback(async (hCode, period = "today", silent = false) => {
+        if (!hCode) return;
+        try {
+            const headers = getAuthHeaders();
+            const [detailRes, empRes, deptsRes, visitsRes] = await Promise.all([
+                fetch(`${API_BASE}/api/v1/superadmin/hospitals/${hCode}`, { headers }).then(async (r) => {
+                    if (!r.ok) throw new Error(`Hospital detail error (${r.status})`);
+                    return r.json();
+                }),
+                fetch(`${API_BASE}/api/v1/superadmin/hospitals/${hCode}/employees`, { headers }).then(async (r) => {
+                    if (!r.ok) throw new Error(`Employees error (${r.status})`);
+                    return r.json();
+                }),
+                fetch(`${API_BASE}/api/v1/superadmin/hospitals/${hCode}/departments`, { headers }).then(async (r) => {
+                    if (!r.ok) throw new Error(`Departments error (${r.status})`);
+                    return r.json();
+                }),
+                fetch(`${API_BASE}/api/v1/superadmin/hospitals/${hCode}/visits?period=${period}`, { headers }).then(async (r) => {
+                    if (!r.ok) throw new Error(`Visits error (${r.status})`);
+                    return r.json();
+                }),
             ]);
 
             if (detailRes && detailRes.status === "success") {
@@ -1246,32 +1319,47 @@ export default function SuperAdminPage({
             const depts = (deptsRes && deptsRes.status === "success") ? deptsRes.departments : [];
             if (deptsRes && deptsRes.status === "success") {
                 setHospitalDepts((prev) => (JSON.stringify(prev) === JSON.stringify(depts) ? prev : depts));
-            }
-            if (desksRes && desksRes.status === "success") {
-                const normDesks = normalizeDesksData(desksRes.desks, depts);
-                setHospitalDesksData((prev) => (JSON.stringify(prev) === JSON.stringify(normDesks) ? prev : normDesks));
-            }
-            if (analyticsRes) {
-                setHospitalAnalytics((prev) => (JSON.stringify(prev) === JSON.stringify(analyticsRes) ? prev : analyticsRes));
-            }
-            if (snapshotRes) {
-                const nextSnap = Array.isArray(snapshotRes.snapshot) ? snapshotRes.snapshot : [];
-                const nextServing = Array.isArray(snapshotRes.serving) ? snapshotRes.serving : [];
-                setHospitalQueueSnapshot((prev) => (JSON.stringify(prev) === JSON.stringify(nextSnap) ? prev : nextSnap));
-                setHospitalServingTickets((prev) => (JSON.stringify(prev) === JSON.stringify(nextServing) ? prev : nextServing));
+                hospitalDeptsRef.current = depts;
             }
             if (visitsRes && visitsRes.status === "success") {
                 const nextVisits = {
                     summary: visitsRes.summary || {},
                     visits: Array.isArray(visitsRes.visits) ? visitsRes.visits : [],
+                    hourly_aggregations: visitsRes.hourly_aggregations || [],
+                    department_aggregations: visitsRes.department_aggregations || [],
                 };
                 setHospitalVisitsData((prev) => (JSON.stringify(prev) === JSON.stringify(nextVisits) ? prev : nextVisits));
             }
-            if (!silent) setLastSyncedAt(new Date());
+
+            setDeepDiveError(null);
+            setLastSyncedAt(new Date());
         } catch (e) {
-            console.log("Deep dive fetch error:", e);
+            console.error("Metadata refresh error:", e);
+            const timeStr = lastSyncedAtRef.current ? new Date(lastSyncedAtRef.current).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+            setDeepDiveError(`Live data could not be refreshed. Showing last known data from ${timeStr}`);
         }
-    }, [getAuthHeaders, normalizeDesksData]);
+    }, [getAuthHeaders]);
+
+    // 2C. Combined Deep Dive Loader
+    const fetchHospitalDeepDive = useCallback(async (hCode, silent = false) => {
+        if (!hCode) return;
+        await Promise.all([
+            fetchHospitalLiveMetrics(hCode, silent),
+            fetchHospitalMetadata(hCode, visitsPeriod, silent),
+        ]);
+    }, [fetchHospitalLiveMetrics, fetchHospitalMetadata, visitsPeriod]);
+
+    // Debounced Live Refresh (1.5s debounce for socket event bursts)
+    const liveMetricsDebounceRef = useRef(null);
+    const triggerDebouncedLiveMetrics = useCallback((hCode) => {
+        if (!hCode) return;
+        if (liveMetricsDebounceRef.current) {
+            clearTimeout(liveMetricsDebounceRef.current);
+        }
+        liveMetricsDebounceRef.current = setTimeout(() => {
+            fetchHospitalLiveMetrics(hCode, true);
+        }, 1500);
+    }, [fetchHospitalLiveMetrics]);
 
     // Real-Time Socket.IO Live Telemetry Integration
     useEffect(() => {
@@ -1280,8 +1368,10 @@ export default function SuperAdminPage({
 
         let socket;
         try {
+            const token = currentUser?.token || localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || "";
             socket = io(API_BASE, {
                 transports: ["websocket", "polling"],
+                auth: { tenant_id: hCode, token },
                 reconnectionAttempts: 10,
                 reconnectionDelay: 1000,
             });
@@ -1315,11 +1405,7 @@ export default function SuperAdminPage({
                     setHospitalAnalytics(analytics);
                 }
             });
-            socket.on("hospital_data_changed", () => {
-                setLastSyncedAt(new Date());
-                fetchHospitalDeepDive(hCode, true);
-                fetchGlobalData(true);
-            });
+
             const handleDutyStatusChange = (data) => {
                 if (!data) return;
                 setLastSyncedAt(new Date());
@@ -1358,22 +1444,26 @@ export default function SuperAdminPage({
                         return emp;
                     })
                 );
-                fetchHospitalDeepDive(hCode, true);
-                fetchGlobalData(true);
+                triggerDebouncedLiveMetrics(hCode);
             };
 
             socket.on("doctor_duty_status_changed", handleDutyStatusChange);
             socket.on("staff_duty_status_changed", handleDutyStatusChange);
-            socket.on("hospital_data_changed", (msg) => {
-                if (msg?.type === "duty_status_update" || !msg?.type) {
-                    fetchHospitalDeepDive(hCode, true);
-                }
+            socket.on("hospital_data_changed", () => {
+                setLastSyncedAt(new Date());
+                fetchHospitalMetadata(hCode, visitsPeriod, true);
+                triggerDebouncedLiveMetrics(hCode);
+                fetchGlobalData(true);
             });
-            socket.on("ticket_served", () => fetchHospitalDeepDive(hCode, true));
-            socket.on("ticket_transferred", () => fetchHospitalDeepDive(hCode, true));
-            socket.on("ticket_completed", () => fetchHospitalDeepDive(hCode, true));
-            socket.on("ticket_cancelled", () => fetchHospitalDeepDive(hCode, true));
-            socket.on("desk_update", () => fetchHospitalDeepDive(hCode, true));
+
+            // Fast Queue Event triggers -> debounced (1.5s) live metrics refresh
+            socket.on("ticket_served", () => triggerDebouncedLiveMetrics(hCode));
+            socket.on("now_serving", () => triggerDebouncedLiveMetrics(hCode));
+            socket.on("ticket_called", () => triggerDebouncedLiveMetrics(hCode));
+            socket.on("ticket_transferred", () => triggerDebouncedLiveMetrics(hCode));
+            socket.on("ticket_completed", () => triggerDebouncedLiveMetrics(hCode));
+            socket.on("ticket_cancelled", () => triggerDebouncedLiveMetrics(hCode));
+            socket.on("desk_update", () => triggerDebouncedLiveMetrics(hCode));
         } catch (err) {
             console.log("SuperAdmin Socket live stream error:", err);
         }
@@ -1384,24 +1474,31 @@ export default function SuperAdminPage({
                 socket.disconnect();
             }
         };
-    }, [selectedHospital?.hospital_code, fetchHospitalDeepDive, fetchGlobalData]);
+    }, [selectedHospital?.hospital_code, triggerDebouncedLiveMetrics, fetchHospitalMetadata, visitsPeriod, fetchGlobalData, currentUser?.token]);
 
-    // Live Telemetry Sync (WebSocket handles real-time events; relaxed 20s background heartbeat fallback)
+    // Live Telemetry Sync (Heartbeat: 20s live metrics, 60s full metadata)
     useEffect(() => {
         fetchGlobalData();
-        const pollInterval = setInterval(() => {
-            // Never poll during branding customization to ensure inputs remain 100% stable
+        const livePoll = setInterval(() => {
             if (activeTab === "branding") return;
-            fetchGlobalData(true);
             if (selectedHospitalRef.current?.hospital_code) {
-                fetchHospitalDeepDive(selectedHospitalRef.current.hospital_code, true);
+                fetchHospitalLiveMetrics(selectedHospitalRef.current.hospital_code, true);
             }
         }, 20000);
 
+        const metaPoll = setInterval(() => {
+            if (activeTab === "branding") return;
+            fetchGlobalData(true);
+            if (selectedHospitalRef.current?.hospital_code) {
+                fetchHospitalMetadata(selectedHospitalRef.current.hospital_code, visitsPeriod, true);
+            }
+        }, 60000);
+
         return () => {
-            clearInterval(pollInterval);
+            clearInterval(livePoll);
+            clearInterval(metaPoll);
         };
-    }, [fetchGlobalData, fetchHospitalDeepDive, activeTab]);
+    }, [fetchGlobalData, fetchHospitalLiveMetrics, fetchHospitalMetadata, visitsPeriod, activeTab]);
 
     useEffect(() => {
         if (selectedHospital && selectedHospital.hospital_code) {
@@ -1612,7 +1709,7 @@ export default function SuperAdminPage({
                             : [
                                 "09:00 AM", "09:45 AM", "10:30 AM", "11:15 AM", "12:00 PM",
                                 "02:00 PM", "02:45 PM", "03:30 PM", "04:15 PM", "05:00 PM"
-                              ]),
+                            ]),
                     closed_notice: data.branding.closed_notice || "",
                     opd_helpdesk_phone: data.branding.opd_helpdesk_phone || hosp.phone || "",
                     opd_helpdesk_hours: data.branding.opd_helpdesk_hours || "Mon – Sat: 8:00 AM – 8:00 PM",
@@ -1959,11 +2056,23 @@ export default function SuperAdminPage({
             if (res.ok && data.status === "success") {
                 setShowEditEmployeeModal(false);
                 setEditEmployeeForm({ ...editEmployeeForm, password: "" });
-                notify(isHi ? `कर्मचारी रिकॉर्ड एवं पासवर्ड अपडेट हुआ!` : `Employee record and credentials updated!`);
-                fetchHospitalDeepDive(selectedHospital.hospital_code);
+                notify(isHi ? `कर्मचारी रिकॉर्ड सफलतापूर्वक अपडेट हुआ!` : `Employee record updated successfully!`);
+
+                // Optimistically update employee in local roster list
+                if (data.employee) {
+                    setHospitalEmployees((prev) =>
+                        prev.map((emp) =>
+                            emp.id === editEmployeeForm.id || emp.user_id === editEmployeeForm.id
+                                ? { ...emp, ...data.employee }
+                                : emp
+                        )
+                    );
+                }
+
+                await fetchHospitalDeepDive(selectedHospital.hospital_code);
                 fetchGlobalData();
             } else {
-                notify(data.detail || "Failed to update employee.", "error");
+                notify(data.message || data.detail || "Failed to update employee.", "error");
             }
         } catch (err) {
             notify(`Error: ${err.message}`, "error");
@@ -2421,474 +2530,478 @@ export default function SuperAdminPage({
 
                     {/* 1. SUPER ADMIN HERO SECTION (Real-Time Live Telemetry) */}
                     <section className="superadmin-hero-container">
-                <div className="superadmin-hero-left-col">
-                    <div>
-                        {selectedHospital && (
-                            <div style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "8px",
-                                padding: "4px 12px",
-                                borderRadius: "20px",
-                                background: "rgba(56, 189, 248, 0.12)",
-                                border: "1px solid rgba(56, 189, 248, 0.3)",
-                                marginBottom: "12px",
-                                backdropFilter: "blur(8px)"
-                            }}>
-                                <IconHospital size={14} color="#38BDF8" />
-                                <span style={{ fontSize: "12px", fontWeight: 700, color: "#E0F2FE", letterSpacing: "0.2px" }}>
-                                    {selectedHospital.name} <span style={{ opacity: 0.75 }}>({selectedHospital.hospital_code})</span>
-                                </span>
-                            </div>
-                        )}
-                        <h1 className="superadmin-hero-title">
-                            {isHi ? (
-                                <>
-                                    अस्पताल नेटवर्क प्रबंधन.
-                                    <br />
-                                    <span className="superadmin-hero-title-highlight">शाखाएं एवं</span> डॉक्टर नियंत्रण.
-                                </>
-                            ) : (
-                                <>
-                                    Hospital Network Control.
-                                    <br />
-                                    <span className="superadmin-hero-title-highlight">Multi-Branch</span> Fleet & Desks.
-                                </>
-                            )}
-                        </h1>
-                        <p className="superadmin-hero-subtitle">
-                            {selectedHospital
-                                ? (isHi
-                                    ? `${selectedHospital.name} के क्लिनिकल विभागों, डॉक्टर रोस्टर, लाइव काउंटर डेस्क एवं ओपीडी टेलीमेट्री की निगरानी।`
-                                    : `Real-time operations for ${selectedHospital.name}: department counters, clinician roster, active desks & telemetry.`)
-                                : (isHi
-                                    ? "सभी अस्पतालों, क्लिनिकल विभागों, डॉक्टर रोस्टर, लाइव काउंटर डेस्क एवं एनएबीएच अनुपालन रिपोर्ट की केंद्रीय निगरानी।"
-                                    : "Enterprise multi-tenant orchestration: Manage branches, department counters, doctors, active desk pods & real-time telemetry.")}
-                        </p>
-                    </div>
-
-                    {/* Live Synchronized Telemetry Metrics */}
-                    {(() => {
-                        const hospitalDocs = (hospitalEmployees || []).filter(e => {
-                            const role = (e.role || "").toLowerCase();
-                            return role === "doctor" || role === "physician" || (e.name || "").toLowerCase().startsWith("dr.");
-                        });
-                        const activeDocs = hospitalDocs.filter(e => (e.status || "active").toLowerCase() === "active").length;
-                        const effectiveDocsCount = selectedHospital
-                            ? (activeDocs > 0 ? activeDocs : hospitalDocs.length)
-                            : (overview.active_doctors || 0);
-
-                        const effectiveActiveDesks = selectedHospital
-                            ? (hospitalDesksData.active_desks || 0)
-                            : (overview.active_desks || 0);
-                        const effectiveTotalDesks = selectedHospital
-                            ? (hospitalDesksData.total_desks || 0)
-                            : (overview.total_desks || 0);
-
-                        const effectivePatientsToday = selectedHospital
-                            ? (hospitalVisitsData?.summary?.today_patients_visited != null
-                                ? hospitalVisitsData.summary.today_patients_visited
-                                : ((hospitalAnalytics?.completed_today || 0) + (hospitalQueueSnapshot.length + hospitalServingTickets.length)))
-                            : (overview.patients_today || 0);
-
-                        return (
-                            <div className="superadmin-hero-stats-row">
-
-                                <div className="superadmin-hero-stat-card">
-                                    <div className="superadmin-hero-stat-icon-wrap" style={{ background: "rgba(16, 185, 129, 0.2)", color: "#34D399" }}>
-                                        <IconUsers size={20} />
-                                    </div>
-                                    <div>
-                                        <div className="superadmin-hero-stat-value" style={{ color: "#34D399" }}>
-                                            {effectiveDocsCount}
-                                        </div>
-                                        <div className="superadmin-hero-stat-label">{isHi ? "सक्रिय डॉक्टर" : "Active Clinicians"}</div>
-                                    </div>
-                                </div>
-
-                                <div className="superadmin-hero-stat-card">
-                                    <div className="superadmin-hero-stat-icon-wrap" style={{ background: "rgba(245, 158, 11, 0.2)", color: "#FBBF24" }}>
-                                        <IconDesk size={20} />
-                                    </div>
-                                    <div>
-                                        <div className="superadmin-hero-stat-value" style={{ color: "#FBBF24" }}>
-                                            {effectiveActiveDesks}/{effectiveTotalDesks}
-                                        </div>
-                                        <div className="superadmin-hero-stat-label">{isHi ? "सक्रिय डेस्क" : "Online Desks"}</div>
-                                    </div>
-                                </div>
-
-                                <div className="superadmin-hero-stat-card">
-                                    <div className="superadmin-hero-stat-icon-wrap" style={{ background: "rgba(234, 179, 8, 0.2)", color: "#FDE047" }}>
-                                        <IconTrendingUp size={20} />
-                                    </div>
-                                    <div>
-                                        <div className="superadmin-hero-stat-value" style={{ color: "#FDE047" }}>
-                                            {effectivePatientsToday}
-                                        </div>
-                                        <div className="superadmin-hero-stat-label">{isHi ? "आज के मरीज़" : "Patients Today"}</div>
-                                    </div>
-                                </div>
-                            </div>
-                        );
-                    })()}
-                </div>
-
-                {/* Right Column: Live Network Telemetry & Hospital Vector */}
-                <div className="superadmin-hero-right-col" style={{ padding: "24px 28px", display: "flex", flexDirection: "column", justifyContent: "center", gap: "16px", position: "relative", boxSizing: "border-box" }}>
-                    {(() => {
-                        const effectiveActiveQueues = selectedHospital
-                            ? (hospitalQueueSnapshot.length + hospitalServingTickets.length || (hospitalAnalytics ? ((hospitalAnalytics.waiting_count || 0) + (hospitalAnalytics.serving_count || 0)) : 0))
-                            : (overview.active_queues || 0);
-
-                        const effectiveTotalTickets = selectedHospital
-                            ? (hospitalVisitsData?.summary?.total_patients_visited_all_time != null
-                                ? hospitalVisitsData.summary.total_patients_visited_all_time
-                                : (hospitalAnalytics?.total_completed || 0))
-                            : (overview.total_tickets || 0);
-
-                        const effectiveUsers = selectedHospital
-                            ? (hospitalEmployees || []).length
-                            : (overview.total_users || 0);
-
-                        return (
-                            <>
-
-                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", width: "100%", margin: "0", zIndex: 3 }}>
-                                    <div className="superadmin-hero-telemetry-card" style={{ background: "rgba(255, 255, 255, 0.92)", backdropFilter: "blur(10px)", border: "1px solid #BAE6FD", borderRadius: "14px", padding: "12px 14px", boxShadow: "0 4px 12px rgba(2, 132, 199, 0.06)" }}>
-                                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px" }}>
-                                            <span className="superadmin-telemetry-label" style={{ fontSize: "11px", fontWeight: 700, color: "#64748B" }}>{isHi ? "सक्रिय कतारें" : "Active In Queue"}</span>
-                                            <span style={{ color: "#0284C7" }}><IconClock size={16} /></span>
-                                        </div>
-                                        <div className="superadmin-telemetry-val" style={{ fontSize: "22px", fontWeight: 800, color: "#0284C7", lineHeight: 1.1 }}>
-                                            {effectiveActiveQueues}
-                                        </div>
-                                        <span className="superadmin-telemetry-sub" style={{ fontSize: "10px", color: "#0369A1", fontWeight: 600, display: "block", marginTop: "2px" }}>
-                                            {isHi ? "प्रतीक्षारत / सेवारत टोकन" : "Waiting & Serving Tokens"}
+                        <div className="superadmin-hero-left-col">
+                            <div>
+                                {selectedHospital && (
+                                    <div style={{
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: "8px",
+                                        padding: "4px 12px",
+                                        borderRadius: "20px",
+                                        background: "rgba(56, 189, 248, 0.12)",
+                                        border: "1px solid rgba(56, 189, 248, 0.3)",
+                                        marginBottom: "12px",
+                                        backdropFilter: "blur(8px)"
+                                    }}>
+                                        <IconHospital size={14} color="#38BDF8" />
+                                        <span style={{ fontSize: "12px", fontWeight: 700, color: "#E0F2FE", letterSpacing: "0.2px" }}>
+                                            {selectedHospital.name} <span style={{ opacity: 0.75 }}>({selectedHospital.hospital_code})</span>
                                         </span>
                                     </div>
+                                )}
+                                <h1 className="superadmin-hero-title">
+                                    {isHi ? (
+                                        <>
+                                            अस्पताल नेटवर्क प्रबंधन.
+                                            <br />
+                                            <span className="superadmin-hero-title-highlight">शाखाएं एवं</span> डॉक्टर नियंत्रण.
+                                        </>
+                                    ) : (
+                                        <>
+                                            Hospital Network Control.
+                                            <br />
+                                            <span className="superadmin-hero-title-highlight">Multi-Branch</span> Fleet & Desks.
+                                        </>
+                                    )}
+                                </h1>
+                                <p className="superadmin-hero-subtitle">
+                                    {selectedHospital
+                                        ? (isHi
+                                            ? `${selectedHospital.name} के क्लिनिकल विभागों, डॉक्टर रोस्टर, लाइव काउंटर डेस्क एवं ओपीडी टेलीमेट्री की निगरानी।`
+                                            : `Real-time operations for ${selectedHospital.name}: department counters, clinician roster, active desks & telemetry.`)
+                                        : (isHi
+                                            ? "सभी अस्पतालों, क्लिनिकल विभागों, डॉक्टर रोस्टर, लाइव काउंटर डेस्क एवं एनएबीएच अनुपालन रिपोर्ट की केंद्रीय निगरानी।"
+                                            : "Enterprise multi-tenant orchestration: Manage branches, department counters, doctors, active desk pods & real-time telemetry.")}
+                                </p>
+                            </div>
 
-                                    <div className="superadmin-hero-telemetry-card" style={{ background: "rgba(255, 255, 255, 0.92)", backdropFilter: "blur(10px)", border: "1px solid #BAE6FD", borderRadius: "14px", padding: "12px 14px", boxShadow: "0 4px 12px rgba(2, 132, 199, 0.06)" }}>
-                                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px" }}>
-                                            <span className="superadmin-telemetry-label" style={{ fontSize: "11px", fontWeight: 700, color: "#64748B" }}>{isHi ? "कुल विज़िट" : "Lifetime Visits"}</span>
-                                            <span style={{ color: "#16A34A" }}><IconTrendingUp size={16} /></span>
+                            {/* Live Synchronized Telemetry Metrics */}
+                            {(() => {
+                                const hospitalDocs = (hospitalEmployees || []).filter(e => {
+                                    const role = (e.role || "").toLowerCase();
+                                    return role === "doctor" || role === "physician" || (e.name || "").toLowerCase().startsWith("dr.");
+                                });
+                                const activeDocs = hospitalDocs.filter(e => (e.status || "active").toLowerCase() === "active").length;
+                                const effectiveDocsCount = selectedHospital
+                                    ? (activeDocs > 0 ? activeDocs : hospitalDocs.length)
+                                    : (overview.active_doctors || 0);
+
+                                const effectiveActiveDesks = selectedHospital
+                                    ? (hospitalDesksData.active_desks || 0)
+                                    : (overview.active_desks || 0);
+                                const effectiveTotalDesks = selectedHospital
+                                    ? (hospitalDesksData.total_desks || 0)
+                                    : (overview.total_desks || 0);
+
+                                const effectivePatientsToday = selectedHospital
+                                    ? (hospitalVisitsData?.summary?.today_patients_visited != null
+                                        ? hospitalVisitsData.summary.today_patients_visited
+                                        : ((hospitalAnalytics?.completed_today || 0) + (hospitalQueueSnapshot.length + hospitalServingTickets.length)))
+                                    : (overview.patients_today || 0);
+
+                                return (
+                                    <div className="superadmin-hero-stats-row">
+
+                                        <div className="superadmin-hero-stat-card">
+                                            <div className="superadmin-hero-stat-icon-wrap" style={{ background: "rgba(16, 185, 129, 0.2)", color: "#34D399" }}>
+                                                <IconUsers size={20} />
+                                            </div>
+                                            <div>
+                                                <div className="superadmin-hero-stat-value" style={{ color: "#34D399" }}>
+                                                    {effectiveDocsCount}
+                                                </div>
+                                                <div className="superadmin-hero-stat-label">{isHi ? "सक्रिय डॉक्टर" : "Active Clinicians"}</div>
+                                            </div>
                                         </div>
-                                        <div className="superadmin-telemetry-val" style={{ fontSize: "22px", fontWeight: 800, color: "#0F172A", lineHeight: 1.1 }}>
-                                            {effectiveTotalTickets}
+
+                                        <div className="superadmin-hero-stat-card">
+                                            <div className="superadmin-hero-stat-icon-wrap" style={{ background: "rgba(245, 158, 11, 0.2)", color: "#FBBF24" }}>
+                                                <IconDesk size={20} />
+                                            </div>
+                                            <div>
+                                                <div className="superadmin-hero-stat-value" style={{ color: "#FBBF24" }}>
+                                                    {effectiveActiveDesks}/{effectiveTotalDesks}
+                                                </div>
+                                                <div className="superadmin-hero-stat-label">{isHi ? "सक्रिय डेस्क" : "Online Desks"}</div>
+                                            </div>
                                         </div>
-                                        <span style={{ fontSize: "10px", color: "#16A34A", fontWeight: 700, display: "block", marginTop: "2px" }}>
-                                            ✓ {effectiveUsers} {selectedHospital ? (isHi ? "पंजीकृत स्टाफ / कर्मचारी" : "Registered Staff & Accounts") : (isHi ? "पंजीकृत उपयोगकर्ता" : "Registered Accounts")}
-                                        </span>
+
+                                        <div className="superadmin-hero-stat-card">
+                                            <div className="superadmin-hero-stat-icon-wrap" style={{ background: "rgba(234, 179, 8, 0.2)", color: "#FDE047" }}>
+                                                <IconTrendingUp size={20} />
+                                            </div>
+                                            <div>
+                                                <div className="superadmin-hero-stat-value" style={{ color: "#FDE047" }}>
+                                                    {effectivePatientsToday}
+                                                </div>
+                                                <div className="superadmin-hero-stat-label">{isHi ? "आज के मरीज़" : "Patients Today"}</div>
+                                            </div>
+                                        </div>
                                     </div>
-                                </div>
-                            </>
-                        );
-                    })()}
+                                );
+                            })()}
+                        </div>
 
-                    {/* Background Vector Graphic Silhouette */}
-                    <div style={{ position: "absolute", right: "-10px", bottom: "-10px", opacity: 0.12, pointerEvents: "none", zIndex: 1, width: "240px", maxHeight: "200px" }}>
-                        <SuperAdminHospitalIllustration />
-                    </div>
-                </div>
-            </section>
+                        {/* Right Column: Live Network Telemetry & Hospital Vector */}
+                        <div className="superadmin-hero-right-col" style={{ padding: "24px 28px", display: "flex", flexDirection: "column", justifyContent: "center", gap: "16px", position: "relative", boxSizing: "border-box" }}>
+                            {(() => {
+                                const effectiveActiveQueues = selectedHospital
+                                    ? (hospitalQueueSnapshot.length + hospitalServingTickets.length || (hospitalAnalytics ? ((hospitalAnalytics.waiting_count || 0) + (hospitalAnalytics.serving_count || 0)) : 0))
+                                    : (overview.active_queues || 0);
 
-            {/* Feedback Toast */}
-            {feedbackMsg && (
-                <div style={feedbackToastStyle}>
-                    {feedbackMsg}
-                </div>
-            )}
+                                const effectiveTotalTickets = selectedHospital
+                                    ? (hospitalVisitsData?.summary?.total_patients_visited_all_time != null
+                                        ? hospitalVisitsData.summary.total_patients_visited_all_time
+                                        : (hospitalAnalytics?.total_completed || 0))
+                                    : (overview.total_tickets || 0);
+
+                                const effectiveUsers = selectedHospital
+                                    ? (hospitalEmployees || []).length
+                                    : (overview.total_users || 0);
+
+                                return (
+                                    <>
+
+                                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", width: "100%", margin: "0", zIndex: 3 }}>
+                                            <div className="superadmin-hero-telemetry-card" style={{ background: "rgba(255, 255, 255, 0.92)", backdropFilter: "blur(10px)", border: "1px solid #BAE6FD", borderRadius: "14px", padding: "12px 14px", boxShadow: "0 4px 12px rgba(2, 132, 199, 0.06)" }}>
+                                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px" }}>
+                                                    <span className="superadmin-telemetry-label" style={{ fontSize: "11px", fontWeight: 700, color: "#64748B" }}>{isHi ? "सक्रिय कतारें" : "Active In Queue"}</span>
+                                                    <span style={{ color: "#0284C7" }}><IconClock size={16} /></span>
+                                                </div>
+                                                <div className="superadmin-telemetry-val" style={{ fontSize: "22px", fontWeight: 800, color: "#0284C7", lineHeight: 1.1 }}>
+                                                    {effectiveActiveQueues}
+                                                </div>
+                                                <span className="superadmin-telemetry-sub" style={{ fontSize: "10px", color: "#0369A1", fontWeight: 600, display: "block", marginTop: "2px" }}>
+                                                    {isHi ? "प्रतीक्षारत / सेवारत टोकन" : "Waiting & Serving Tokens"}
+                                                </span>
+                                            </div>
+
+                                            <div className="superadmin-hero-telemetry-card" style={{ background: "rgba(255, 255, 255, 0.92)", backdropFilter: "blur(10px)", border: "1px solid #BAE6FD", borderRadius: "14px", padding: "12px 14px", boxShadow: "0 4px 12px rgba(2, 132, 199, 0.06)" }}>
+                                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px" }}>
+                                                    <span className="superadmin-telemetry-label" style={{ fontSize: "11px", fontWeight: 700, color: "#64748B" }}>{isHi ? "कुल विज़िट" : "Lifetime Visits"}</span>
+                                                    <span style={{ color: "#16A34A" }}><IconTrendingUp size={16} /></span>
+                                                </div>
+                                                <div className="superadmin-telemetry-val" style={{ fontSize: "22px", fontWeight: 800, color: "#0F172A", lineHeight: 1.1 }}>
+                                                    {effectiveTotalTickets}
+                                                </div>
+                                                <span style={{ fontSize: "10px", color: "#16A34A", fontWeight: 700, display: "block", marginTop: "2px" }}>
+                                                    ✓ {effectiveUsers} {selectedHospital ? (isHi ? "पंजीकृत स्टाफ / कर्मचारी" : "Registered Staff & Accounts") : (isHi ? "पंजीकृत उपयोगकर्ता" : "Registered Accounts")}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </>
+                                );
+                            })()}
+
+                            {/* Background Vector Graphic Silhouette */}
+                            <div style={{ position: "absolute", right: "-10px", bottom: "-10px", opacity: 0.12, pointerEvents: "none", zIndex: 1, width: "240px", maxHeight: "200px" }}>
+                                <SuperAdminHospitalIllustration />
+                            </div>
+                        </div>
+                    </section>
+
+                    {/* Feedback Toast */}
+                    {feedbackMsg && (
+                        <div style={feedbackToastStyle}>
+                            {feedbackMsg}
+                        </div>
+                    )}
 
                     {/* Main Active Module Workspace View */}
                     <div className="superadmin-module-content" style={{ display: "flex", flexDirection: "column", gap: "24px", width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box" }}>
                         {/* TAB 0: 360° VISUAL HOSPITAL OPERATIONS DASHBOARD */}
-                    {activeTab === "overview" && (
-                        <Hospital360Overview
-                            selectedHospital={selectedHospital}
-                            hospitals={hospitals}
-                            setSelectedHospital={setSelectedHospital}
-                            onSelectHospitalTenant={onSelectHospitalTenant}
-                            hospitalBranding={hospitalBranding}
-                            hospitalAnalytics={hospitalAnalytics}
-                            hospitalQueueSnapshot={hospitalQueueSnapshot}
-                            hospitalServingTickets={hospitalServingTickets}
-                            hospitalDesksData={hospitalDesksData}
-                            hospitalEmployees={hospitalEmployees}
-                            hospitalDepts={hospitalDepts}
-                            hospitalVisitsData={hospitalVisitsData}
-                            visitHistorySearchQuery={visitHistorySearchQuery}
-                            setVisitHistorySearchQuery={setVisitHistorySearchQuery}
-                            visitHistoryStatusFilter={visitHistoryStatusFilter}
-                            setVisitHistoryStatusFilter={setVisitHistoryStatusFilter}
-                            showVisitHistoryTable={showVisitHistoryTable}
-                            setShowVisitHistoryTable={setShowVisitHistoryTable}
-                            analyticsViewTab={analyticsViewTab}
-                            setAnalyticsViewTab={setAnalyticsViewTab}
-                            hoveredChartHour={hoveredChartHour}
-                            setHoveredChartHour={setHoveredChartHour}
-                            lastSyncedAt={lastSyncedAt}
-                            theme={theme}
-                            brandingForm={brandingForm}
-                            loadHospitalBrandingData={loadHospitalBrandingData}
-                            setActiveTab={setActiveTab}
-                            setActiveBrandingTab={setActiveBrandingTab}
-                            setShowAddHospitalModal={setShowAddHospitalModal}
-                            setShowAddDeskModal={setShowAddDeskModal}
-                            setShowNABHReportModal={setShowNABHReportModal}
-                            handleDownloadVisitHistory={handleDownloadVisitHistory}
-                            computeHourlyAnalytics={computeHourlyAnalytics}
-                            computeDepartmentBottlenecks={computeDepartmentBottlenecks}
-                            isHi={isHi}
-                        />
-                    )}
+                        {activeTab === "overview" && (
+                            <Hospital360Overview
+                                selectedHospital={selectedHospital}
+                                hospitals={hospitals}
+                                setSelectedHospital={setSelectedHospital}
+                                onSelectHospitalTenant={onSelectHospitalTenant}
+                                hospitalBranding={hospitalBranding}
+                                hospitalAnalytics={hospitalAnalytics}
+                                hospitalQueueSnapshot={hospitalQueueSnapshot}
+                                hospitalServingTickets={hospitalServingTickets}
+                                hospitalDesksData={hospitalDesksData}
+                                hospitalEmployees={hospitalEmployees}
+                                hospitalDepts={hospitalDepts}
+                                hospitalVisitsData={hospitalVisitsData}
+                                visitHistorySearchQuery={visitHistorySearchQuery}
+                                setVisitHistorySearchQuery={setVisitHistorySearchQuery}
+                                visitHistoryStatusFilter={visitHistoryStatusFilter}
+                                setVisitHistoryStatusFilter={setVisitHistoryStatusFilter}
+                                showVisitHistoryTable={showVisitHistoryTable}
+                                setShowVisitHistoryTable={setShowVisitHistoryTable}
+                                analyticsViewTab={analyticsViewTab}
+                                setAnalyticsViewTab={setAnalyticsViewTab}
+                                hoveredChartHour={hoveredChartHour}
+                                setHoveredChartHour={setHoveredChartHour}
+                                lastSyncedAt={lastSyncedAt}
+                                socketConnected={socketConnected}
+                                deepDiveError={deepDiveError}
+                                visitsPeriod={visitsPeriod}
+                                setVisitsPeriod={setVisitsPeriod}
+                                theme={theme}
+                                brandingForm={brandingForm}
+                                loadHospitalBrandingData={loadHospitalBrandingData}
+                                setActiveTab={setActiveTab}
+                                setActiveBrandingTab={setActiveBrandingTab}
+                                setShowAddHospitalModal={setShowAddHospitalModal}
+                                setShowAddDeskModal={setShowAddDeskModal}
+                                setShowNABHReportModal={setShowNABHReportModal}
+                                handleDownloadVisitHistory={handleDownloadVisitHistory}
+                                computeHourlyAnalytics={computeHourlyAnalytics}
+                                computeDepartmentBottlenecks={computeDepartmentBottlenecks}
+                                isHi={isHi}
+                            />
+                        )}
 
-                    {/* TAB 1: HOSPITALS DIRECTORY */}
-                    {activeTab === "hospitals" && (
-                        <HospitalsDirectoryTab
-                            hospitals={hospitals}
-                            selectedHospital={selectedHospital}
-                            setSelectedHospital={(hosp) => {
-                                setSelectedHospital(hosp);
-                                if (onSelectHospitalTenant) onSelectHospitalTenant(hosp.hospital_code);
-                            }}
-                            searchQuery={searchQuery}
-                            setSearchQuery={setSearchQuery}
-                            onOpenAddModal={() => setShowAddHospitalModal(true)}
-                            onDeleteHospital={handleDeleteHospital}
-                            onManageStaff={(hosp) => {
-                                setSelectedHospital(hosp);
-                                if (onSelectHospitalTenant) onSelectHospitalTenant(hosp.hospital_code);
-                                setActiveTab("employees");
-                                window.scrollTo({ top: 380, behavior: "smooth" });
-                            }}
-                            onCustomizeBranding={(hosp) => {
-                                setSelectedHospital(hosp);
-                                loadHospitalBrandingData(hosp);
-                                setActiveBrandingTab("profile");
-                                setActiveTab("branding");
-                                window.scrollTo({ top: 380, behavior: "smooth" });
-                            }}
-                            hospitalVisitsData={hospitalVisitsData}
-                            isHi={isHi}
-                        />
-                    )}
+                        {/* TAB 1: HOSPITALS DIRECTORY */}
+                        {activeTab === "hospitals" && (
+                            <HospitalsDirectoryTab
+                                hospitals={hospitals}
+                                selectedHospital={selectedHospital}
+                                setSelectedHospital={(hosp) => {
+                                    setSelectedHospital(hosp);
+                                    if (onSelectHospitalTenant) onSelectHospitalTenant(hosp.hospital_code);
+                                }}
+                                searchQuery={searchQuery}
+                                setSearchQuery={setSearchQuery}
+                                onOpenAddModal={() => setShowAddHospitalModal(true)}
+                                onDeleteHospital={handleDeleteHospital}
+                                onManageStaff={(hosp) => {
+                                    setSelectedHospital(hosp);
+                                    if (onSelectHospitalTenant) onSelectHospitalTenant(hosp.hospital_code);
+                                    setActiveTab("employees");
+                                    window.scrollTo({ top: 380, behavior: "smooth" });
+                                }}
+                                onCustomizeBranding={(hosp) => {
+                                    setSelectedHospital(hosp);
+                                    loadHospitalBrandingData(hosp);
+                                    setActiveBrandingTab("profile");
+                                    setActiveTab("branding");
+                                    window.scrollTo({ top: 380, behavior: "smooth" });
+                                }}
+                                hospitalVisitsData={hospitalVisitsData}
+                                isHi={isHi}
+                            />
+                        )}
 
-                    {/* TAB 2: CLINICIANS & STAFF ROSTER */}
-                    {activeTab === "employees" && (
-                        <StaffRosterTab
-                            selectedHospital={selectedHospital}
-                            hospitals={hospitals}
-                            onSelectHospital={(hosp) => {
-                                setSelectedHospital(hosp);
-                                if (onSelectHospitalTenant) onSelectHospitalTenant(hosp.hospital_code);
-                            }}
-                            hospitalEmployees={hospitalEmployees}
-                            hospitalDepts={hospitalDepts}
-                            employeeStatusFilter={employeeStatusFilter}
-                            setEmployeeStatusFilter={setEmployeeStatusFilter}
-                            employeeSearchQuery={employeeSearchQuery}
-                            setEmployeeSearchQuery={setEmployeeSearchQuery}
-                            employeePage={employeePage}
-                            setEmployeePage={setEmployeePage}
-                            isTogglingEmpStatus={isTogglingEmpStatus}
-                            onToggleStatus={handleToggleEmployeeStatus}
-                            onEditEmployee={(emp) => {
-                                setEditEmployeeForm({
-                                    id: emp.id || emp.employee_id_num || emp.user_id,
-                                    name: emp.name || emp.username || "",
-                                    phone: emp.phone || "",
-                                    role: emp.role || "doctor",
-                                    department: emp.department || "consultation",
-                                    employee_id: emp.employee_id || "",
-                                    status: emp.status || "active",
-                                    password: "",
-                                    assigned_desk_id: emp.assigned_desk_id || null,
-                                    qualification: emp.qualification || "",
-                                    specialization: emp.specialization || "",
-                                    license_number: emp.license_number || "",
-                                    gender: emp.gender || "other",
-                                    experience_years: emp.experience_years || 0,
-                                    room_number: emp.room_number || "",
-                                });
-                                setShowEditEmployeeModal(true);
-                            }}
-                            onChangePassword={(emp) => {
-                                setPasswordTargetEmployee(emp);
-                                setNewPasswordValue("");
-                                setPasswordUpdateSuccess(null);
-                                setShowChangePasswordModal(true);
-                            }}
-                            onDeleteEmployee={handleDeleteEmployee}
-                            onAddEmployee={() => {
-                                setCreatedCredentials(null);
-                                setShowAddEmployeeModal(true);
-                            }}
-                            getEmployeeCurrentDesk={getEmployeeCurrentDesk}
-                            formatRelativeLogin={formatRelativeLogin}
-                            notify={notify}
-                            language={language}
-                            isHi={isHi}
-                            getAuthHeaders={getAuthHeaders}
-                            fetchHospitalDeepDive={fetchHospitalDeepDive}
-                            fetchGlobalData={fetchGlobalData}
-                        />
-                    )}
+                        {/* TAB 2: CLINICIANS & STAFF ROSTER */}
+                        {activeTab === "employees" && (
+                            <StaffRosterTab
+                                selectedHospital={selectedHospital}
+                                hospitals={hospitals}
+                                onSelectHospital={(hosp) => {
+                                    setSelectedHospital(hosp);
+                                    if (onSelectHospitalTenant) onSelectHospitalTenant(hosp.hospital_code);
+                                }}
+                                hospitalEmployees={hospitalEmployees}
+                                hospitalDepts={hospitalDepts}
+                                employeeStatusFilter={employeeStatusFilter}
+                                setEmployeeStatusFilter={setEmployeeStatusFilter}
+                                employeeSearchQuery={employeeSearchQuery}
+                                setEmployeeSearchQuery={setEmployeeSearchQuery}
+                                employeePage={employeePage}
+                                setEmployeePage={setEmployeePage}
+                                isTogglingEmpStatus={isTogglingEmpStatus}
+                                onToggleStatus={handleToggleEmployeeStatus}
+                                onEditEmployee={(emp) => {
+                                    setEditEmployeeForm({
+                                        id: emp.id || emp.employee_id_num || emp.user_id,
+                                        name: emp.name || emp.username || "",
+                                        phone: emp.phone || "",
+                                        role: emp.role || "doctor",
+                                        department: emp.department || "consultation",
+                                        employee_id: emp.employee_id || "",
+                                        status: emp.status || "active",
+                                        password: "",
+                                        assigned_desk_id: emp.assigned_desk_id || null,
+                                        qualification: emp.qualification || "",
+                                        specialization: emp.specialization || "",
+                                        license_number: emp.license_number || "",
+                                        gender: emp.gender || "other",
+                                        experience_years: emp.experience_years || 0,
+                                        room_number: emp.room_number || "",
+                                    });
+                                    setShowEditEmployeeModal(true);
+                                }}
+                                onChangePassword={(emp) => {
+                                    setPasswordTargetEmployee(emp);
+                                    setNewPasswordValue("");
+                                    setPasswordUpdateSuccess(null);
+                                    setShowChangePasswordModal(true);
+                                }}
+                                onDeleteEmployee={handleDeleteEmployee}
+                                onAddEmployee={() => {
+                                    setCreatedCredentials(null);
+                                    setShowAddEmployeeModal(true);
+                                }}
+                                getEmployeeCurrentDesk={getEmployeeCurrentDesk}
+                                formatRelativeLogin={formatRelativeLogin}
+                                notify={notify}
+                                language={language}
+                                isHi={isHi}
+                                getAuthHeaders={getAuthHeaders}
+                                fetchHospitalDeepDive={fetchHospitalDeepDive}
+                                fetchGlobalData={fetchGlobalData}
+                            />
+                        )}
 
-                    {/* TAB 3: ACTIVE DESKS MANAGEMENT */}
-                    {activeTab === "desks" && (
-                        <DesksManagementTab
-                            selectedHospital={selectedHospital}
-                            hospitals={hospitals}
-                            onSelectHospital={(hosp) => {
-                                setSelectedHospital(hosp);
-                                if (onSelectHospitalTenant) onSelectHospitalTenant(hosp.hospital_code);
-                            }}
-                            hospitalDesksData={hospitalDesksData}
-                            hospitalDepts={hospitalDepts}
-                            deskSearchQuery={deskSearchQuery}
-                            setDeskSearchQuery={setDeskSearchQuery}
-                            onBulkDeskStatus={handleBulkDeskStatus}
-                            onToggleDeskStatus={handleToggleDeskStatus}
-                            onOpenAddDesk={() => {
-                                setNewDeskForm({
-                                    dept_code: hospitalDepts[0]?.dept_code || "consultation",
-                                    desk_name: "",
-                                    status: "AVAILABLE",
-                                    assigned_employee_id: "",
-                                });
-                                setShowAddDeskModal(true);
-                            }}
-                            onOpenEditDesk={(desk) => {
-                                setEditDeskForm({
-                                    id: desk.id,
-                                    desk_name: desk.desk_name,
-                                    dept_code: desk.dept_code,
-                                    status: desk.status,
-                                    assigned_employee_id: desk.assigned_employee_id || "",
-                                });
-                                setShowEditDeskModal(true);
-                            }}
-                            onOpenAssignDesk={(desk) => {
-                                setAssignDeskTarget({ desk, employee_id: desk.assigned_employee_id || "" });
-                                setAssignSearchQuery("");
-                                setShowAssignDeskModal(true);
-                            }}
-                            onUnassignDesk={(deskOrId) => {
-                                const id = typeof deskOrId === "object" && deskOrId !== null ? deskOrId.id : deskOrId;
-                                if (id) handleAssignDesk(id, null);
-                            }}
-                            onDeleteDesk={handleDeleteDesk}
-                            formatRelativeLogin={formatRelativeLogin}
-                            language={language}
-                            isHi={isHi}
-                            notify={notify}
-                            showConfirm={showConfirm}
-                        />
-                    )}
+                        {/* TAB 3: ACTIVE DESKS MANAGEMENT */}
+                        {activeTab === "desks" && (
+                            <DesksManagementTab
+                                selectedHospital={selectedHospital}
+                                hospitals={hospitals}
+                                onSelectHospital={(hosp) => {
+                                    setSelectedHospital(hosp);
+                                    if (onSelectHospitalTenant) onSelectHospitalTenant(hosp.hospital_code);
+                                }}
+                                hospitalDesksData={hospitalDesksData}
+                                hospitalDepts={hospitalDepts}
+                                deskSearchQuery={deskSearchQuery}
+                                setDeskSearchQuery={setDeskSearchQuery}
+                                onBulkDeskStatus={handleBulkDeskStatus}
+                                onToggleDeskStatus={handleToggleDeskStatus}
+                                onOpenAddDesk={() => {
+                                    setNewDeskForm({
+                                        dept_code: hospitalDepts[0]?.dept_code || "consultation",
+                                        desk_name: "",
+                                        status: "AVAILABLE",
+                                        assigned_employee_id: "",
+                                    });
+                                    setShowAddDeskModal(true);
+                                }}
+                                onOpenEditDesk={(desk) => {
+                                    setEditDeskForm({
+                                        id: desk.id,
+                                        desk_name: desk.desk_name,
+                                        dept_code: desk.dept_code,
+                                        status: desk.status,
+                                        assigned_employee_id: desk.assigned_employee_id || "",
+                                    });
+                                    setShowEditDeskModal(true);
+                                }}
+                                onOpenAssignDesk={(desk) => {
+                                    setAssignDeskTarget({ desk, employee_id: desk.assigned_employee_id || "" });
+                                    setAssignSearchQuery("");
+                                    setShowAssignDeskModal(true);
+                                }}
+                                onUnassignDesk={(deskOrId) => {
+                                    const id = typeof deskOrId === "object" && deskOrId !== null ? deskOrId.id : deskOrId;
+                                    if (id) handleAssignDesk(id, null);
+                                }}
+                                onDeleteDesk={handleDeleteDesk}
+                                formatRelativeLogin={formatRelativeLogin}
+                                language={language}
+                                isHi={isHi}
+                                notify={notify}
+                                showConfirm={showConfirm}
+                            />
+                        )}
 
-                    {/* TAB 4: CLINICAL DEPARTMENTS */}
-                    {activeTab === "depts" && (
-                        <DepartmentsTab
-                            selectedHospital={selectedHospital}
-                            hospitals={hospitals}
-                            onSelectHospital={(hosp) => {
-                                setSelectedHospital(hosp);
-                                if (onSelectHospitalTenant) onSelectHospitalTenant(hosp.hospital_code);
-                            }}
-                            hospitalDepts={hospitalDepts}
-                            onOpenAddDept={() => setShowAddDeptModal(true)}
-                            onOpenEditDept={(dept) => {
-                                setEditDeptForm({
-                                    dept_code: dept.dept_code,
-                                    name: dept.name,
-                                    description: dept.description || "",
-                                });
-                                setShowEditDeptModal(true);
-                            }}
-                            onDeleteDepartment={handleDeleteDepartment}
-                            isHi={isHi}
-                        />
-                    )}
+                        {/* TAB 4: CLINICAL DEPARTMENTS */}
+                        {activeTab === "depts" && (
+                            <DepartmentsTab
+                                selectedHospital={selectedHospital}
+                                hospitals={hospitals}
+                                onSelectHospital={(hosp) => {
+                                    setSelectedHospital(hosp);
+                                    if (onSelectHospitalTenant) onSelectHospitalTenant(hosp.hospital_code);
+                                }}
+                                hospitalDepts={hospitalDepts}
+                                onOpenAddDept={() => setShowAddDeptModal(true)}
+                                onOpenEditDept={(dept) => {
+                                    setEditDeptForm({
+                                        dept_code: dept.dept_code,
+                                        name: dept.name,
+                                        description: dept.description || "",
+                                    });
+                                    setShowEditDeptModal(true);
+                                }}
+                                onDeleteDepartment={handleDeleteDepartment}
+                                isHi={isHi}
+                            />
+                        )}
 
-                    {/* TAB 5: PATIENT VISITS ARCHIVE */}
-                    {activeTab === "visits" && (
-                        <PatientVisitsTab
-                            selectedHospital={selectedHospital}
-                            hospitals={hospitals}
-                            notify={notify}
-                            isHi={isHi}
-                            getAuthHeaders={getAuthHeaders}
-                            hospitalVisitsData={hospitalVisitsData}
-                            handleDownloadVisitHistory={handleDownloadVisitHistory}
-                            fetchHospitalDeepDive={fetchHospitalDeepDive}
-                        />
-                    )}
+                        {/* TAB 5: PATIENT VISITS ARCHIVE */}
+                        {activeTab === "visits" && (
+                            <PatientVisitsTab
+                                selectedHospital={selectedHospital}
+                                hospitals={hospitals}
+                                notify={notify}
+                                isHi={isHi}
+                                getAuthHeaders={getAuthHeaders}
+                                hospitalVisitsData={hospitalVisitsData}
+                                handleDownloadVisitHistory={handleDownloadVisitHistory}
+                                fetchHospitalDeepDive={fetchHospitalDeepDive}
+                            />
+                        )}
 
-                    {/* TAB 6: BRANDING STUDIO */}
-                    {activeTab === "branding" && (
-                        <BrandingStudioTab
-                            brandingTargetHospital={brandingTargetHospital}
-                            selectedHospital={selectedHospital}
-                            hospitals={hospitals}
-                            setSelectedHospital={(hosp) => {
-                                setSelectedHospital(hosp);
-                                loadHospitalBrandingData(hosp);
-                            }}
-                            loadHospitalBrandingData={loadHospitalBrandingData}
-                            brandingForm={brandingForm}
-                            setBrandingForm={setBrandingForm}
-                            activeBrandingTab={activeBrandingTab}
-                            setActiveBrandingTab={setActiveBrandingTab}
-                            brandingPreviewMode={brandingPreviewMode}
-                            setBrandingPreviewMode={setBrandingPreviewMode}
-                            isSavingBranding={isSavingBranding}
-                            handleSaveBrandingSubmit={handleSaveBrandingSubmit}
-                            handleResetBrandingDefaults={handleResetBrandingDefaults}
-                            notify={notify}
-                            isHi={isHi}
-                            hospitalEmployees={hospitalEmployees}
-                            hospitalVisitsData={hospitalVisitsData}
-                            hospitalDepts={hospitalDepts}
-                            handleDownloadVisitHistory={handleDownloadVisitHistory}
-                            fetchHospitalDeepDive={fetchHospitalDeepDive}
-                            fetchGlobalData={fetchGlobalData}
-                            getAuthHeaders={getAuthHeaders}
-                            currentUser={currentUser}
-                            showConfirm={showConfirm}
-                        />
-                    )}
+                        {/* TAB 6: BRANDING STUDIO */}
+                        {activeTab === "branding" && (
+                            <BrandingStudioTab
+                                brandingTargetHospital={brandingTargetHospital}
+                                selectedHospital={selectedHospital}
+                                hospitals={hospitals}
+                                setSelectedHospital={(hosp) => {
+                                    setSelectedHospital(hosp);
+                                    loadHospitalBrandingData(hosp);
+                                }}
+                                loadHospitalBrandingData={loadHospitalBrandingData}
+                                brandingForm={brandingForm}
+                                setBrandingForm={setBrandingForm}
+                                activeBrandingTab={activeBrandingTab}
+                                setActiveBrandingTab={setActiveBrandingTab}
+                                brandingPreviewMode={brandingPreviewMode}
+                                setBrandingPreviewMode={setBrandingPreviewMode}
+                                isSavingBranding={isSavingBranding}
+                                handleSaveBrandingSubmit={handleSaveBrandingSubmit}
+                                handleResetBrandingDefaults={handleResetBrandingDefaults}
+                                notify={notify}
+                                isHi={isHi}
+                                hospitalEmployees={hospitalEmployees}
+                                hospitalVisitsData={hospitalVisitsData}
+                                hospitalDepts={hospitalDepts}
+                                handleDownloadVisitHistory={handleDownloadVisitHistory}
+                                fetchHospitalDeepDive={fetchHospitalDeepDive}
+                                fetchGlobalData={fetchGlobalData}
+                                getAuthHeaders={getAuthHeaders}
+                                currentUser={currentUser}
+                                showConfirm={showConfirm}
+                            />
+                        )}
 
-                    {/* TAB 7: KIOSKS & WAITING ROOM DISPLAYS */}
-                    {activeTab === "kiosks" && (
-                        <KiosksManagementTab
-                            selectedHospital={selectedHospital}
-                            hospitals={hospitals}
-                            onSelectHospital={(hosp) => {
-                                setSelectedHospital(hosp);
-                                if (onSelectHospitalTenant) onSelectHospitalTenant(hosp.hospital_code);
-                            }}
-                            hospitalDepts={hospitalDepts}
-                            getAuthHeaders={getAuthHeaders}
-                            notify={notify}
-                            showConfirm={showConfirm}
-                            language={language}
-                            isHi={isHi}
-                        />
-                    )}
+                        {/* TAB 7: KIOSKS & WAITING ROOM DISPLAYS */}
+                        {activeTab === "kiosks" && (
+                            <KiosksManagementTab
+                                selectedHospital={selectedHospital}
+                                hospitals={hospitals}
+                                onSelectHospital={(hosp) => {
+                                    setSelectedHospital(hosp);
+                                    if (onSelectHospitalTenant) onSelectHospitalTenant(hosp.hospital_code);
+                                }}
+                                hospitalDepts={hospitalDepts}
+                                getAuthHeaders={getAuthHeaders}
+                                notify={notify}
+                                showConfirm={showConfirm}
+                                language={language}
+                                isHi={isHi}
+                            />
+                        )}
 
-                    {/* TAB 8: EMERGENCY BROADCAST & ANNOUNCEMENT CENTER */}
-                    {activeTab === "broadcasts" && (
-                        <BroadcastCenterTab
-                            hospitals={hospitals}
-                            selectedHospital={selectedHospital}
-                            getAuthHeaders={getAuthHeaders}
-                            notify={notify}
-                            showConfirm={showConfirm}
-                            isHi={isHi}
-                            currentUser={currentUser}
-                            socketConnected={socketConnected}
-                        />
-                    )}
+                        {/* TAB 8: EMERGENCY BROADCAST & ANNOUNCEMENT CENTER */}
+                        {activeTab === "broadcasts" && (
+                            <BroadcastCenterTab
+                                hospitals={hospitals}
+                                selectedHospital={selectedHospital}
+                                getAuthHeaders={getAuthHeaders}
+                                notify={notify}
+                                showConfirm={showConfirm}
+                                isHi={isHi}
+                                currentUser={currentUser}
+                                socketConnected={socketConnected}
+                            />
+                        )}
                     </div>
 
                     {/* FOOTER */}
@@ -2906,9 +3019,16 @@ export default function SuperAdminPage({
             <AddHospitalModal
                 isOpen={showAddHospitalModal}
                 onClose={() => setShowAddHospitalModal(false)}
-                newHospitalForm={newHospitalForm}
-                setNewHospitalForm={setNewHospitalForm}
-                onSubmit={handleCreateHospitalSubmit}
+                onHospitalCreated={(data) => {
+                    fetchGlobalData();
+                    if (data?.hospital) {
+                        setSelectedHospital(data.hospital);
+                        setActiveTab("360");
+                    }
+                }}
+                apiBase={API_BASE}
+                getAuthHeaders={getAuthHeaders}
+                notify={notify}
                 isHi={isHi}
             />
 

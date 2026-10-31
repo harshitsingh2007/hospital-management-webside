@@ -190,7 +190,7 @@ export default function StaffRosterTab({
         const isBreak = d === "ON_BREAK" || s === "on_break";
         const isEmergency = d === "EMERGENCY_ROUND" || s === "emergency_round";
         const isShiftEnded = d === "OFF_DUTY" || d === "SHIFT_ENDED" || s === "off_duty" || s === "shift_ended";
-        return (s === "active" || d === "ACTIVE") && !isBreak && !isEmergency && !isShiftEnded;
+        return d === "ACTIVE" && !isBreak && !isEmergency && !isShiftEnded && s !== "inactive";
     }).length;
 
     const totalOnDutyCount = activeOnlineCount + onBreakCount + emergencyCount;
@@ -203,7 +203,7 @@ export default function StaffRosterTab({
         const isBreak = d === "ON_BREAK" || s === "on_break";
         const isEmergency = d === "EMERGENCY_ROUND" || s === "emergency_round";
         const isShiftEnded = d === "OFF_DUTY" || d === "SHIFT_ENDED" || s === "off_duty" || s === "shift_ended";
-        const isActive = (s === "active" || d === "ACTIVE") && !isBreak && !isEmergency && !isShiftEnded;
+        const isActive = d === "ACTIVE" && !isBreak && !isEmergency && !isShiftEnded && s !== "inactive";
 
         // Status filter
         if (employeeStatusFilter === "active" && !isActive) return false;
@@ -219,6 +219,7 @@ export default function StaffRosterTab({
             if (roleFilter === "nurse" && !r.includes("nur")) return false;
             if (roleFilter === "radiologist" && !r.includes("rad") && !r.includes("xray") && !r.includes("imaging")) return false;
             if (roleFilter === "pathologist" && !r.includes("path") && !r.includes("lab")) return false;
+            if (roleFilter === "cashier" && !r.includes("cash") && !r.includes("bill") && !r.includes("acc")) return false;
             if (roleFilter === "admin" && !r.includes("admin")) return false;
         }
 
@@ -830,6 +831,7 @@ export default function StaffRosterTab({
                         { id: "pharmacist", label: isHi ? "फार्मासिस्ट" : "Pharmacists" },
                         { id: "radiologist", label: isHi ? "रेडियोलॉजिस्ट" : "Radiologists" },
                         { id: "pathologist", label: isHi ? "पैथोलॉजिस्ट" : "Pathologists" },
+                        { id: "cashier", label: isHi ? "कैशियर / बिलिंग" : "Cashiers" },
                         { id: "receptionist", label: isHi ? "डेस्क" : "Desk" },
                         { id: "nurse", label: isHi ? "नर्स" : "Nurses" },
                         { id: "admin", label: isHi ? "एडमिन" : "Admins" },
@@ -973,8 +975,8 @@ export default function StaffRosterTab({
                                                 const isProcessing = !isAccountInactive && (d === "PROCESSING" || s === "processing");
                                                 const isOnBreak = !isAccountInactive && (d === "ON_BREAK" || s === "on_break");
                                                 const isEmergency = !isAccountInactive && (d === "EMERGENCY_ROUND" || s === "emergency_round");
-                                                const isShiftEnded = !isAccountInactive && (d === "SHIFT_ENDED" || s === "shift_ended" || d === "OFF_DUTY" || s === "off_duty");
-                                                const isActiveOnline = !isAccountInactive && !isProcessing && !isOnBreak && !isEmergency && !isShiftEnded;
+                                                const isShiftEnded = !isAccountInactive && (d === "SHIFT_ENDED" || s === "shift_ended");
+                                                const isActiveOnline = !isAccountInactive && !isProcessing && !isOnBreak && !isEmergency && !isShiftEnded && (d === "ACTIVE");
 
                                                 if (isProcessing) {
                                                     return (
@@ -1139,10 +1141,10 @@ export default function StaffRosterTab({
                                                                 fontSize: "11px",
                                                                 opacity: isTogglingEmpStatus === (emp.user_id || emp.id || emp.employee_id_num) ? 0.6 : 1,
                                                             }}
-                                                            title={isAccountActive ? (isHi ? "ऑफलाइन सेट करें" : "Set to Offline") : (isHi ? "ऑनलाइन सेट करें" : "Set to Online")}
+                                                            title={isAccountActive ? (isHi ? "खाता निष्क्रिय करें" : "Deactivate Account") : (isHi ? "खाता सक्रिय करें" : "Activate Account")}
                                                         >
                                                             {isAccountActive
-                                                                ? (isHi ? "ऑफलाइन करें" : "Set Offline")
+                                                                ? (isHi ? "निष्क्रिय करें" : "Set Inactive")
                                                                 : (isHi ? "सक्रिय करें" : "Set Active")}
                                                         </button>
                                                     );

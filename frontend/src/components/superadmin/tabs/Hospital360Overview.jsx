@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import {
     IconHospital,
     IconPlus,
@@ -53,6 +53,10 @@ export default function Hospital360Overview({
     hoveredChartHour = null,
     setHoveredChartHour,
     lastSyncedAt,
+    socketConnected = null,
+    deepDiveError = null,
+    visitsPeriod = "today",
+    setVisitsPeriod = null,
     theme = "dark",
     brandingForm = {},
     loadHospitalBrandingData,
@@ -106,15 +110,16 @@ export default function Hospital360Overview({
     const facilityTagline = activeBranding.tagline || (isHi ? "एनएबीएच मान्यता प्राप्त • 24x7 क्लिनिकल सेवा" : "Care you can trust • NABH Accredited Facility");
     const facilityHours = activeBranding.opd_start_time && activeBranding.opd_end_time
         ? `${activeBranding.opd_start_time} - ${activeBranding.opd_end_time}`
-        : "08:00 - 20:00";
-    const helpline = activeBranding.emergency_helpline || currentHosp.phone || "108 / Emergency";
+        : (isHi ? "निर्धारित नहीं" : "Not set");
+    const helpline = activeBranding.emergency_helpline || currentHosp.phone || (isHi ? "निर्धारित नहीं" : "Not set");
 
     // Aggregate metrics & Footfall history
     const footfallSummary = hospitalVisitsData?.summary || {};
     const waitingCount = hospitalAnalytics?.waiting_count ?? hospitalQueueSnapshot.length;
     const servingCount = hospitalAnalytics?.serving_count ?? hospitalServingTickets.length;
     const completedToday = footfallSummary.today_completed ?? hospitalAnalytics?.completed_today ?? 0;
-    const avgWait = hospitalAnalytics?.avg_wait_minutes ?? 12;
+    const avgWaitActual = hospitalAnalytics?.avg_actual_wait_minutes ?? null;
+    const avgWaitEstimated = hospitalAnalytics?.estimated_wait_minutes_waiting ?? hospitalAnalytics?.avg_wait_minutes ?? null;
     const activeDesksCount = hospitalDesksData.active_desks || 0;
     const totalDesksCount = hospitalDesksData.total_desks || 0;
     const doctorsCount = hospitalEmployees.filter((e) => (e.role || "").toLowerCase() === "doctor").length;
@@ -209,12 +214,23 @@ export default function Hospital360Overview({
         );
     };
 
-    const secondsSinceSync = Math.max(0, Math.floor((Date.now() - (lastSyncedAt ? new Date(lastSyncedAt).getTime() : Date.now())) / 1000));
-    const syncLabel = secondsSinceSync <= 2 ? "just now" : `${secondsSinceSync}s ago`;
+    const [nowTick, setNowTick] = React.useState(Date.now());
+    React.useEffect(() => {
+        const timer = setInterval(() => setNowTick(Date.now()), 1000);
+        return () => clearInterval(timer);
+    }, []);
+
+    const secondsSinceSync = Math.max(0, Math.floor((nowTick - (lastSyncedAt ? new Date(lastSyncedAt).getTime() : nowTick)) / 1000));
+    const syncLabel = secondsSinceSync <= 2 ? (isHi ? "अभी-अभी" : "just now") : (isHi ? `${secondsSinceSync}s पहले` : `${secondsSinceSync}s ago`);
 
     // Real-Time Telemetry Graph States
     const [chartMetricFilter, setChartMetricFilter] = React.useState("all");
-    const [telemetryPeriod, setTelemetryPeriod] = React.useState("today"); // "today" | "yesterday" | "week" | "month"
+    const [localTelemetryPeriod, setLocalTelemetryPeriod] = React.useState(visitsPeriod || "today");
+    const telemetryPeriod = visitsPeriod || localTelemetryPeriod;
+    const handlePeriodChange = (newP) => {
+        setLocalTelemetryPeriod(newP);
+        if (setVisitsPeriod) setVisitsPeriod(newP);
+    };
 
     // Helper functions for silky smooth cubic Bézier splines
     const getSmoothSvgPath = (points) => {
@@ -301,8 +317,35 @@ export default function Hospital360Overview({
         : { hourlyData: [], maxVolume: 0, peakHourLabel: "No Activity", peakAvgWait: 0, totalVisits: 0 };
     const bottleneckAnalytics = computeDepartmentBottlenecks ? computeDepartmentBottlenecks(hospitalDepts, hospitalQueueSnapshot, activeVisitsForHourly) : [];
 
+
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "22px" }}>
+            {/* Live Telemetry Error Warning Banner */}
+            {deepDiveError && (
+                <div
+                    style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        background: "rgba(239, 68, 68, 0.12)",
+                        border: "1.5px solid rgba(239, 68, 68, 0.4)",
+                        borderRadius: "14px",
+                        padding: "12px 18px",
+                        color: "#EF4444",
+                        fontSize: "13px",
+                        fontWeight: 700,
+                    }}
+                >
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                        <span style={{ fontSize: "16px" }}>⚠️</span>
+                        <span>{typeof deepDiveError === "string" ? deepDiveError : deepDiveError.message}</span>
+                    </div>
+                    <span style={{ fontSize: "11px", opacity: 0.85, fontFamily: "monospace" }}>
+                        {lastSyncedAt ? new Date(lastSyncedAt).toLocaleTimeString() : ""}
+                    </span>
+                </div>
+            )}
+
             {/* 1. EXECUTIVE FACILITY IDENTITY & CONTROL BANNER */}
             <div
                 className="overview-facility-banner"
@@ -527,22 +570,53 @@ export default function Hospital360Overview({
                         </div>
                     )}
 
-                    <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "4px" }}>
-                        <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--superadmin-text-muted, #64748B)" }}>
-                            {isHi ? "अस्पताल कोड:" : "Hospital Code:"}
-                        </span>
-                        <code
+                    <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                        {/* Live Socket Connection Badge & Sync Counter */}
+                        <div
                             style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "6px",
+                                padding: "3px 9px",
+                                borderRadius: "8px",
                                 fontSize: "11px",
                                 fontWeight: 800,
-                                padding: "2px 7px",
-                                background: "var(--superadmin-sub-card, #E2E8F0)",
-                                borderRadius: "6px",
-                                color: "var(--superadmin-text-main, #334155)",
+                                background: socketConnected === true ? "rgba(16, 185, 129, 0.12)" : socketConnected === false ? "rgba(239, 68, 68, 0.12)" : "rgba(245, 158, 11, 0.12)",
+                                border: socketConnected === true ? "1px solid rgba(16, 185, 129, 0.3)" : socketConnected === false ? "1px solid rgba(239, 68, 68, 0.3)" : "1px solid rgba(245, 158, 11, 0.3)",
+                                color: socketConnected === true ? "#10B981" : socketConnected === false ? "#EF4444" : "#F59E0B",
                             }}
+                            title={socketConnected === true ? "WebSocket connected to real-time telemetry stream" : socketConnected === false ? "Offline. Polling every 20s" : "Reconnecting to live telemetry stream"}
                         >
-                            {currentHosp.hospital_code}
-                        </code>
+                            <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: socketConnected === true ? "#10B981" : socketConnected === false ? "#EF4444" : "#F59E0B" }} />
+                            <span>
+                                {socketConnected === true
+                                    ? (isHi ? "लाइव" : "Live")
+                                    : socketConnected === false
+                                    ? (isHi ? "ऑफ़लाइन - हर 20s में रिफ्रेश" : "Offline - refreshing every 20s")
+                                    : (isHi ? "पुनः कनेक्ट हो रहा है…" : "Reconnecting…")}
+                            </span>
+                            <span style={{ opacity: 0.7, fontWeight: 600, fontSize: "10px", marginLeft: "2px" }}>
+                                • {syncLabel}
+                            </span>
+                        </div>
+
+                        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                            <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--superadmin-text-muted, #64748B)" }}>
+                                {isHi ? "अस्पताल कोड:" : "Hospital Code:"}
+                            </span>
+                            <code
+                                style={{
+                                    fontSize: "11px",
+                                    fontWeight: 800,
+                                    padding: "2px 7px",
+                                    background: "var(--superadmin-sub-card, #E2E8F0)",
+                                    borderRadius: "6px",
+                                    color: "var(--superadmin-text-main, #334155)",
+                                }}
+                            >
+                                {currentHosp.hospital_code}
+                            </code>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -638,10 +712,42 @@ export default function Hospital360Overview({
                         </div>
                     </div>
                     <div style={{ fontSize: "30px", fontWeight: 900, color: "#6366F1", letterSpacing: "-0.5px" }}>
-                        ~{avgWait} <span style={{ fontSize: "14px", fontWeight: 700 }}>min</span>
+                        {avgWaitActual !== null ? (
+                            <>
+                                {Math.round(Number(avgWaitActual) * 10) / 10} <span style={{ fontSize: "14px", fontWeight: 700 }}>min</span>
+                            </>
+                        ) : avgWaitEstimated !== null ? (
+                            <>
+                                ~{Math.round(Number(avgWaitEstimated) * 10) / 10} <span style={{ fontSize: "14px", fontWeight: 700 }}>min</span>
+                            </>
+                        ) : (
+                            "—"
+                        )}
                     </div>
                     <span style={{ fontSize: "11.5px", color: "var(--superadmin-text-muted, #3730A3)", marginTop: "4px", fontWeight: 600 }}>
-                        {isHi ? "स्मार्ट एआई थ्रूपुट" : "AI estimated turnaround"}
+                        {avgWaitActual !== null
+                            ? (isHi ? "वास्तविक प्रतीक्षा (आज का औसत)" : "Actual average wait today")
+                            : avgWaitEstimated !== null
+                            ? (isHi ? "अनुमानित प्रतीक्षा (कतार मॉडल)" : "Estimated wait (waiting queue)")
+                            : (isHi ? "कोई डेटा नहीं" : "No wait data yet")}
+                    </span>
+                </div>
+
+                {/* KPI 6: Active Desks / Counters */}
+                <div className="overview-kpi-card" style={{ border: "1.5px solid #BBF7D0" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                        <span style={{ fontSize: "12.5px", fontWeight: 700, color: "#16A34A" }}>
+                            {isHi ? "सक्रिय डेस्क" : "Active Desks"}
+                        </span>
+                        <div style={{ width: "32px", height: "32px", borderRadius: "10px", background: "rgba(34, 197, 94, 0.15)", display: "flex", alignItems: "center", justifyContent: "center", color: "#16A34A" }}>
+                            <IconBuilding size={16} />
+                        </div>
+                    </div>
+                    <div style={{ fontSize: "30px", fontWeight: 900, color: "#16A34A", letterSpacing: "-0.5px" }}>
+                        {activeDesksCount} <span style={{ fontSize: "15px", fontWeight: 700, color: "var(--superadmin-text-muted, #64748B)" }}>/ {totalDesksCount}</span>
+                    </div>
+                    <span style={{ fontSize: "11.5px", color: "var(--superadmin-text-muted, #14532D)", marginTop: "4px", fontWeight: 600 }}>
+                        {isHi ? "ड्यूटी पर कार्यरत काउंटर" : "Staffed on duty right now"}
                     </span>
                 </div>
 
@@ -785,7 +891,7 @@ export default function Hospital360Overview({
                                         <button
                                             key={p.id}
                                             type="button"
-                                            onClick={() => setTelemetryPeriod(p.id)}
+                                            onClick={() => handlePeriodChange(p.id)}
                                             style={{
                                                 padding: "4px 9px",
                                                 borderRadius: "7px",
@@ -929,7 +1035,7 @@ export default function Hospital360Overview({
                                             </span>
                                         </div>
                                         <span style={{ fontSize: "10.5px", color: "var(--superadmin-text-muted, #64748B)" }}>
-                                            Benchmark compliance: {!hasPatientsInSlot ? "100%" : `${activeData.compliancePct || 100}%`}
+                                            Benchmark compliance: {!hasPatientsInSlot || activeData.compliancePct === null || activeData.compliancePct === undefined ? "—" : `${activeData.compliancePct}%`}
                                         </span>
                                     </div>
 

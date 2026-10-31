@@ -2217,3 +2217,436 @@ export function printRadiologyReportSlip(reportData = {}, language = "en", hospi
 
   triggerIframePrint(html);
 }
+
+/**
+ * Number to Indian Words Helper (for official financial receipts)
+ */
+function numberToWords(amount) {
+  const num = Math.floor(Number(amount) || 0);
+  if (num === 0) return "Zero Rupees Only";
+
+  const a = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
+  const b = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+
+  function inWords(n) {
+    if (n < 20) return a[n];
+    if (n < 100) return b[Math.floor(n / 10)] + (n % 10 !== 0 ? " " + a[n % 10] : "");
+    if (n < 1000) return a[Math.floor(n / 100)] + " Hundred" + (n % 100 !== 0 ? " and " + inWords(n % 100) : "");
+    if (n < 100000) return inWords(Math.floor(n / 1000)) + " Thousand" + (n % 1000 !== 0 ? " " + inWords(n % 1000) : "");
+    if (n < 10000000) return inWords(Math.floor(n / 100000)) + " Lakh" + (n % 100000 !== 0 ? " " + inWords(n % 100000) : "");
+    return inWords(Math.floor(n / 10000000)) + " Crore" + (n % 10000000 !== 0 ? " " + inWords(n % 10000000) : "");
+  }
+
+  return inWords(num) + " Rupees Only";
+}
+
+/**
+ * Print Official Hospital Bill / Tax Invoice (A4)
+ */
+export function printBillInvoice(billData = {}, language = "en", hospitalBranding = null) {
+  const isHi = language === "hi";
+  const hospName =
+    (hospitalBranding && (hospitalBranding.hospital_name || hospitalBranding.name)) ||
+    billData.hospital_name ||
+    (isHi ? "सिटी जनरल अस्पताल" : "City General Hospital");
+  const brandColor = (hospitalBranding && hospitalBranding.primary_color) || "#0284C7";
+  const logoUrl = (hospitalBranding && (hospitalBranding.logo_url || hospitalBranding.hospital_logo)) || "";
+
+  const billNumber = billData.bill_number || `INV-${new Date().getFullYear()}-000000`;
+  const dateStr = billData.created_at ? new Date(billData.created_at).toLocaleDateString() : new Date().toLocaleDateString();
+  const timeStr = billData.created_at
+    ? new Date(billData.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  const patient = billData.patients || billData.patient || {};
+  const patientName = patient.full_name || billData.patient_name || (isHi ? "मरीज़" : "Walk-in Patient");
+  const uhid = patient.uhid || billData.uhid || "UHID-TEMP";
+  const age = patient.age || billData.age || "-";
+  const gender = (patient.gender || billData.gender || "-").toUpperCase();
+  const phone = patient.phone || billData.phone || "N/A";
+  const ticketId = billData.ticket_id || "N/A";
+  const cashierName = billData.employees_bills_created_byToemployees?.full_name || billData.cashier_name || "Cashier Desk";
+
+  const items = Array.isArray(billData.bill_items) ? billData.bill_items : [];
+  const subtotal = Number(billData.subtotal || 0).toFixed(2);
+  const discountAmt = Number(billData.discount_amount || 0).toFixed(2);
+  const discountReason = billData.discount_reason ? ` (${billData.discount_reason})` : "";
+  const taxAmt = Number(billData.tax_amount || 0).toFixed(2);
+  const grandTotal = Number(billData.grand_total || 0).toFixed(2);
+  const amountPaid = Number(billData.amount_paid || 0).toFixed(2);
+  const balanceDue = Number(billData.balance_due || 0).toFixed(2);
+  const status = billData.status || "Pending";
+
+  const payments = Array.isArray(billData.payments) ? billData.payments : [];
+
+  const itemsRows = items
+    .map((item, idx) => {
+      const desc = item.description || "Medical Service";
+      const dept = (item.department_code || "General").toUpperCase();
+      const qty = Number(item.quantity || 1).toFixed(0);
+      const unitPrice = Number(item.unit_price || 0).toFixed(2);
+      const tax = Number(item.tax_percent || 0).toFixed(0);
+      const lineTotal = Number(item.line_total || 0).toFixed(2);
+
+      return `
+      <tr style="border-bottom: 1px solid #E2E8F0;">
+        <td style="padding: 7px 10px; font-size: 11px; color: #64748B; text-align: center;">${idx + 1}</td>
+        <td style="padding: 7px 10px; font-size: 11.5px; font-weight: 600; color: #1E293B;">
+          ${desc}
+          <span style="display: block; font-size: 9.5px; color: #64748B; font-weight: 400;">Dept: ${dept} • Src: ${item.source || "manual"}</span>
+        </td>
+        <td style="padding: 7px 10px; font-size: 11px; text-align: center; color: #334155;">${qty}</td>
+        <td style="padding: 7px 10px; font-size: 11px; text-align: right; color: #334155;">₹${unitPrice}</td>
+        <td style="padding: 7px 10px; font-size: 11px; text-align: right; color: #64748B;">${tax}%</td>
+        <td style="padding: 7px 10px; font-size: 11.5px; font-weight: 700; text-align: right; color: #0F172A;">₹${lineTotal}</td>
+      </tr>`;
+    })
+    .join("");
+
+  const paymentsRows = payments
+    .map(
+      (p) => `
+      <tr style="border-bottom: 1px dashed #CBD5E1;">
+        <td style="padding: 5px 8px; font-size: 10.5px; font-family: monospace; font-weight: bold; color: #0F172A;">${p.receipt_number || "-"}</td>
+        <td style="padding: 5px 8px; font-size: 10.5px; font-weight: 600; color: #047857;">${(p.mode || "CASH").toUpperCase()}</td>
+        <td style="padding: 5px 8px; font-size: 10px; color: #64748B;">${p.reference_no || "-"}</td>
+        <td style="padding: 5px 8px; font-size: 10px; color: #475569;">${p.received_at ? new Date(p.received_at).toLocaleDateString() : dateStr}</td>
+        <td style="padding: 5px 8px; font-size: 11px; font-weight: 700; text-align: right; color: #0F172A;">₹${Number(p.amount).toFixed(2)}</td>
+      </tr>`
+    )
+    .join("");
+
+  const statusBadge =
+    status === "Paid"
+      ? `<span style="background: #ECFDF5; color: #047857; border: 1.5px solid #059669; padding: 4px 14px; border-radius: 9999px; font-weight: 900; font-size: 12px; letter-spacing: 0.5px;">PAID / PAID IN FULL</span>`
+      : status === "Partially Paid"
+      ? `<span style="background: #FFFBEB; color: #B45309; border: 1.5px solid #D97706; padding: 4px 14px; border-radius: 9999px; font-weight: 900; font-size: 12px; letter-spacing: 0.5px;">PARTIALLY PAID</span>`
+      : `<span style="background: #FEF2F2; color: #B91C1C; border: 1.5px solid #DC2626; padding: 4px 14px; border-radius: 9999px; font-weight: 900; font-size: 12px; letter-spacing: 0.5px;">PAYMENT PENDING</span>`;
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Tax Invoice - ${billNumber}</title>
+  <style>
+    @page { size: A4 portrait; margin: 12mm 15mm 15mm 15mm; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; color: #0F172A; margin: 0; padding: 0; background: #fff; font-size: 11.5px; line-height: 1.4; }
+    .header-table { width: 100%; border-collapse: collapse; border-bottom: 2px solid ${brandColor}; padding-bottom: 10px; margin-bottom: 12px; }
+    .hosp-title { font-size: 20px; font-weight: 900; color: #0F172A; margin: 0 0 3px 0; }
+    .hosp-sub { font-size: 10px; color: #475569; font-weight: 500; }
+    .doc-type-badge { display: inline-block; background: #0F172A; color: #fff; font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 4px; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 4px; }
+    .info-card { width: 100%; border-collapse: collapse; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; margin-bottom: 14px; }
+    .info-card td { padding: 8px 12px; vertical-align: top; }
+    .field-label { font-size: 9px; font-weight: 700; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
+    .field-val { font-size: 11.5px; font-weight: 700; color: #0F172A; }
+    .items-table { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
+    .items-table th { background: #0F172A; color: #fff; font-size: 10px; text-transform: uppercase; font-weight: 800; letter-spacing: 0.5px; padding: 8px 10px; border: none; }
+    .totals-box { width: 45%; margin-left: auto; border-collapse: collapse; margin-bottom: 14px; }
+    .totals-box td { padding: 4px 8px; font-size: 11px; }
+    .grand-total-row { background: #F1F5F9; border-top: 2px solid #0F172A; border-bottom: 2px solid #0F172A; font-size: 13px !important; font-weight: 900; }
+    .words-box { background: #F8FAFC; border: 1px dashed #CBD5E1; padding: 6px 12px; font-size: 10.5px; color: #334155; margin-bottom: 14px; border-radius: 4px; }
+    .payments-table { width: 100%; border-collapse: collapse; margin-bottom: 18px; border: 1px solid #E2E8F0; }
+    .payments-table th { background: #F1F5F9; color: #334155; font-size: 9.5px; text-transform: uppercase; font-weight: 700; padding: 6px 8px; text-align: left; }
+    .signatures-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    .sign-line { border-top: 1px solid #64748B; width: 85%; padding-top: 5px; font-size: 10px; color: #475569; }
+    .footer-bar { border-top: 1px solid #E2E8F0; padding-top: 8px; margin-top: 14px; font-size: 9px; color: #64748B; text-align: center; }
+  </style>
+</head>
+<body>
+  <table class="header-table">
+    <tr>
+      <td style="width: 60%; vertical-align: top;">
+        ${logoUrl ? `<img src="${logoUrl}" style="max-height: 44px; margin-bottom: 6px;" alt="Logo" /><br/>` : ""}
+        <div class="hosp-title">${hospName}</div>
+        <div class="hosp-sub">NABH ACCREDITED MULTI-SPECIALTY HOSPITAL & RESEARCH CENTER</div>
+        <div class="hosp-sub">Central Cashier & Accounts Office • GSTIN: 07AAAAA0000A1Z5</div>
+      </td>
+      <td style="width: 40%; text-align: right; vertical-align: top;">
+        <div class="doc-type-badge">${isHi ? "हॉस्पिटल टैक्स चालान" : "HOSPITAL TAX INVOICE"}</div>
+        <div style="font-size: 14px; font-weight: 900; color: ${brandColor}; font-family: monospace;">${billNumber}</div>
+        <div style="font-size: 10px; color: #64748B; margin-top: 3px;">Date: <strong>${dateStr}</strong> | Time: <strong>${timeStr}</strong></div>
+        <div style="margin-top: 6px;">${statusBadge}</div>
+      </td>
+    </tr>
+  </table>
+
+  <table class="info-card">
+    <tr>
+      <td style="width: 35%;">
+        <div class="field-label">${isHi ? "मरीज़ का नाम" : "PATIENT NAME"}</div>
+        <div class="field-val">${patientName}</div>
+        <div style="font-size: 10px; color: #475569; margin-top: 2px;">Age: ${age} Yrs • Gender: ${gender}</div>
+      </td>
+      <td style="width: 25%;">
+        <div class="field-label">UHID / MRN</div>
+        <div class="field-val" style="font-family: monospace;">${uhid}</div>
+        <div style="font-size: 10px; color: #475569; margin-top: 2px;">Phone: ${phone}</div>
+      </td>
+      <td style="width: 20%;">
+        <div class="field-label">${isHi ? "टोकन सं." : "TOKEN / TICKET"}</div>
+        <div class="field-val" style="color: ${brandColor}; font-weight: 900;">#${ticketId}</div>
+      </td>
+      <td style="width: 20%;">
+        <div class="field-label">${isHi ? "बिलिंग काउंटर" : "BILLING DESK"}</div>
+        <div class="field-val">${cashierName}</div>
+      </td>
+    </tr>
+  </table>
+
+  <table class="items-table">
+    <thead>
+      <tr>
+        <th style="width: 6%; text-align: center;">#</th>
+        <th style="width: 48%; text-align: left;">${isHi ? "सेवा / प्रक्रिया विवरण" : "SERVICE / INVESTIGATION DESCRIPTION"}</th>
+        <th style="width: 10%; text-align: center;">QTY</th>
+        <th style="width: 12%; text-align: right;">RATE (₹)</th>
+        <th style="width: 10%; text-align: right;">TAX</th>
+        <th style="width: 14%; text-align: right;">AMOUNT (₹)</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${itemsRows || `<tr><td colspan="6" style="padding: 12px; text-align:center; color: #64748B;">No billable items</td></tr>`}
+    </tbody>
+  </table>
+
+  <table style="width: 100%; border-collapse: collapse;">
+    <tr>
+      <td style="width: 50%; vertical-align: top; padding-right: 14px;">
+        <div class="words-box">
+          <div style="font-size: 9px; font-weight: 700; color: #64748B; text-transform: uppercase;">Amount in Words:</div>
+          <div style="font-weight: 700; color: #0F172A; margin-top: 2px;">${numberToWords(grandTotal)}</div>
+        </div>
+
+        ${payments.length > 0 ? `
+          <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: #334155; margin-bottom: 4px;">Receipts & Payment History</div>
+          <table class="payments-table">
+            <thead>
+              <tr>
+                <th>Receipt #</th>
+                <th>Mode</th>
+                <th>Reference</th>
+                <th>Date</th>
+                <th style="text-align: right;">Paid (₹)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${paymentsRows}
+            </tbody>
+          </table>
+        ` : ""}
+      </td>
+      <td style="width: 50%; vertical-align: top;">
+        <table class="totals-box">
+          <tr>
+            <td style="color: #64748B;">Subtotal Gross:</td>
+            <td style="text-align: right; font-weight: 600;">₹${subtotal}</td>
+          </tr>
+          ${Number(discountAmt) > 0 ? `
+          <tr>
+            <td style="color: #047857;">Discount Applied${discountReason}:</td>
+            <td style="text-align: right; font-weight: 700; color: #047857;">-₹${discountAmt}</td>
+          </tr>` : ""}
+          ${Number(taxAmt) > 0 ? `
+          <tr>
+            <td style="color: #64748B;">GST / Tax:</td>
+            <td style="text-align: right; font-weight: 600;">₹${taxAmt}</td>
+          </tr>` : ""}
+          <tr class="grand-total-row">
+            <td style="padding: 8px;">GRAND TOTAL:</td>
+            <td style="padding: 8px; text-align: right; color: ${brandColor};">₹${grandTotal}</td>
+          </tr>
+          <tr>
+            <td style="color: #047857; font-weight: 600; padding-top: 6px;">Total Paid:</td>
+            <td style="text-align: right; font-weight: 700; color: #047857; padding-top: 6px;">₹${amountPaid}</td>
+          </tr>
+          <tr>
+            <td style="color: #B91C1C; font-weight: 700;">Balance Due:</td>
+            <td style="text-align: right; font-weight: 800; color: #B91C1C; font-size: 12px;">₹${balanceDue}</td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+
+  <table class="signatures-table">
+    <tr>
+      <td style="width: 35%; text-align: left; vertical-align: bottom;">
+        <div style="font-size: 9px; color: #64748B; margin-bottom: 28px;">Billed & Printed By:</div>
+        <div class="sign-line">
+          <strong>${cashierName}</strong><br />
+          Cashier / Accounts Executive
+        </div>
+      </td>
+      <td style="width: 30%; text-align: center; vertical-align: bottom;">
+        <div style="border: 1px dashed #CBD5E1; border-radius: 4px; padding: 6px 10px; font-size: 8.5px; color: #64748B;">
+          OFFICIAL HOSPITAL CASHIER SEAL<br/>
+          COMPUTER GENERATED TAX INVOICE
+        </div>
+      </td>
+      <td style="width: 35%; text-align: right; vertical-align: bottom;">
+        <div style="font-size: 9px; color: #64748B; margin-bottom: 28px;">Authorized Signatory:</div>
+        <div class="sign-line" style="margin-left: auto;">
+          <strong>Finance & Accounts Office</strong><br />
+          ${hospName}
+        </div>
+      </td>
+    </tr>
+  </table>
+
+  <div class="footer-bar">
+    ${hospName} • 24x7 Central Cashier Desk • This is a computer generated invoice and does not require physical seal • Taxes inclusive where applicable.
+  </div>
+</body>
+</html>`;
+
+  triggerIframePrint(html);
+}
+
+/**
+ * Print Payment Receipt (supports standard 80mm thermal receipt format and A4)
+ */
+export function printPaymentReceipt(paymentData = {}, language = "en", hospitalBranding = null, format = "thermal") {
+  const isHi = language === "hi";
+  const hospName =
+    (hospitalBranding && (hospitalBranding.hospital_name || hospitalBranding.name)) ||
+    paymentData.hospital_name ||
+    (isHi ? "सिटी जनरल अस्पताल" : "City General Hospital");
+  const brandColor = (hospitalBranding && hospitalBranding.primary_color) || "#0284C7";
+
+  const receiptNo = paymentData.receipt_number || `REC-${new Date().getFullYear()}-000000`;
+  const billNo = paymentData.bill_number || paymentData.bills?.bill_number || "INV-0000";
+  const dateStr = paymentData.received_at ? new Date(paymentData.received_at).toLocaleDateString() : new Date().toLocaleDateString();
+  const timeStr = paymentData.received_at
+    ? new Date(paymentData.received_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  const patient = paymentData.patients || paymentData.bills?.patients || paymentData.patient || {};
+  const patientName = patient.full_name || paymentData.patient_name || (isHi ? "मरीज़" : "Patient");
+  const uhid = patient.uhid || paymentData.uhid || "UHID-TEMP";
+  const ticketId = paymentData.ticket_id || paymentData.bills?.ticket_id || "N/A";
+  const cashierName = paymentData.employees?.full_name || paymentData.cashier_name || "Cashier Desk";
+
+  const mode = (paymentData.mode || "CASH").toUpperCase();
+  const refNo = paymentData.reference_no || "";
+  const amount = Number(paymentData.amount || 0).toFixed(2);
+  const grandTotal = paymentData.bills?.grand_total ? Number(paymentData.bills.grand_total).toFixed(2) : amount;
+  const balanceDue = paymentData.bills?.balance_due ? Number(paymentData.bills.balance_due).toFixed(2) : "0.00";
+
+  if (format === "thermal") {
+    // 80mm POS Thermal Slip
+    const thermalHtml = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Receipt - ${receiptNo}</title>
+  <style>
+    @page { size: 80mm auto; margin: 2mm 3mm; }
+    body { font-family: "Courier New", Courier, monospace, monospace; color: #000; width: 72mm; margin: 0 auto; padding: 4px 0; font-size: 11px; line-height: 1.35; }
+    .center { text-align: center; }
+    .bold { font-weight: bold; }
+    .title { font-size: 14px; font-weight: 900; margin-bottom: 2px; }
+    .sub { font-size: 9px; margin-bottom: 4px; }
+    .dash { border-top: 1px dashed #000; margin: 6px 0; }
+    .solid { border-top: 1px solid #000; margin: 6px 0; }
+    .row { display: flex; justify-content: space-between; margin: 2px 0; }
+    .amount-box { border: 2px solid #000; padding: 6px; text-align: center; margin: 8px 0; }
+    .amount-val { font-size: 18px; font-weight: 900; }
+    .footer { font-size: 9px; text-align: center; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="center title">${hospName.toUpperCase()}</div>
+  <div class="center sub">CENTRAL BILLING & CASHIER DESK</div>
+  <div class="center sub">OFFICIAL PAYMENT RECEIPT</div>
+
+  <div class="dash"></div>
+
+  <div class="row"><span>Receipt No:</span><span class="bold">${receiptNo}</span></div>
+  <div class="row"><span>Bill No:</span><span class="bold">${billNo}</span></div>
+  <div class="row"><span>Date & Time:</span><span>${dateStr} ${timeStr}</span></div>
+  <div class="row"><span>Cashier:</span><span>${cashierName}</span></div>
+
+  <div class="dash"></div>
+
+  <div class="row"><span>Patient:</span><span class="bold">${patientName}</span></div>
+  <div class="row"><span>UHID:</span><span>${uhid}</span></div>
+  <div class="row"><span>Token:</span><span class="bold">#${ticketId}</span></div>
+
+  <div class="dash"></div>
+
+  <div class="row"><span>Payment Mode:</span><span class="bold">${mode}</span></div>
+  ${refNo ? `<div class="row"><span>Ref / Txn ID:</span><span>${refNo}</span></div>` : ""}
+
+  <div class="amount-box">
+    <div style="font-size: 10px; font-weight: bold; text-transform: uppercase;">AMOUNT RECEIVED</div>
+    <div class="amount-val">₹${amount}</div>
+    <div style="font-size: 8.5px; margin-top: 2px;">${numberToWords(amount)}</div>
+  </div>
+
+  <div class="row"><span>Bill Total:</span><span>₹${grandTotal}</span></div>
+  <div class="row"><span>Balance Due:</span><span class="bold">₹${balanceDue}</span></div>
+
+  <div class="solid"></div>
+
+  <div class="footer">
+    *** THANK YOU • WISH YOU SPEEDY RECOVERY ***<br/>
+    Keep this slip safely for insurance & tax claims.
+  </div>
+</body>
+</html>`;
+    triggerIframePrint(thermalHtml);
+    return;
+  }
+
+  // A4 Standard Receipt format
+  const a4Html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Payment Receipt - ${receiptNo}</title>
+  <style>
+    @page { size: A5 landscape; margin: 10mm; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; color: #0F172A; margin: 0; padding: 12px; background: #fff; font-size: 12px; }
+    .header { border-bottom: 2px solid ${brandColor}; padding-bottom: 8px; margin-bottom: 12px; display: flex; justify-content: space-between; }
+    .card { background: #F8FAFC; border: 1px solid #E2E8F0; padding: 10px 14px; border-radius: 6px; margin-bottom: 14px; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .badge { display: inline-block; background: #047857; color: #fff; padding: 4px 10px; font-weight: 800; border-radius: 4px; font-size: 11px; }
+    .amount-highlight { background: #ECFDF5; border: 1.5px solid #059669; padding: 12px; border-radius: 6px; text-align: center; margin-bottom: 14px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h2 style="margin: 0; font-size: 18px; font-weight: 900;">${hospName}</h2>
+      <div style="font-size: 10.5px; color: #475569;">Central Billing Office • Official Money Receipt</div>
+    </div>
+    <div style="text-align: right;">
+      <div class="badge">PAYMENT RECEIVED</div>
+      <div style="font-family: monospace; font-size: 14px; font-weight: 900; margin-top: 4px;">${receiptNo}</div>
+      <div style="font-size: 10px; color: #64748B;">${dateStr} ${timeStr}</div>
+    </div>
+  </div>
+
+  <div class="card grid">
+    <div><strong>Patient:</strong> ${patientName}</div>
+    <div><strong>UHID:</strong> ${uhid}</div>
+    <div><strong>Token:</strong> #${ticketId}</div>
+    <div><strong>Bill No:</strong> ${billNo}</div>
+    <div><strong>Payment Mode:</strong> ${mode}</div>
+    <div><strong>Cashier:</strong> ${cashierName}</div>
+  </div>
+
+  <div class="amount-highlight">
+    <div style="font-size: 11px; font-weight: 700; color: #047857;">TOTAL AMOUNT RECEIVED</div>
+    <div style="font-size: 26px; font-weight: 900; color: #065F46; margin: 4px 0;">₹${amount}</div>
+    <div style="font-size: 11px; color: #334155;">(${numberToWords(amount)})</div>
+  </div>
+
+  <div style="display: flex; justify-content: space-between; margin-top: 24px; font-size: 11px;">
+    <div>Patient / Depositor Signature</div>
+    <div style="text-align: right;">Authorized Cashier Signature<br/><strong>${cashierName}</strong></div>
+  </div>
+</body>
+</html>`;
+  triggerIframePrint(a4Html);
+}

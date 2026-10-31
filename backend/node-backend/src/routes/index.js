@@ -19,6 +19,7 @@ const kioskRoutes = require("./kiosk.routes");
 const broadcastRoutes = require("./broadcast.routes");
 const patientHistoryRoutes = require("./patientHistory.routes");
 const radiologyRoutes = require("./radiology.routes");
+const billingRoutes = require("./billing.routes");
 const { getUserHistory, lookupPatientAccount, addFamilyMemberFromStaff } = require("../controllers/auth.controller");
 const { optionalAuth } = require("../middleware/auth");
 
@@ -38,6 +39,9 @@ router.use("/api/v1/plugin", queueRoutes);
 
 // Radiology & Imaging plugin routes (/api/v1/plugin/radiology/*)
 router.use("/api/v1/plugin", radiologyRoutes);
+
+// Cashier & Central Billing routes (/api/v1/billing/*)
+router.use("/api/v1/billing", billingRoutes);
 
 // Ticket routes (/api/v1/* and /api/v1/plugin/*)
 router.use("/api/v1", ticketRoutes);

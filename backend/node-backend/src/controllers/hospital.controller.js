@@ -6,6 +6,7 @@
 
 const prisma = require("../config/prisma");
 const {
+  checkHospitalCodeAvailable,
   getSuperAdminOverview,
   getAllHospitals,
   getHospitalByCode,
@@ -32,6 +33,7 @@ const {
   bulkUpdateDeskStatus,
   getDatabaseOverview,
   getHospitalVisitHistory,
+  getHospitalLiveSummary,
   bulkAddHospitalEmployees,
   bulkAddHospitalVisits,
 } = require("../services/hospitalService");
@@ -43,7 +45,21 @@ function notifyHospitalChange(req, hospitalCode, eventType = "hospital_data_chan
     const io = req?.app?.get("io") || getIo();
     if (io && hospitalCode) {
       io.to(hospitalCode).emit(eventType, { hospital_code: hospitalCode, timestamp: new Date().toISOString() });
-      io.emit(eventType, { hospital_code: hospitalCode, timestamp: new Date().toISOString() });
+    }
+  } catch (e) {
+    // Ignore socket error
+  }
+}
+
+function notifyDeskChange(req, hospitalCode, deskData = null) {
+  try {
+    const io = req?.app?.get("io") || getIo();
+    if (io && hospitalCode) {
+      io.to(hospitalCode).emit("desk_update", {
+        hospital_code: hospitalCode,
+        desk: deskData,
+        timestamp: new Date().toISOString(),
+      });
     }
   } catch (e) {
     // Ignore socket error
@@ -114,40 +130,207 @@ async function getPublicHospitalsEndpoint(req, res, next) {
   }
 }
 
+async function checkHospitalCodeEndpoint(req, res, next) {
+  try {
+    const rawCode = req.query.code || "";
+    const cleanCode = String(rawCode).trim().toLowerCase();
+    if (!cleanCode) {
+      return res.status(400).json({ status: "error", message: "Code parameter is required." });
+    }
+    const isValidFormat = /^[a-z0-9-]+$/.test(cleanCode) && cleanCode.length >= 3 && cleanCode.length <= 40;
+    if (!isValidFormat) {
+      return res.status(200).json({
+        status: "success",
+        code: cleanCode,
+        available: false,
+        valid: false,
+        message: "Code must be 3-40 characters and contain only lowercase letters, digits, and hyphens.",
+      });
+    }
+
+    const available = await checkHospitalCodeAvailable(cleanCode);
+    return res.status(200).json({
+      status: "success",
+      code: cleanCode,
+      available,
+      valid: true,
+      message: available ? "Hospital code is available." : "Hospital code is already in use.",
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function createHospitalEndpoint(req, res, next) {
   try {
     const {
       hospital_code,
       name,
+      type,
+      registration_no,
+      nabh_status,
+      nabh_number,
+      nabh_valid_until,
+      established_year,
+      total_beds,
+      icu_beds,
+      logo_url,
+      tagline,
+      phone,
+      alt_phone,
+      emergency_helpline,
+      email,
+      support_email,
+      website,
+      address_line1,
+      address_line2,
+      city,
+      state,
+      pincode,
+      country,
+      maps_link,
       address = "",
-      phone = "",
-      email = "",
+      opd_start_time,
+      opd_end_time,
+      registration_cutoff,
+      timezone,
+      working_days,
+      departments,
+      languages,
+      admin,
+      primary_color,
+      secondary_color,
+      accent_color,
+      about_us,
       description = "",
-      logo_url = "",
       status = "active",
     } = req.body;
 
-    if (!hospital_code || !name) {
-      return res.status(400).json({ status: "error", message: "Hospital code and name are required." });
+    // Step 1 Validation
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ status: "error", message: "Hospital name is required." });
+    }
+    const cleanCode = String(hospital_code || "").trim().toLowerCase();
+    if (!cleanCode) {
+      return res.status(400).json({ status: "error", message: "Hospital code is required." });
+    }
+    if (!/^[a-z0-9-]+$/.test(cleanCode) || cleanCode.length < 3 || cleanCode.length > 40) {
+      return res.status(400).json({
+        status: "error",
+        message: "Hospital code must be 3-40 characters and contain only lowercase letters, digits, and hyphens.",
+      });
     }
 
-    const hospital = await createHospital({
-      hospitalCode: hospital_code,
-      name,
-      address,
-      phone,
-      email,
-      description,
+    // Step 2 Validation
+    if (!phone || !String(phone).trim()) {
+      return res.status(400).json({ status: "error", message: "Phone number is required." });
+    }
+    const cleanEmail = String(email || "").trim().toLowerCase();
+    if (!cleanEmail || !/\S+@\S+\.\S+/.test(cleanEmail)) {
+      return res.status(400).json({ status: "error", message: "A valid official email is required." });
+    }
+    if (!address_line1 && !address) {
+      return res.status(400).json({ status: "error", message: "Address Line 1 is required." });
+    }
+    if (!city || !String(city).trim()) {
+      return res.status(400).json({ status: "error", message: "City is required." });
+    }
+    if (!state || !String(state).trim()) {
+      return res.status(400).json({ status: "error", message: "State is required." });
+    }
+    const cleanPincode = String(pincode || "").trim();
+    if (cleanPincode && !/^\d{6}$/.test(cleanPincode)) {
+      return res.status(400).json({ status: "error", message: "PIN code must be a 6-digit number." });
+    }
+
+    // Beds validation
+    if (total_beds !== undefined && total_beds !== null && total_beds !== "") {
+      if (parseInt(total_beds, 10) < 0) {
+        return res.status(400).json({ status: "error", message: "Total beds cannot be negative." });
+      }
+    }
+    if (icu_beds !== undefined && icu_beds !== null && icu_beds !== "") {
+      if (parseInt(icu_beds, 10) < 0) {
+        return res.status(400).json({ status: "error", message: "ICU beds cannot be negative." });
+      }
+    }
+
+    // Time validation
+    if (opd_start_time && opd_end_time && opd_start_time >= opd_end_time) {
+      return res.status(400).json({ status: "error", message: "OPD start time must be earlier than OPD end time." });
+    }
+
+    // Step 4: Admin validation if requested
+    if (admin && admin.create_admin !== false && admin.email) {
+      if (!admin.name || !String(admin.name).trim()) {
+        return res.status(400).json({ status: "error", message: "Admin full name is required when creating an admin account." });
+      }
+      if (!/\S+@\S+\.\S+/.test(String(admin.email).trim())) {
+        return res.status(400).json({ status: "error", message: "A valid email is required for the admin account." });
+      }
+      if (admin.password && String(admin.password).length < 6) {
+        return res.status(400).json({ status: "error", message: "Admin password must be at least 6 characters." });
+      }
+    }
+
+    const result = await createHospital({
+      hospitalCode: cleanCode,
+      name: String(name).trim(),
+      type,
+      registrationNo: registration_no,
+      nabhStatus: nabh_status,
+      nabhNumber: nabh_number,
+      nabhValidUntil: nabh_valid_until,
+      establishedYear: established_year,
+      totalBeds: total_beds,
+      icuBeds: icu_beds,
       logoUrl: logo_url,
+      tagline,
+      phone: String(phone).trim(),
+      altPhone: alt_phone,
+      emergencyHelpline: emergency_helpline,
+      email: cleanEmail,
+      supportEmail: support_email,
+      website,
+      addressLine1: address_line1,
+      addressLine2: address_line2,
+      city: String(city).trim(),
+      state: String(state).trim(),
+      pincode: cleanPincode,
+      country,
+      mapsLink: maps_link,
+      address,
+      opdStartTime: opd_start_time,
+      opdEndTime: opd_end_time,
+      registrationCutoff: registration_cutoff,
+      timezone,
+      workingDays: working_days,
+      departments,
+      languages,
+      admin,
+      primaryColor: primary_color,
+      secondaryColor: secondary_color,
+      accentColor: accent_color,
+      aboutUs: about_us,
+      description,
       status,
       ownerUserId: req.user?.id || null,
     });
 
     return res.status(200).json({
       status: "success",
-      hospital,
+      hospital: result.hospital,
+      departments_count: result.departments_count,
+      desks_count: result.desks_count,
+      admin_user: result.admin_user,
     });
   } catch (error) {
+    if (error.status === 409 || error.statusCode === 409) {
+      return res.status(409).json({ status: "error", message: error.message });
+    }
+    if (error.code === "P2002") {
+      return res.status(409).json({ status: "error", message: "Hospital code or unique email already exists." });
+    }
     next(error);
   }
 }
@@ -538,6 +721,7 @@ async function addHospitalDeskEndpoint(req, res, next) {
 
     const desk = await addHospitalDesk(hospitalCode, dept_code, desk_name, status, assigned_employee_id);
     notifyHospitalChange(req, hospitalCode);
+    notifyDeskChange(req, hospitalCode, desk);
     return res.status(200).json({
       status: "success",
       desk,
@@ -555,6 +739,7 @@ async function assignHospitalDeskEndpoint(req, res, next) {
 
     const desk = await assignHospitalDesk(hospitalCode, deskId, assigned_employee_id);
     notifyHospitalChange(req, hospitalCode);
+    notifyDeskChange(req, hospitalCode, desk);
     return res.status(200).json({
       status: "success",
       desk,
@@ -578,6 +763,7 @@ async function updateHospitalDeskEndpoint(req, res, next) {
       assigned_employee_id !== undefined ? assigned_employee_id : -1
     );
     notifyHospitalChange(req, hospitalCode);
+    notifyDeskChange(req, hospitalCode, desk);
     return res.status(200).json({
       status: "success",
       desk,
@@ -611,6 +797,7 @@ async function bulkUpdateDeskStatusEndpoint(req, res, next) {
 
     const result = await bulkUpdateDeskStatus(hospitalCode, dept_code, status);
     notifyHospitalChange(req, hospitalCode);
+    notifyDeskChange(req, hospitalCode, result);
     return res.status(200).json({
       status: "success",
       result,
@@ -626,6 +813,7 @@ async function deleteHospitalDeskEndpoint(req, res, next) {
     const hospitalCode = req.params.hospital_code;
     const result = await deleteHospitalDesk(deskId);
     notifyHospitalChange(req, hospitalCode);
+    notifyDeskChange(req, hospitalCode, { id: deskId, deleted: true });
     return res.status(200).json({
       status: "success",
       result,
@@ -643,6 +831,7 @@ async function updateDeskStatusEndpoint(req, res, next) {
 
     const desk = await updateDeskStatus(deskId, status);
     notifyHospitalChange(req, hospitalCode);
+    notifyDeskChange(req, hospitalCode, desk);
     return res.status(200).json({
       status: "success",
       desk,
@@ -694,7 +883,8 @@ async function getHospitalVisitsEndpoint(req, res, next) {
   try {
     const hospitalCode = req.params.hospital_code;
     const limit = parseInt(req.query.limit, 10) || 500;
-    const history = await getHospitalVisitHistory(hospitalCode, limit);
+    const period = req.query.period || null;
+    const history = await getHospitalVisitHistory(hospitalCode, limit, period);
     if (!history) {
       return res.status(404).json({
         status: "error",
@@ -704,6 +894,25 @@ async function getHospitalVisitsEndpoint(req, res, next) {
     return res.status(200).json({
       status: "success",
       ...history,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function getHospitalLiveSummaryEndpoint(req, res, next) {
+  try {
+    const hospitalCode = req.params.hospital_code;
+    const summary = await getHospitalLiveSummary(hospitalCode);
+    if (!summary) {
+      return res.status(404).json({
+        status: "error",
+        message: "Hospital not found",
+      });
+    }
+    return res.status(200).json({
+      status: "success",
+      ...summary,
     });
   } catch (error) {
     next(error);
@@ -751,6 +960,7 @@ async function bulkAddHospitalVisitsEndpoint(req, res, next) {
 }
 
 module.exports = {
+  checkHospitalCodeEndpoint,
   getHospitalInfoEndpoint,
   getPublicHospitalsEndpoint,
   getSuperadminOverviewEndpoint,
@@ -779,6 +989,7 @@ module.exports = {
   bulkUpdateDeskStatusEndpoint,
   getDbOverviewEndpoint,
   getHospitalVisitsEndpoint,
+  getHospitalLiveSummaryEndpoint,
   bulkAddHospitalEmployeesEndpoint,
   bulkAddHospitalVisitsEndpoint,
 };

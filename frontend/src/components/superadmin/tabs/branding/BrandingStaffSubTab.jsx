@@ -269,7 +269,7 @@ export default function BrandingStaffSubTab({
 
     // Auto-generate employee ID when role changes
     const handleRoleChange = (newRole) => {
-        const prefix = newRole === "doctor" ? "DOC" : newRole === "nurse" ? "NUR" : newRole === "receptionist" ? "REC" : newRole === "radiologist" ? "RAD" : newRole === "radiology_technician" ? "XRAY" : newRole === "pathologist" ? "PATH" : "EMP";
+        const prefix = newRole === "doctor" ? "DOC" : newRole === "nurse" ? "NUR" : newRole === "receptionist" ? "REC" : newRole === "radiologist" ? "RAD" : newRole === "radiology_technician" ? "XRAY" : newRole === "pathologist" ? "PATH" : newRole === "cashier" ? "CASH" : newRole === "accountant" ? "ACC" : "EMP";
         const randomNum = Math.floor(1000 + Math.random() * 9000);
         setStaffForm((prev) => ({
             ...prev,
@@ -1659,6 +1659,8 @@ export default function BrandingStaffSubTab({
                                             <option value="radiologist">{isHi ? "रेडियोलॉजिस्ट (Radiologist)" : "Radiologist"}</option>
                                             <option value="radiology_technician">{isHi ? "रेडियोलॉजी तकनीशियन (Radiographer)" : "Radiology Technician"}</option>
                                             <option value="pathologist">{isHi ? "पैथोलॉजिस्ट (Pathologist)" : "Pathologist"}</option>
+                                            <option value="cashier">{isHi ? "कैशियर / बिलिंग (Cashier & Billing)" : "Cashier & Billing"}</option>
+                                            <option value="accountant">{isHi ? "अकाउंटेंट (Accountant)" : "Accountant"}</option>
                                             <option value="hospital_admin">{isHi ? "अस्पताल व्यवस्थापक" : "Hospital Admin"}</option>
                                         </select>
                                     </div>
@@ -1678,6 +1680,7 @@ export default function BrandingStaffSubTab({
                                             <option value="pharmacy">Pharmacy</option>
                                             <option value="laboratory">Laboratory / Pathology</option>
                                             <option value="radiology">Radiology</option>
+                                            <option value="billing">Central Billing & Cashier</option>
                                             {hospitalDepts && hospitalDepts.map((d) => (
                                                 <option key={d.dept_code || d.name} value={d.dept_code || d.name}>
                                                     {d.name}

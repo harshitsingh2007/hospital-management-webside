@@ -18,6 +18,8 @@ const {
 } = require("../services/ticketService");
 const { triggerModelRetrain } = require("../services/aiService");
 const { PRIORITY_EMERGENCY, PRIORITY_ROUTINE, PRIORITY_STANDARD } = require("../utils/clinicalComplexity");
+const { verifyToken } = require("../utils/jwt");
+const { verifyHospitalAccess } = require("../middleware/hospitalIsolation");
 
 let ioInstance = null;
 
@@ -27,22 +29,22 @@ function urgencyToPriority(consumerType, urgency) {
   return PRIORITY_ROUTINE;
 }
 
-
 async function broadcastQueueUpdate(io, tenantId) {
-  const tid = String(tenantId || "city-hospital-01").trim();
+  if (!tenantId) return;
+  const tid = String(tenantId).trim();
   const snapshot = await engine.getQueueSnapshot(tid);
   const serving = await engine.getServingTickets(tid);
   const held = await engine.getHeldTickets(tid);
   const analytics = await engine.getTenantAnalytics(tid);
 
   const queuePayload = { snapshot, serving, held, analytics, tenant_id: tid };
-  io.emit("queue_updated", queuePayload);
-  io.emit("queue_update", queuePayload);
-  io.emit("analytics_update", analytics);
+  io.to(tid).emit("queue_updated", queuePayload);
+  io.to(tid).emit("queue_update", queuePayload);
+  io.to(tid).emit("analytics_update", analytics);
 
   const alerts = await engine.getTicketsNeedingTurnAlert(tid);
   if (alerts && alerts.length > 0) {
-    io.emit("turn_alert", { tickets: alerts, tenant_id: tid });
+    io.to(tid).emit("turn_alert", { tickets: alerts, tenant_id: tid });
   }
 }
 
@@ -57,13 +59,53 @@ function initSocket(server, corsOrigin = "*") {
 
   ioInstance = io;
 
-  io.on("connection", (socket) => {
-    const authTenant = socket.handshake.auth?.tenant_id || "city-hospital-01";
-    socket.join(authTenant);
+  // Socket Security Middleware: Require Verified JWT in socket.handshake.auth.token
+  io.use(async (socket, next) => {
+    try {
+      const rawToken =
+        socket.handshake.auth?.token ||
+        socket.handshake.headers?.authorization?.replace(/^Bearer\s+/i, "") ||
+        socket.handshake.query?.token;
 
-    // join_room
+      if (!rawToken) {
+        return next(new Error("Authentication token required for socket connection"));
+      }
+
+      const decoded = verifyToken(rawToken);
+      if (!decoded) {
+        return next(new Error("Invalid or expired authentication token"));
+      }
+
+      socket.user = decoded;
+      next();
+    } catch (err) {
+      next(new Error("Socket authentication failed: " + err.message));
+    }
+  });
+
+  io.on("connection", async (socket) => {
+    const authTenant = socket.handshake.auth?.tenant_id ? String(socket.handshake.auth.tenant_id).trim() : null;
+    if (authTenant) {
+      const allowed = await verifyHospitalAccess(authTenant, socket.user);
+      if (allowed) {
+        socket.join(authTenant);
+      }
+    }
+
+    // join_room with multi-tenant access control
     socket.on("join_room", async (data = {}) => {
-      const tenantId = data.tenant_id || "city-hospital-01";
+      const tenantId = data.tenant_id ? String(data.tenant_id).trim() : null;
+      if (!tenantId) {
+        socket.emit("error", { message: "tenant_id required to join room" });
+        return;
+      }
+
+      const allowed = await verifyHospitalAccess(tenantId, socket.user);
+      if (!allowed) {
+        socket.emit("error", { message: `Unauthorized: No access to hospital ${tenantId}` });
+        return;
+      }
+
       socket.join(tenantId);
 
       const snapshot = await engine.getQueueSnapshot(tenantId);
@@ -78,7 +120,17 @@ function initSocket(server, corsOrigin = "*") {
     // join_queue
     socket.on("join_queue", async (data = {}) => {
       try {
-        const tenantId = data.tenant_id || "city-hospital-01";
+        const tenantId = data.tenant_id ? String(data.tenant_id).trim() : null;
+        if (!tenantId) {
+          socket.emit("error", { message: "tenant_id required to join queue" });
+          return;
+        }
+        const allowed = await verifyHospitalAccess(tenantId, socket.user);
+        if (!allowed) {
+          socket.emit("error", { message: `Unauthorized: No access to hospital ${tenantId}` });
+          return;
+        }
+
         const priority = urgencyToPriority(data.consumer_type, data.urgency);
 
         const ticket = await joinQueue({
@@ -101,10 +153,20 @@ function initSocket(server, corsOrigin = "*") {
       }
     });
 
-    // serve_next
+    // serve_next: emits ticket_served, now_serving, ticket_called strictly to io.to(tenantId)
     socket.on("serve_next", async (data = {}) => {
       try {
-        const tenantId = data.tenant_id || "city-hospital-01";
+        const tenantId = data.tenant_id ? String(data.tenant_id).trim() : null;
+        if (!tenantId) {
+          socket.emit("error", { message: "tenant_id required" });
+          return;
+        }
+        const allowed = await verifyHospitalAccess(tenantId, socket.user);
+        if (!allowed) {
+          socket.emit("error", { message: `Unauthorized: No access to hospital ${tenantId}` });
+          return;
+        }
+
         const department = data.department || data.service_category || null;
         const deskId = data.desk_id || null;
         const doctorInfo = {
@@ -121,10 +183,9 @@ function initSocket(server, corsOrigin = "*") {
           return;
         }
 
+        io.to(tenantId).emit("ticket_served", { ticket, tenant_id: tenantId });
         io.to(tenantId).emit("now_serving", { ticket, tenant_id: tenantId });
-        io.emit("now_serving", { ticket, tenant_id: tenantId });
         io.to(tenantId).emit("ticket_called", { ticket, tenant_id: tenantId });
-        io.emit("ticket_called", { ticket, tenant_id: tenantId });
         await broadcastQueueUpdate(io, tenantId);
       } catch (err) {
         socket.emit("error", {
@@ -143,14 +204,15 @@ function initSocket(server, corsOrigin = "*") {
     // complete_ticket
     socket.on("complete_ticket", async (data = {}) => {
       try {
-        const tenantId = data.tenant_id || "city-hospital-01";
+        const tenantId = data.tenant_id ? String(data.tenant_id).trim() : null;
+        if (!tenantId) return;
         const ticketId = data.ticket_id;
         const department = data.department;
         const prescriptionNotes = data.prescription_notes || null;
 
         const completed = await completeTicket(tenantId, ticketId, department, prescriptionNotes);
         if (completed) {
-          io.to(tenantId).emit("ticket_completed", { ticket: completed });
+          io.to(tenantId).emit("ticket_completed", { ticket: completed, tenant_id: tenantId });
         }
         await broadcastQueueUpdate(io, tenantId);
       } catch (err) {
@@ -161,7 +223,8 @@ function initSocket(server, corsOrigin = "*") {
     // transfer_ticket
     socket.on("transfer_ticket", async (data = {}) => {
       try {
-        const tenantId = data.tenant_id || "city-hospital-01";
+        const tenantId = data.tenant_id ? String(data.tenant_id).trim() : null;
+        if (!tenantId) return;
         const ticketId = data.ticket_id;
         const targetDept = data.target_department || "pharmacy";
         const notes = data.prescription_notes || "";
@@ -171,6 +234,7 @@ function initSocket(server, corsOrigin = "*") {
         io.to(tenantId).emit("ticket_transferred", {
           original_ticket: originalTicket,
           new_ticket: newTicket,
+          tenant_id: tenantId,
         });
         socket.emit("transfer_success", {
           original_ticket: originalTicket,
@@ -185,12 +249,13 @@ function initSocket(server, corsOrigin = "*") {
     // hold_ticket (10-minute Grace Period)
     socket.on("hold_ticket", async (data = {}) => {
       try {
-        const tenantId = data.tenant_id || "city-hospital-01";
+        const tenantId = data.tenant_id ? String(data.tenant_id).trim() : null;
+        if (!tenantId) return;
         const ticketId = data.ticket_id;
         const graceMinutes = data.grace_minutes || 10;
 
         const held = await holdTicket(tenantId, ticketId, graceMinutes);
-        io.to(tenantId).emit("ticket_held", { ticket: held });
+        io.to(tenantId).emit("ticket_held", { ticket: held, tenant_id: tenantId });
         await broadcastQueueUpdate(io, tenantId);
         socket.emit("hold_success", { ticket: held });
       } catch (err) {
@@ -201,7 +266,8 @@ function initSocket(server, corsOrigin = "*") {
     // recall_ticket (Recall from On-Hold back to Serving or Priority Queue)
     socket.on("recall_ticket", async (data = {}) => {
       try {
-        const tenantId = data.tenant_id || "city-hospital-01";
+        const tenantId = data.tenant_id ? String(data.tenant_id).trim() : null;
+        if (!tenantId) return;
         const ticketId = data.ticket_id;
         const doctorInfo = {
           id: data.doctor_id || socket.user?.id || null,
@@ -211,10 +277,9 @@ function initSocket(server, corsOrigin = "*") {
         const targetMode = data.target_mode || "auto";
 
         const recalled = await recallTicket(tenantId, ticketId, doctorInfo, targetMode);
+        io.to(tenantId).emit("ticket_served", { ticket: recalled, tenant_id: tenantId });
         io.to(tenantId).emit("ticket_recalled", { ticket: recalled, tenant_id: tenantId });
-        io.emit("ticket_recalled", { ticket: recalled, tenant_id: tenantId });
         io.to(tenantId).emit("now_serving", { ticket: recalled, re_announced: true, tenant_id: tenantId });
-        io.emit("now_serving", { ticket: recalled, re_announced: true, tenant_id: tenantId });
         await broadcastQueueUpdate(io, tenantId);
         socket.emit("recall_success", { ticket: recalled });
       } catch (err) {
@@ -225,12 +290,13 @@ function initSocket(server, corsOrigin = "*") {
     // mark_noshow / noshow_ticket
     socket.on("mark_noshow", async (data = {}) => {
       try {
-        const tenantId = data.tenant_id || "city-hospital-01";
+        const tenantId = data.tenant_id ? String(data.tenant_id).trim() : null;
+        if (!tenantId) return;
         const ticketId = data.ticket_id;
         const reason = data.reason || "Patient did not appear after grace period";
 
         await markNoShow(tenantId, ticketId, reason);
-        io.to(tenantId).emit("ticket_noshow", { ticket_id: ticketId });
+        io.to(tenantId).emit("ticket_noshow", { ticket_id: ticketId, tenant_id: tenantId });
         await broadcastQueueUpdate(io, tenantId);
       } catch (err) {
         socket.emit("error", { message: err.message });
@@ -240,27 +306,23 @@ function initSocket(server, corsOrigin = "*") {
     // re_announce
     socket.on("re_announce", async (data = {}) => {
       try {
-        const tenantId = data.tenant_id || "city-hospital-01";
+        const tenantId = data.tenant_id ? String(data.tenant_id).trim() : null;
+        if (!tenantId) return;
         const ticket = data.ticket;
         const ticketId = ticket?.ticket_id || data.ticket_id;
         if (ticketId) {
           const updatedTicket = await recordAnnouncement(tenantId, ticketId);
           const finalTicket = updatedTicket || ticket;
           io.to(tenantId).emit("now_serving", { ticket: finalTicket, re_announced: true, tenant_id: tenantId });
-          io.emit("now_serving", { ticket: finalTicket, re_announced: true, tenant_id: tenantId });
           io.to(tenantId).emit("ticket_announced", { ticket: finalTicket, re_announced: true, tenant_id: tenantId });
-          io.emit("ticket_announced", { ticket: finalTicket, re_announced: true, tenant_id: tenantId });
           await broadcastQueueUpdate(io, tenantId);
         } else if (ticket) {
           io.to(tenantId).emit("now_serving", { ticket, re_announced: true, tenant_id: tenantId });
-          io.emit("now_serving", { ticket, re_announced: true, tenant_id: tenantId });
           io.to(tenantId).emit("ticket_announced", { ticket, re_announced: true, tenant_id: tenantId });
-          io.emit("ticket_announced", { ticket, re_announced: true, tenant_id: tenantId });
         }
       } catch (e) {
-        if (data.ticket) {
-          io.to(data.tenant_id || "city-hospital-01").emit("now_serving", { ticket: data.ticket, re_announced: true });
-          io.emit("now_serving", { ticket: data.ticket, re_announced: true });
+        if (data.ticket && data.tenant_id) {
+          io.to(data.tenant_id).emit("now_serving", { ticket: data.ticket, re_announced: true, tenant_id: data.tenant_id });
         }
       }
     });
@@ -268,14 +330,15 @@ function initSocket(server, corsOrigin = "*") {
     // cancel_ticket
     socket.on("cancel_ticket", async (data = {}) => {
       try {
-        const tenantId = data.tenant_id || "city-hospital-01";
+        const tenantId = data.tenant_id ? String(data.tenant_id).trim() : null;
+        if (!tenantId) return;
         const ticketId = data.ticket_id;
         const reason = data.reason || "User requested cancellation";
         const userEmail = data.user_email || null;
 
         const cancelled = await cancelTicket(tenantId, ticketId, reason, userEmail);
         if (cancelled) {
-          io.to(tenantId).emit("ticket_cancelled", { ticket: cancelled, ticket_id: ticketId });
+          io.to(tenantId).emit("ticket_cancelled", { ticket: cancelled, ticket_id: ticketId, tenant_id: tenantId });
         }
         await broadcastQueueUpdate(io, tenantId);
       } catch (err) {
@@ -286,14 +349,15 @@ function initSocket(server, corsOrigin = "*") {
     // adjust_queue
     socket.on("adjust_queue", async (data = {}) => {
       try {
-        const tenantId = data.tenant_id || "city-hospital-01";
+        const tenantId = data.tenant_id ? String(data.tenant_id).trim() : null;
+        if (!tenantId) return;
         const ticketId = data.ticket_id;
         const skipPos = data.positions || data.skip_positions || 1;
         const userEmail = data.user_email || null;
         const reason = data.reason || "Late arrival";
 
         const res = await adjustQueuePosition(tenantId, ticketId, skipPos, userEmail, reason);
-        io.to(tenantId).emit("ticket_updated", { ticket: res.ticket, ticket_id: ticketId });
+        io.to(tenantId).emit("ticket_updated", { ticket: res.ticket, ticket_id: ticketId, tenant_id: tenantId });
         await broadcastQueueUpdate(io, tenantId);
         socket.emit("adjust_queue_success", res);
       } catch (err) {
@@ -304,12 +368,13 @@ function initSocket(server, corsOrigin = "*") {
     // set_counters
     socket.on("set_counters", async (data = {}) => {
       try {
-        const userRole = (data.role || data.user_role || socket.handshake.auth?.role || "").toLowerCase();
+        const userRole = (data.role || data.user_role || socket.user?.role || "").toLowerCase();
         if (["doctor", "staff", "nurse", "receptionist"].includes(userRole)) {
           socket.emit("error", { message: "Doctors and staff cannot modify active desks." });
           return;
         }
-        const tenantId = data.tenant_id || "city-hospital-01";
+        const tenantId = data.tenant_id ? String(data.tenant_id).trim() : null;
+        if (!tenantId) return;
         const count = data.active_counters || 2;
         await engine.setActiveCounters(tenantId, count);
         await broadcastQueueUpdate(io, tenantId);
@@ -321,7 +386,8 @@ function initSocket(server, corsOrigin = "*") {
     // update_doctor_duty_status & update_staff_duty_status
     const handleDutyStatusUpdate = async (data = {}) => {
       try {
-        const tenantId = data.tenant_id || "city-hospital-01";
+        const tenantId = data.tenant_id ? String(data.tenant_id).trim() : null;
+        if (!tenantId) return;
         const targetUserId = data.doctor_id || data.staff_id || data.user_id || socket.user?.id;
         const targetEmail = data.doctor_email || data.staff_email || data.email || socket.user?.email;
         const targetName = data.doctor_name || data.staff_name || data.name || socket.user?.name;
@@ -365,10 +431,8 @@ function initSocket(server, corsOrigin = "*") {
         };
 
         io.to(tenantId).emit("doctor_duty_status_changed", broadcastPayload);
-        io.emit("doctor_duty_status_changed", broadcastPayload);
         io.to(tenantId).emit("staff_duty_status_changed", broadcastPayload);
-        io.emit("staff_duty_status_changed", broadcastPayload);
-        io.emit("hospital_data_changed", { tenant_id: tenantId || "all", type: "duty_status_update" });
+        io.to(tenantId).emit("hospital_data_changed", { tenant_id: tenantId, type: "duty_status_update" });
         socket.emit("doctor_duty_status_confirmed", broadcastPayload);
         socket.emit("staff_duty_status_confirmed", broadcastPayload);
       } catch (err) {
@@ -403,17 +467,19 @@ function initSocket(server, corsOrigin = "*") {
     socket.on("get_doctor_duty_status", handleGetDutyStatus);
     socket.on("get_staff_duty_status", handleGetDutyStatus);
 
-    // Send initial snapshot non-blockingly
-    (async () => {
-      try {
-        const snapshot = await engine.getQueueSnapshot(authTenant);
-        const serving = await engine.getServingTickets(authTenant);
-        const analytics = await engine.getTenantAnalytics(authTenant);
+    // Send initial snapshot non-blockingly if authorized tenant joined
+    if (authTenant) {
+      (async () => {
+        try {
+          const snapshot = await engine.getQueueSnapshot(authTenant);
+          const serving = await engine.getServingTickets(authTenant);
+          const analytics = await engine.getTenantAnalytics(authTenant);
 
-        socket.emit("queue_update", { snapshot, serving });
-        socket.emit("analytics_update", analytics);
-      } catch (e) { }
-    })();
+          socket.emit("queue_update", { snapshot, serving });
+          socket.emit("analytics_update", analytics);
+        } catch (e) { }
+      })();
+    }
   });
 
   return io;
