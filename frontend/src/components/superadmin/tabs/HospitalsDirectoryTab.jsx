@@ -19,10 +19,14 @@ export default function HospitalsDirectoryTab({
     searchQuery,
     setSearchQuery,
     onOpenAddModal,
+    onArchiveHospital,
+    onRestoreHospital,
+    onOpenPurgeModal,
     onDeleteHospital,
     onManageStaff,
     onCustomizeBranding,
     hospitalVisitsData,
+    hospitalEmployees = [],
     isHi = false
 }) {
     const filteredHospitals = hospitals.filter((h) => {
@@ -128,7 +132,42 @@ export default function HospitalsDirectoryTab({
             </div>
 
             {/* Hospital Cards Grid */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "16px" }}>
+            {filteredHospitals.length === 0 ? (
+                <div style={{
+                    padding: "48px 24px",
+                    textAlign: "center",
+                    background: "var(--superadmin-card-bg, #FFFFFF)",
+                    border: "1px dashed var(--superadmin-card-border, #CBD5E1)",
+                    borderRadius: "12px",
+                    color: "var(--superadmin-text-sub, #64748B)",
+                }}>
+                    <p style={{ margin: "0 0 12px 0", fontSize: "16px", fontWeight: "600" }}>
+                        {searchQuery.trim()
+                            ? (isHi ? `'${searchQuery}' से मेल खाता कोई अस्पताल नहीं मिला।` : `No hospitals found matching '${searchQuery}'.`)
+                            : (isHi ? "कोई पंजीकृत अस्पताल नहीं मिला।" : "No hospitals available.")}
+                    </p>
+                    <button
+                        type="button"
+                        onClick={onOpenAddModal}
+                        style={{
+                            ...actionBtnStyle,
+                            background: "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)",
+                            color: "#FFFFFF",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            padding: "8px 16px",
+                            fontSize: "13px",
+                            fontWeight: 800,
+                            margin: "0 auto",
+                        }}
+                    >
+                        <IconPlus size={14} color="#FFFFFF" />
+                        <span>{isHi ? "नया अस्पताल जोड़ें" : "+ Add Hospital"}</span>
+                    </button>
+                </div>
+            ) : (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "16px" }}>
                 {filteredHospitals.map((hosp) => (
                     <div
                         key={hosp.hospital_code}
@@ -148,7 +187,7 @@ export default function HospitalsDirectoryTab({
                                 </span>
                             </div>
                             <span style={hospitalStatusBadgeStyle(hosp.status)}>
-                                ● {isHi ? (hosp.status === "active" ? "सक्रिय" : (hosp.status === "maintenance" ? "रखरखाव" : "निष्क्रिय")) : hosp.status.toUpperCase()}
+                                ● {isHi ? (hosp.status === "active" ? "सक्रिय" : (hosp.status === "archived" ? "संग्रहीत" : "निष्क्रिय")) : hosp.status.toUpperCase()}
                             </span>
                         </div>
 
@@ -160,66 +199,111 @@ export default function HospitalsDirectoryTab({
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "6px", padding: "10px", background: "var(--superadmin-sub-card, #1E293B)", borderRadius: "10px", border: "1px solid var(--superadmin-card-border, #334155)", marginBottom: "14px" }}>
                             <div style={{ textAlign: "center" }}>
                                 <span style={{ fontSize: "9.5px", color: "var(--superadmin-text-muted, #94A3B8)", fontWeight: 700, display: "block" }}>{isHi ? "स्टाफ" : "Staff"}</span>
-                                <span style={{ fontSize: "13px", fontWeight: 800, color: "var(--superadmin-text-main, #F8FAFC)" }}>{hosp.employee_count ?? 0}</span>
+                                <span style={{ fontSize: "13px", fontWeight: 800, color: "var(--superadmin-text-main, #F8FAFC)" }}>
+                                    {hosp.employee_count ?? ((selectedHospital?.hospital_code === hosp.hospital_code && hospitalEmployees.length > 0) ? hospitalEmployees.length : 0)}
+                                </span>
                             </div>
                             <div style={{ textAlign: "center" }}>
                                 <span style={{ fontSize: "9.5px", color: "var(--superadmin-text-muted, #94A3B8)", fontWeight: 700, display: "block" }}>{isHi ? "डॉक्टर" : "Docs"}</span>
-                                <span style={{ fontSize: "13px", fontWeight: 800, color: "#38BDF8" }}>{hosp.doctor_count ?? 0}</span>
+                                <span style={{ fontSize: "13px", fontWeight: 800, color: "#38BDF8" }}>
+                                    {hosp.doctor_count ?? ((selectedHospital?.hospital_code === hosp.hospital_code && hospitalEmployees.length > 0) ? hospitalEmployees.filter(e => (e.role || "").toLowerCase().includes("doc")).length : 0)}
+                                </span>
                             </div>
                             <div style={{ textAlign: "center" }}>
                                 <span style={{ fontSize: "9.5px", color: "var(--superadmin-text-muted, #94A3B8)", fontWeight: 700, display: "block" }}>{isHi ? "डेस्क" : "Desks"}</span>
                                 <span style={{ fontSize: "13px", fontWeight: 800, color: "#38BDF8" }}>{hosp.active_desks ?? 0}/{hosp.total_desks ?? 0}</span>
                             </div>
-                            <div style={{ textAlign: "center" }}>
+                            <div style={{ textAlign: "center" }} title={isHi ? `कुल विज़िट: ${hosp.total_visits || 0} | आज: ${hosp.patients_today || 0}` : `Total Visits: ${hosp.total_visits || 0} | Today: ${hosp.patients_today || 0}`}>
                                 <span style={{ fontSize: "9.5px", color: "var(--superadmin-text-muted, #94A3B8)", fontWeight: 700, display: "block" }}>{isHi ? "विज़िट" : "Visits"}</span>
                                 <span style={{ fontSize: "13px", fontWeight: 800, color: "#FBBF24" }}>
-                                    {(selectedHospital?.hospital_code === hosp.hospital_code && hospitalVisitsData?.summary?.today_completed != null)
-                                        ? hospitalVisitsData.summary.today_completed
-                                        : (hosp.completed_today ?? hosp.patients_today ?? 0)}
+                                    {hosp.total_visits || hosp.completed_today || hosp.patients_today || (selectedHospital?.hospital_code === hosp.hospital_code && hospitalVisitsData?.summary?.today_completed) || 0}
                                 </span>
                             </div>
                         </div>
 
                         {/* Action Buttons */}
-                        <div style={{ display: "flex", gap: "8px" }}>
-                            <button
-                                type="button"
-                                onClick={() => onManageStaff(hosp)}
-                                style={primarySmallBtnStyle}
-                            >
-                                <span>{isHi ? "प्रबंधन करें" : "Manage Staff"}</span>
-                            </button>
+                        {hosp.status === "archived" ? (
+                            <div style={{ display: "flex", gap: "8px", width: "100%" }}>
+                                <button
+                                    type="button"
+                                    onClick={() => (onRestoreHospital ? onRestoreHospital(hosp) : null)}
+                                    style={{
+                                        ...primarySmallBtnStyle,
+                                        background: "#10B981",
+                                        color: "#FFFFFF",
+                                    }}
+                                    title={isHi ? "अस्पताल पुनर्स्थापित करें" : "Restore Hospital to Active"}
+                                >
+                                    <span>{isHi ? "पुनर्स्थापित करें" : "Restore"}</span>
+                                </button>
 
-                            <button
-                                type="button"
-                                onClick={() => onCustomizeBranding(hosp)}
-                                style={{
-                                    ...secondarySmallBtnStyle,
-                                    background: "rgba(2, 132, 199, 0.12)",
-                                    color: "#0284C7",
-                                    borderColor: "rgba(2, 132, 199, 0.3)",
-                                    fontWeight: 800,
-                                }}
-                                title={isHi ? "कस्टमाइज़ेशन व ब्रांडिंग पेज पर जाएं" : "Go to Customization & Branding Studio"}
-                            >
-                                <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                                    <IconPalette size={13} color="#0284C7" />
-                                    <span>{isHi ? "कस्टमाइज़ करें" : "Customize & Brand"}</span>
-                                </span>
-                            </button>
+                                <button
+                                    type="button"
+                                    onClick={() => (onOpenPurgeModal ? onOpenPurgeModal(hosp) : null)}
+                                    style={{
+                                        ...primarySmallBtnStyle,
+                                        background: "#DC2626",
+                                        color: "#FFFFFF",
+                                    }}
+                                    title={isHi ? "हमेशा के लिए हटाएं (Purge)" : "Permanently Purge Hospital"}
+                                >
+                                    <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                                        <IconTrash size={13} color="#FFFFFF" />
+                                        <span>{isHi ? "Purge करें" : "Purge"}</span>
+                                    </span>
+                                </button>
+                            </div>
+                        ) : (
+                            <div style={{ display: "flex", gap: "8px" }}>
+                                <button
+                                    type="button"
+                                    onClick={() => onManageStaff(hosp)}
+                                    style={primarySmallBtnStyle}
+                                >
+                                    <span>{isHi ? "प्रबंधन करें" : "Manage Staff"}</span>
+                                </button>
 
-                            <button
-                                type="button"
-                                onClick={() => onDeleteHospital(hosp)}
-                                style={deleteSmallBtnStyle}
-                                title={isHi ? "अस्पताल हटाएं" : "Delete Hospital"}
-                            >
-                                <IconTrash size={14} color="#EF4444" />
-                            </button>
-                        </div>
+                                <button
+                                    type="button"
+                                    onClick={() => onCustomizeBranding(hosp)}
+                                    style={{
+                                        ...secondarySmallBtnStyle,
+                                        background: "rgba(2, 132, 199, 0.12)",
+                                        color: "#0284C7",
+                                        borderColor: "rgba(2, 132, 199, 0.3)",
+                                        fontWeight: 800,
+                                    }}
+                                    title={isHi ? "कस्टमाइज़ेशन व ब्रांडिंग पेज पर जाएं" : "Go to Customization & Branding Studio"}
+                                >
+                                    <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                                        <IconPalette size={13} color="#0284C7" />
+                                        <span>{isHi ? "कस्टमाइज़ करें" : "Customize"}</span>
+                                    </span>
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => (onArchiveHospital ? onArchiveHospital(hosp) : onDeleteHospital(hosp))}
+                                    style={{
+                                        ...deleteSmallBtnStyle,
+                                        background: "rgba(245, 158, 11, 0.12)",
+                                        borderColor: "rgba(245, 158, 11, 0.3)",
+                                        color: "#D97706",
+                                    }}
+                                    title={isHi ? "अस्पताल संग्रहीत करें (Archive)" : "Archive Hospital"}
+                                >
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                        <rect x="2" y="3" width="20" height="5" rx="2" />
+                                        <path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" />
+                                        <path d="M10 12h4" />
+                                    </svg>
+                                </button>
+                            </div>
+                        )}
                     </div>
                 ))}
             </div>
+            )}
         </div>
     );
 }

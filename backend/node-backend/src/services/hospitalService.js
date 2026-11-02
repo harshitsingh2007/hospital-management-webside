@@ -183,7 +183,7 @@ async function getSuperAdminOverview(requesterUser = null) {
   let ownerUid = null;
   const primaryCode = requesterUser?.primary_hospital_code || requesterUser?.hospital_code || null;
   const role = requesterUser ? (requesterUser.role || "").toLowerCase() : "";
-  const isGlobalSuperAdmin = role === "superadmin" || role === "super_admin";
+  const isGlobalSuperAdmin = role === "superadmin" || role === "super_admin" || !!requesterUser?.is_superadmin;
   if (!isGlobalSuperAdmin && (role === "hospital_owner" || ["admin", "doctor", "staff"].includes(role))) {
     ownerUid = requesterUser.id;
   }
@@ -200,7 +200,7 @@ async function getSuperAdminOverview(requesterUser = null) {
     if (primaryCode && primaryCode !== "all") {
       filterConditions.push({ hospital_code: primaryCode });
     }
-    if (requesterUser?.email && requesterUser.email !== "superadmin@hospital.com") {
+    if (requesterUser?.email) {
       filterConditions.push({ email: { equals: requesterUser.email, mode: "insensitive" } });
     }
   }
@@ -394,8 +394,14 @@ async function getSuperAdminOverview(requesterUser = null) {
  */
 async function getAllHospitals(requesterUser = null) {
   let list = [];
-  if (requesterUser) {
-    const role = (requesterUser.role || "").toLowerCase();
+  const role = requesterUser ? (requesterUser.role || "").toLowerCase() : "";
+  const isGlobalSuperAdmin = role === "superadmin" || role === "super_admin" || !!requesterUser?.is_superadmin;
+
+  if (isGlobalSuperAdmin) {
+    list = await prisma.hospitals.findMany({
+      orderBy: { id: "asc" },
+    });
+  } else if (requesterUser) {
     const primaryCode = requesterUser.primary_hospital_code || requesterUser.hospital_code || null;
 
     const conditions = [];
@@ -406,13 +412,18 @@ async function getAllHospitals(requesterUser = null) {
     if (primaryCode && primaryCode !== "all") {
       conditions.push({ hospital_code: primaryCode });
     }
-    if (requesterUser.email && requesterUser.email !== "superadmin@hospital.com") {
+    if (requesterUser.email) {
       conditions.push({ email: { equals: requesterUser.email, mode: "insensitive" } });
     }
 
     if (conditions.length > 0) {
       const owned = await prisma.hospitals.findMany({
-        where: { OR: conditions },
+        where: {
+          AND: [
+            { status: "active" },
+            { OR: conditions },
+          ],
+        },
         orderBy: { id: "asc" },
       });
       if (owned && owned.length > 0) {
@@ -440,14 +451,13 @@ async function getAllHospitals(requesterUser = null) {
     prisma.employees.groupBy({
       by: ["hospital_id"],
       _count: { id: true },
-      where: { hospital_id: { in: hIds }, status: { in: ["active", "ACTIVE"] } },
+      where: { hospital_id: { in: hIds } },
     }),
     prisma.employees.groupBy({
       by: ["hospital_id"],
       _count: { id: true },
       where: {
         hospital_id: { in: hIds },
-        status: { in: ["active", "ACTIVE"] },
         users: { role: { in: ["doctor", "admin", "physician"] } },
       },
     }),
@@ -1006,9 +1016,11 @@ async function updateHospitalBranding(hospitalCode, brandingData) {
 }
 
 /**
- * Deletes hospital and safely cleans child entities.
+ * Archives a hospital (soft delete).
+ * Archived hospitals are hidden from patient and staff portals, cannot create tickets,
+ * and can be restored by a super admin.
  */
-async function deleteHospital(hospitalCode) {
+async function archiveHospital(hospitalCode) {
   const hCode = String(hospitalCode).trim();
   const hosp = await prisma.hospitals.findUnique({
     where: { hospital_code: hCode },
@@ -1020,21 +1032,393 @@ async function deleteHospital(hospitalCode) {
     throw err;
   }
 
+  const updated = await prisma.hospitals.update({
+    where: { hospital_code: hCode },
+    data: {
+      status: "archived",
+      updated_at: new Date(),
+    },
+  });
+
+  return {
+    status: "success",
+    message: `Hospital '${hosp.name}' (${hCode}) has been archived.`,
+    hospital: updated,
+  };
+}
+
+/**
+ * Restores an archived hospital to active status.
+ */
+async function restoreHospital(hospitalCode) {
+  const hCode = String(hospitalCode).trim();
+  const hosp = await prisma.hospitals.findUnique({
+    where: { hospital_code: hCode },
+  });
+
+  if (!hosp) {
+    const err = new Error(`Hospital '${hCode}' not found.`);
+    err.status = 404;
+    throw err;
+  }
+
+  const updated = await prisma.hospitals.update({
+    where: { hospital_code: hCode },
+    data: {
+      status: "active",
+      updated_at: new Date(),
+    },
+  });
+
+  return {
+    status: "success",
+    message: `Hospital '${hosp.name}' (${hCode}) has been restored to active status.`,
+    hospital: updated,
+  };
+}
+
+/**
+ * Backward-compatible delete alias: safely archives the hospital.
+ */
+async function deleteHospital(hospitalCode) {
+  return archiveHospital(hospitalCode);
+}
+
+/**
+ * Summarizes all records connected to a hospital before permanent purge.
+ */
+async function getHospitalPurgeSummary(hospitalCode) {
+  const hCode = String(hospitalCode).trim();
+  const hosp = await prisma.hospitals.findUnique({
+    where: { hospital_code: hCode },
+  });
+
+  if (!hosp) {
+    const err = new Error(`Hospital '${hCode}' not found.`);
+    err.status = 404;
+    throw err;
+  }
   const hId = hosp.id;
 
-  // Safe cascaded removal
-  await prisma.service_logs.deleteMany({ where: { hospital_id: hId } });
-  await prisma.tickets.deleteMany({ where: { hospital_id: hId } });
-  await prisma.appointments.deleteMany({ where: { hospital_id: hId } });
-  await prisma.desks.deleteMany({ where: { hospital_id: hId } });
-  await prisma.employees.deleteMany({ where: { hospital_id: hId } });
-  await prisma.departments.deleteMany({ where: { hospital_id: hId } });
-  await prisma.kiosks.deleteMany({ where: { hospital_id: hId } });
-  await prisma.tenant_mapping.deleteMany({ where: { hospital_id: hId } });
-  await prisma.tenant_config.deleteMany({ where: { hospital_id: hId } });
-  await prisma.hospitals.delete({ where: { id: hId } });
+  const [
+    ticketsCount,
+    appointmentsCount,
+    employeesCount,
+    departmentsCount,
+    desksCount,
+    kiosksCount,
+    billsCount,
+    paymentsCount,
+    broadcastsCount,
+    visitHistoryCount,
+    serviceLogsCount,
+  ] = await Promise.all([
+    prisma.tickets.count({ where: { hospital_id: hId } }),
+    prisma.appointments.count({ where: { hospital_id: hId } }),
+    prisma.employees.count({ where: { hospital_id: hId } }),
+    prisma.departments.count({ where: { hospital_id: hId } }),
+    prisma.desks.count({ where: { hospital_id: hId } }),
+    prisma.kiosks.count({ where: { hospital_id: hId } }),
+    prisma.bills.count({ where: { hospital_id: hId } }),
+    prisma.payments.count({ where: { bills: { hospital_id: hId } } }),
+    prisma.broadcasts.count({ where: { hospital_code: hCode } }),
+    prisma.visit_history.count({ where: { hospital_id: hId } }),
+    prisma.service_logs.count({ where: { hospital_id: hId } }),
+  ]);
 
-  return { status: "success", message: `Hospital '${hosp.name}' (${hCode}) successfully deleted.` };
+  return {
+    hospital_code: hCode,
+    name: hosp.name,
+    status: hosp.status,
+    counts: {
+      tickets: ticketsCount,
+      appointments: appointmentsCount,
+      employees: employeesCount,
+      departments: departmentsCount,
+      desks: desksCount,
+      kiosks: kiosksCount,
+      bills: billsCount,
+      payments: paymentsCount,
+      broadcasts: broadcastsCount,
+      visit_history: visitHistoryCount,
+      service_logs: serviceLogsCount,
+    },
+  };
+}
+
+/**
+ * Permanently purges an archived hospital and all its related records in ONE single transaction.
+ * Requires confirm_code to match hospital_code exactly.
+ */
+async function purgeHospital(hospitalCode, confirmCode) {
+  const hCode = String(hospitalCode || "").trim();
+  if (!confirmCode || String(confirmCode).trim() !== hCode) {
+    const err = new Error(`Confirmation code mismatch. You must provide confirm_code="${hCode}" to permanently purge.`);
+    err.status = 400;
+    throw err;
+  }
+
+  const hosp = await prisma.hospitals.findUnique({
+    where: { hospital_code: hCode },
+  });
+  if (!hosp) {
+    const err = new Error(`Hospital '${hCode}' not found.`);
+    err.status = 404;
+    throw err;
+  }
+
+  if (hosp.status !== "archived") {
+    const err = new Error(`Hospital '${hCode}' must be archived before it can be permanently purged.`);
+    err.status = 400;
+    throw err;
+  }
+
+  const hId = hosp.id;
+
+  // Execute all entity deletions inside ONE transaction
+  const purgeSummary = await prisma.$transaction(async (tx) => {
+    // 1. service_logs
+    const sl = await tx.service_logs.deleteMany({ where: { hospital_id: hId } });
+
+    // 2. queue_events
+    const qe = await tx.queue_events.deleteMany({ where: { hospital_id: hId } });
+
+    // 3. tickets
+    const tk = await tx.tickets.deleteMany({ where: { hospital_id: hId } });
+
+    // 4. appointment_status_history & 5. appointments
+    const appts = await tx.appointments.findMany({
+      where: { hospital_id: hId },
+      select: { id: true },
+    });
+    const apptIds = appts.map((a) => a.id);
+    let ashCount = 0;
+    if (apptIds.length > 0) {
+      const ash = await tx.appointment_status_history.deleteMany({
+        where: { appointment_id: { in: apptIds } },
+      });
+      ashCount = ash.count;
+    }
+    const ap = await tx.appointments.deleteMany({ where: { hospital_id: hId } });
+
+    // 6. visit_history
+    const vh = await tx.visit_history.deleteMany({ where: { hospital_id: hId } });
+
+    // 7. prescriptions
+    const pr = await tx.prescriptions.deleteMany({ where: { hospital_id: hId } });
+
+    // 8. medical_reports
+    const mr = await tx.medical_reports.deleteMany({ where: { hospital_id: hId } });
+
+    // 9. refunds, 10. payments, 11. bill_items, 12. bills
+    const bills = await tx.bills.findMany({
+      where: { hospital_id: hId },
+      select: { id: true },
+    });
+    const billIds = bills.map((b) => b.id);
+    let refCount = 0;
+    let payCount = 0;
+    let biCount = 0;
+    if (billIds.length > 0) {
+      const rf = await tx.refunds.deleteMany({ where: { bill_id: { in: billIds } } });
+      refCount = rf.count;
+      const pm = await tx.payments.deleteMany({ where: { bill_id: { in: billIds } } });
+      payCount = pm.count;
+      const bi = await tx.bill_items.deleteMany({ where: { bill_id: { in: billIds } } });
+      biCount = bi.count;
+    }
+    const bl = await tx.bills.deleteMany({ where: { hospital_id: hId } });
+
+    // 13. cash_shifts
+    const cs = await tx.cash_shifts.deleteMany({ where: { hospital_id: hId } });
+
+    // 14. service_tariffs
+    const st = await tx.service_tariffs.deleteMany({ where: { hospital_id: hId } });
+
+    // 15. hospital_billing_counters
+    const hbc = await tx.hospital_billing_counters.deleteMany({ where: { hospital_id: hId } });
+
+    // 16. broadcasts
+    const bc = await tx.broadcasts.deleteMany({ where: { hospital_code: hCode } });
+
+    // 17. desks
+    const dk = await tx.desks.deleteMany({ where: { hospital_id: hId } });
+
+    // 18. kiosks
+    const kk = await tx.kiosks.deleteMany({ where: { hospital_id: hId } });
+
+    // Find users belonging ONLY to this hospital
+    const empUsers = await tx.employees.findMany({
+      where: { hospital_id: hId },
+      select: { user_id: true },
+    });
+    const empUserIds = empUsers.map((e) => e.user_id).filter(Boolean);
+
+    const primaryUsers = await tx.users.findMany({
+      where: { primary_hospital_code: hCode },
+      select: { id: true, role: true },
+    });
+
+    const candidateUserIds = Array.from(new Set([...empUserIds, ...primaryUsers.map((u) => u.id)]));
+    const safeToDeleteUserIds = [];
+
+    for (const uid of candidateUserIds) {
+      const user = await tx.users.findUnique({
+        where: { id: uid },
+        select: { id: true, role: true },
+      });
+      if (!user) continue;
+      const r = (user.role || "").toLowerCase();
+      if (r === "superadmin" || r === "super_admin" || r === "hospital_owner") {
+        continue; // Never delete superadmin or owner accounts
+      }
+      // Check if user is employed in any other hospital
+      const otherEmploys = await tx.employees.count({
+        where: { user_id: uid, hospital_id: { not: hId } },
+      });
+      if (otherEmploys === 0) {
+        safeToDeleteUserIds.push(uid);
+      }
+    }
+
+    // 19. employees
+    const ep = await tx.employees.deleteMany({ where: { hospital_id: hId } });
+
+    // 20. departments
+    const dp = await tx.departments.deleteMany({ where: { hospital_id: hId } });
+
+    // 21. tenant_mapping
+    const tm = await tx.tenant_mapping.deleteMany({ where: { hospital_id: hId } });
+
+    // 22. tenant_config
+    const tc = await tx.tenant_config.deleteMany({ where: { hospital_id: hId } });
+
+    // 23. tenant_historical_data
+    const th = await tx.tenant_historical_data.deleteMany({
+      where: {
+        OR: [{ hospital_id: hId }, { legacy_tenant_id: hCode }],
+      },
+    });
+
+    // 24. users that belong ONLY to that hospital
+    let usersCount = 0;
+    if (safeToDeleteUserIds.length > 0) {
+      const uRes = await tx.users.deleteMany({
+        where: { id: { in: safeToDeleteUserIds } },
+      });
+      usersCount = uRes.count;
+    }
+
+    // 25. audit_logs for that hospital
+    const al = await tx.audit_logs.deleteMany({ where: { hospital_id: hId } });
+
+    // 26. hospital
+    await tx.hospitals.delete({ where: { id: hId } });
+
+    return {
+      service_logs: sl.count,
+      queue_events: qe.count,
+      tickets: tk.count,
+      appointments: ap.count,
+      appointment_status_history: ashCount,
+      visit_history: vh.count,
+      prescriptions: pr.count,
+      medical_reports: mr.count,
+      bills: bl.count,
+      bill_items: biCount,
+      payments: payCount,
+      refunds: refCount,
+      cash_shifts: cs.count,
+      service_tariffs: st.count,
+      hospital_billing_counters: hbc.count,
+      broadcasts: bc.count,
+      desks: dk.count,
+      kiosks: kk.count,
+      employees: ep.count,
+      departments: dp.count,
+      tenant_mapping: tm.count,
+      tenant_config: tc.count,
+      tenant_historical_data: th.count,
+      users: usersCount,
+      audit_logs: al.count,
+    };
+  });
+
+  return {
+    status: "success",
+    message: `Hospital '${hosp.name}' (${hCode}) and all related records permanently purged.`,
+    summary: purgeSummary,
+  };
+}
+
+/**
+ * Exports all core hospital data in CSV format for archival before purge.
+ */
+async function exportHospitalData(hospitalCode) {
+  const hCode = String(hospitalCode).trim();
+  const hosp = await prisma.hospitals.findUnique({
+    where: { hospital_code: hCode },
+  });
+
+  if (!hosp) {
+    const err = new Error(`Hospital '${hCode}' not found.`);
+    err.status = 404;
+    throw err;
+  }
+  const hId = hosp.id;
+
+  const [departments, employees, desks, appointments, tickets] = await Promise.all([
+    prisma.departments.findMany({ where: { hospital_id: hId } }),
+    prisma.employees.findMany({ where: { hospital_id: hId }, include: { users: true } }),
+    prisma.desks.findMany({ where: { hospital_id: hId } }),
+    prisma.appointments.findMany({ where: { hospital_id: hId }, take: 1000 }),
+    prisma.tickets.findMany({ where: { hospital_id: hId }, take: 1000 }),
+  ]);
+
+  const lines = [];
+  lines.push(`HOSPITAL EXPORT BACKUP - ${hosp.name} (${hCode}) - Exported at ${new Date().toISOString()}`);
+  lines.push("");
+
+  lines.push("--- HOSPITAL DETAILS ---");
+  lines.push("Name,Code,Phone,Email,Status,Address");
+  lines.push(`"${hosp.name}","${hosp.hospital_code}","${hosp.phone || ''}","${hosp.email || ''}","${hosp.status}","${(hosp.address || '').replace(/"/g, '""')}"`);
+  lines.push("");
+
+  lines.push("--- DEPARTMENTS ---");
+  lines.push("ID,Dept Code,Name,Status");
+  for (const d of departments) {
+    lines.push(`${d.id},"${d.dept_code}","${d.name}","${d.status}"`);
+  }
+  lines.push("");
+
+  lines.push("--- EMPLOYEES ---");
+  lines.push("ID,Emp Code,Name,Role,Email,Phone,Status");
+  for (const e of employees) {
+    lines.push(`${e.id},"${e.employee_code}","${e.name}","${e.role || e.users?.role || ''}","${e.email}","${e.phone || ''}","${e.status}"`);
+  }
+  lines.push("");
+
+  lines.push("--- DESKS ---");
+  lines.push("ID,Desk Number,Name,Status,Dept ID");
+  for (const dk of desks) {
+    lines.push(`${dk.id},"${dk.desk_number}","${dk.desk_name}","${dk.status}",${dk.department_id}`);
+  }
+  lines.push("");
+
+  lines.push("--- TICKETS (Latest up to 1000) ---");
+  lines.push("ID,Ticket Number,Token,Status,Priority,Category,Created At");
+  for (const t of tickets) {
+    lines.push(`"${t.id}","${t.ticket_number || ''}","${t.token_number || ''}","${t.status}","${t.priority}","${t.service_category || ''}","${t.created_at?.toISOString() || ''}"`);
+  }
+  lines.push("");
+
+  lines.push("--- APPOINTMENTS (Latest up to 1000) ---");
+  lines.push("ID,Date,Slot,Status,Reason");
+  for (const a of appointments) {
+    lines.push(`${a.id},"${a.appointment_date?.toISOString() || ''}","${a.appointment_time || ''}","${a.status}","${(a.reason || '').replace(/"/g, '""')}"`);
+  }
+
+  return lines.join("\n");
 }
 
 /**
@@ -1095,7 +1479,7 @@ async function getHospitalEmployees(hospitalCode) {
     } else if (isDutyProcessing && isSessionFresh) {
       effectiveStatus = "processing";
       dutyStatusLabel = "PROCESSING";
-    } else if (isDutyActive && isSessionFresh) {
+    } else if (isDutyActive) {
       effectiveStatus = "active";
       dutyStatusLabel = "ACTIVE";
     } else if (isSessionFresh && !memoryStatus && e.status === "active") {
@@ -1274,6 +1658,7 @@ async function updateHospitalEmployee(userId, updateData = {}) {
     employeeId,
     employee_id,
     status,
+    duty_status,
     password,
     qualification,
     specialization,
@@ -1306,11 +1691,37 @@ async function updateHospitalEmployee(userId, updateData = {}) {
     userData.password_hash = await hashPassword(String(password).trim());
   }
 
-  if (targetStatus === "inactive") {
+  const effectiveDutyStatus = duty_status
+    ? String(duty_status).toUpperCase()
+    : (targetStatus === "inactive" ? "OFF_DUTY" : (targetStatus === "active" ? "ACTIVE" : null));
+
+  if (targetStatus === "inactive" || effectiveDutyStatus === "OFF_DUTY") {
     try {
       const ident = emp?.user_id || user?.id || emp?.id || cleanEmail || emp?.email;
       if (ident) {
-        await setDoctorDutyStatus(ident, { status: "OFF_DUTY" });
+        await setDoctorDutyStatus(ident, {
+          status: "OFF_DUTY",
+          doctor_name: targetName,
+          email: cleanEmail || emp?.email,
+          employeeCode: targetEmployeeCode || emp?.employee_code,
+          userId: user?.id || emp?.user_id,
+          employeeId: emp?.id,
+        });
+      }
+    } catch (_) {}
+  } else if (targetStatus === "active" || effectiveDutyStatus === "ACTIVE") {
+    userData.last_login_at = new Date();
+    try {
+      const ident = emp?.user_id || user?.id || emp?.id || cleanEmail || emp?.email;
+      if (ident) {
+        await setDoctorDutyStatus(ident, {
+          status: "ACTIVE",
+          doctor_name: targetName,
+          email: cleanEmail || emp?.email,
+          employeeCode: targetEmployeeCode || emp?.employee_code,
+          userId: user?.id || emp?.user_id,
+          employeeId: emp?.id,
+        });
       }
     } catch (_) {}
   }
@@ -1400,18 +1811,37 @@ async function updateHospitalEmployee(userId, updateData = {}) {
       experience_years: updatedEmp.experience_years || 0,
       room_number: updatedEmp.room_number || "",
       status: updatedEmp.status,
+      duty_status: effectiveDutyStatus || (updatedEmp.status === "active" ? "ACTIVE" : "OFF_DUTY"),
     };
   }
 
-  return { user_id: uid, name: targetName, email: cleanEmail || user?.email || "", role: targetRole, status: targetStatus };
+  return {
+    user_id: uid,
+    name: targetName,
+    email: cleanEmail || user?.email || "",
+    role: targetRole,
+    status: targetStatus,
+    duty_status: effectiveDutyStatus || (targetStatus === "active" ? "ACTIVE" : "OFF_DUTY"),
+  };
 }
 
 /**
  * Updates an employee or doctor's password directly.
+ * Validates hospital containment and privilege boundaries:
+ * - Only SUPER_ROLES may reset another superadmin or hospital_owner.
+ * - Targets must belong to the hospital matching the endpoint.
+ * - Enforces must_change_password in profile_json.
  */
-async function updateEmployeePassword(userId, newPassword) {
+async function updateEmployeePassword(userId, newPassword, hospitalCode = null, requesterUser = null) {
   let uid = parseInt(userId, 10);
-  const empLookup = await prisma.employees.findUnique({ where: { id: uid } });
+  const empLookup = await prisma.employees.findFirst({
+    where: {
+      OR: [{ id: uid }, { user_id: uid }],
+      ...(hospitalCode ? { hospitals: { hospital_code: String(hospitalCode).trim() } } : {}),
+    },
+    include: { hospitals: true },
+  });
+
   let user = null;
   if (empLookup && empLookup.user_id) {
     uid = empLookup.user_id;
@@ -1426,17 +1856,62 @@ async function updateEmployeePassword(userId, newPassword) {
     throw err;
   }
 
+  // Confirm target user or employee belongs to the hospital in the URL (if provided)
+  if (hospitalCode) {
+    const hCode = String(hospitalCode).trim();
+    const belongsToHospital =
+      empLookup?.hospitals?.hospital_code === hCode ||
+      user.primary_hospital_code === hCode;
+
+    if (!belongsToHospital) {
+      const err = new Error(`User #${userId} does not belong to hospital '${hospitalCode}'.`);
+      err.status = 403;
+      throw err;
+    }
+  }
+
+  // Privilege check: Only SUPER_ROLES may reset a super admin or owner
+  const targetRole = String(user.role || "").toLowerCase();
+  const requesterRole = String(requesterUser?.role || "").toLowerCase();
+  const isSuperRequester =
+    ["superadmin", "super_admin", "hospital_owner"].includes(requesterRole) ||
+    !!requesterUser?.is_superadmin;
+
+  if (["superadmin", "super_admin", "hospital_owner"].includes(targetRole) && !isSuperRequester) {
+    const err = new Error("Forbidden: Only a Super Administrator or Owner may reset credentials for this account.");
+    err.status = 403;
+    throw err;
+  }
+
   const pwdHash = await hashPassword(String(newPassword).trim());
   await prisma.users.update({
     where: { id: uid },
     data: { password_hash: pwdHash, updated_at: new Date() },
   });
 
+  // Set must_change_password flag on employee record if exists
+  if (empLookup) {
+    let profileObj = {};
+    if (empLookup.profile_json) {
+      profileObj =
+        typeof empLookup.profile_json === "string"
+          ? JSON.parse(empLookup.profile_json)
+          : empLookup.profile_json;
+    }
+    profileObj.must_change_password = true;
+
+    await prisma.employees.update({
+      where: { id: empLookup.id },
+      data: { profile_json: profileObj },
+    });
+  }
+
   return {
     user_id: uid,
     email: user.email,
     name: user.username,
     role: user.role,
+    must_change_password: true,
     status: "success",
   };
 }
@@ -1927,6 +2402,80 @@ async function updateDeskStatus(deskId, status) {
   });
 }
 
+function maskEmail(email) {
+  if (!email || typeof email !== "string") return email;
+  const parts = email.split("@");
+  if (parts.length !== 2) return "••••@••••";
+  const [local, domain] = parts;
+  if (local.length <= 2) {
+    return `${local[0] || ""}***@${domain}`;
+  }
+  return `${local[0]}***${local[local.length - 1]}@${domain}`;
+}
+
+function maskPhone(phone) {
+  if (!phone || typeof phone !== "string") return phone;
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length <= 4) return "******";
+  return `******${digits.slice(-4)}`;
+}
+
+function maskSensitiveDbRow(row) {
+  if (!row || typeof row !== "object") return row;
+  const copy = { ...row };
+
+  const phoneKeys = new Set(["phone", "phone_number", "contact", "emergency_phone", "mobile", "patient_phone"]);
+  const emailKeys = new Set(["email", "support_email", "contact_email", "user_email"]);
+  const clinicalKeys = new Set([
+    "prescription_notes",
+    "diagnosis",
+    "symptoms",
+    "vitals",
+    "clinical_notes",
+    "chief_complaint",
+    "clinical_summary",
+    "doctor_notes",
+    "medical_history",
+    "allergies",
+    "investigation_advice",
+  ]);
+  const secretKeys = new Set([
+    "password_hash",
+    "password",
+    "token",
+    "otp",
+    "otp_code",
+    "reset_otp",
+    "secret",
+    "jwt",
+    "refresh_token",
+    "access_token",
+  ]);
+
+  for (const key of Object.keys(copy)) {
+    const lowerKey = key.toLowerCase();
+    const val = copy[key];
+
+    if (secretKeys.has(lowerKey)) {
+      copy[key] = "•••••••••••• [REDACTED]";
+    } else if (clinicalKeys.has(lowerKey)) {
+      if (val !== null && val !== undefined) {
+        copy[key] = "[REDACTED CLINICAL DATA]";
+      }
+    } else if (phoneKeys.has(lowerKey)) {
+      if (typeof val === "string") {
+        copy[key] = maskPhone(val);
+      }
+    } else if (emailKeys.has(lowerKey)) {
+      if (typeof val === "string") {
+        copy[key] = maskEmail(val);
+      }
+    }
+  }
+
+  return copy;
+}
+
 /**
  * Dynamic Database Inspector for Admin Portal.
  * Strictly scopes table counts, schemas, and preview records to the active hospital.
@@ -1946,8 +2495,9 @@ async function getDatabaseOverview(hospitalCode = null) {
     }) || await prisma.hospitals.findFirst();
   }
 
-  const hid = hospital ? hospital.id : null;
-  const hcode = hospital ? hospital.hospital_code : "";
+  const hid = hospital ? Number(hospital.id) : null;
+  const hcode = hospital ? String(hospital.hospital_code) : "";
+  const ownerId = hospital?.owner_user_id ? Number(hospital.owner_user_id) : -1;
 
   const tables = [
     "users", "hospitals", "departments", "patients", "family_members",
@@ -1960,108 +2510,168 @@ async function getDatabaseOverview(hospitalCode = null) {
 
   for (const tbl of tables) {
     try {
-      const schemaRows = await prisma.$queryRawUnsafe(`
+      const schemaRows = await prisma.$queryRaw`
         SELECT column_name, data_type, is_nullable
         FROM information_schema.columns
-        WHERE table_name = '${tbl}'
+        WHERE table_name = ${tbl}
         ORDER BY ordinal_position ASC;
-      `);
+      `;
 
-      let countSql = "";
-      let previewSql = "";
+      let countRes = [];
+      let rows = [];
 
       if (!hid) {
-        countSql = `SELECT count(*)::int as cnt FROM ${tbl};`;
-        previewSql = tbl !== "tenant_config" && tbl !== "tenant_mapping" && tbl !== "family_members"
-          ? `SELECT * FROM ${tbl} ORDER BY id DESC LIMIT 10;`
-          : `SELECT * FROM ${tbl} LIMIT 10;`;
+        switch (tbl) {
+          case "hospitals":
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM hospitals;`;
+            rows = await prisma.$queryRaw`SELECT * FROM hospitals ORDER BY id DESC LIMIT 10;`;
+            break;
+          case "departments":
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM departments;`;
+            rows = await prisma.$queryRaw`SELECT * FROM departments ORDER BY id DESC LIMIT 10;`;
+            break;
+          case "desks":
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM desks;`;
+            rows = await prisma.$queryRaw`SELECT * FROM desks ORDER BY id DESC LIMIT 10;`;
+            break;
+          case "kiosks":
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM kiosks;`;
+            rows = await prisma.$queryRaw`SELECT * FROM kiosks ORDER BY id DESC LIMIT 10;`;
+            break;
+          case "employees":
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM employees;`;
+            rows = await prisma.$queryRaw`SELECT * FROM employees ORDER BY id DESC LIMIT 10;`;
+            break;
+          case "appointments":
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM appointments;`;
+            rows = await prisma.$queryRaw`SELECT * FROM appointments ORDER BY id DESC LIMIT 10;`;
+            break;
+          case "appointment_status_history":
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM appointment_status_history;`;
+            rows = await prisma.$queryRaw`SELECT * FROM appointment_status_history ORDER BY id DESC LIMIT 10;`;
+            break;
+          case "tickets":
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM tickets;`;
+            rows = await prisma.$queryRaw`SELECT * FROM tickets ORDER BY id DESC LIMIT 10;`;
+            break;
+          case "queue_events":
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM queue_events;`;
+            rows = await prisma.$queryRaw`SELECT * FROM queue_events ORDER BY id DESC LIMIT 10;`;
+            break;
+          case "service_logs":
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM service_logs;`;
+            rows = await prisma.$queryRaw`SELECT * FROM service_logs ORDER BY id DESC LIMIT 10;`;
+            break;
+          case "tenant_historical_data":
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM tenant_historical_data;`;
+            rows = await prisma.$queryRaw`SELECT * FROM tenant_historical_data ORDER BY id DESC LIMIT 10;`;
+            break;
+          case "tenant_config":
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM tenant_config;`;
+            rows = await prisma.$queryRaw`SELECT * FROM tenant_config LIMIT 10;`;
+            break;
+          case "tenant_mapping":
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM tenant_mapping;`;
+            rows = await prisma.$queryRaw`SELECT * FROM tenant_mapping LIMIT 10;`;
+            break;
+          case "audit_logs":
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM audit_logs;`;
+            rows = await prisma.$queryRaw`SELECT * FROM audit_logs ORDER BY id DESC LIMIT 10;`;
+            break;
+          case "users":
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM users;`;
+            rows = await prisma.$queryRaw`SELECT * FROM users ORDER BY id DESC LIMIT 10;`;
+            break;
+          case "patients":
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM patients;`;
+            rows = await prisma.$queryRaw`SELECT * FROM patients ORDER BY id DESC LIMIT 10;`;
+            break;
+          case "family_members":
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM family_members;`;
+            rows = await prisma.$queryRaw`SELECT * FROM family_members LIMIT 10;`;
+            break;
+          default:
+            countRes = [{ cnt: 0 }];
+            rows = [];
+        }
       } else {
         switch (tbl) {
           case "hospitals":
-            countSql = `SELECT count(*)::int as cnt FROM hospitals WHERE id = ${hid};`;
-            previewSql = `SELECT * FROM hospitals WHERE id = ${hid} LIMIT 10;`;
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM hospitals WHERE id = ${hid};`;
+            rows = await prisma.$queryRaw`SELECT * FROM hospitals WHERE id = ${hid} LIMIT 10;`;
             break;
           case "departments":
-            countSql = `SELECT count(*)::int as cnt FROM departments WHERE hospital_id = ${hid};`;
-            previewSql = `SELECT * FROM departments WHERE hospital_id = ${hid} ORDER BY id DESC LIMIT 10;`;
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM departments WHERE hospital_id = ${hid};`;
+            rows = await prisma.$queryRaw`SELECT * FROM departments WHERE hospital_id = ${hid} ORDER BY id DESC LIMIT 10;`;
             break;
           case "desks":
-            countSql = `SELECT count(*)::int as cnt FROM desks WHERE hospital_id = ${hid};`;
-            previewSql = `SELECT * FROM desks WHERE hospital_id = ${hid} ORDER BY id DESC LIMIT 10;`;
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM desks WHERE hospital_id = ${hid};`;
+            rows = await prisma.$queryRaw`SELECT * FROM desks WHERE hospital_id = ${hid} ORDER BY id DESC LIMIT 10;`;
             break;
           case "kiosks":
-            countSql = `SELECT count(*)::int as cnt FROM kiosks WHERE hospital_id = ${hid};`;
-            previewSql = `SELECT * FROM kiosks WHERE hospital_id = ${hid} ORDER BY id DESC LIMIT 10;`;
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM kiosks WHERE hospital_id = ${hid};`;
+            rows = await prisma.$queryRaw`SELECT * FROM kiosks WHERE hospital_id = ${hid} ORDER BY id DESC LIMIT 10;`;
             break;
           case "employees":
-            countSql = `SELECT count(*)::int as cnt FROM employees WHERE hospital_id = ${hid};`;
-            previewSql = `SELECT * FROM employees WHERE hospital_id = ${hid} ORDER BY id DESC LIMIT 10;`;
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM employees WHERE hospital_id = ${hid};`;
+            rows = await prisma.$queryRaw`SELECT * FROM employees WHERE hospital_id = ${hid} ORDER BY id DESC LIMIT 10;`;
             break;
           case "appointments":
-            countSql = `SELECT count(*)::int as cnt FROM appointments WHERE hospital_id = ${hid};`;
-            previewSql = `SELECT * FROM appointments WHERE hospital_id = ${hid} ORDER BY id DESC LIMIT 10;`;
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM appointments WHERE hospital_id = ${hid};`;
+            rows = await prisma.$queryRaw`SELECT * FROM appointments WHERE hospital_id = ${hid} ORDER BY id DESC LIMIT 10;`;
             break;
           case "appointment_status_history":
-            countSql = `SELECT count(*)::int as cnt FROM appointment_status_history ash JOIN appointments a ON ash.appointment_id = a.appointment_id WHERE a.hospital_id = ${hid};`;
-            previewSql = `SELECT ash.* FROM appointment_status_history ash JOIN appointments a ON ash.appointment_id = a.appointment_id WHERE a.hospital_id = ${hid} ORDER BY ash.id DESC LIMIT 10;`;
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM appointment_status_history ash JOIN appointments a ON ash.appointment_id = a.appointment_id WHERE a.hospital_id = ${hid};`;
+            rows = await prisma.$queryRaw`SELECT ash.* FROM appointment_status_history ash JOIN appointments a ON ash.appointment_id = a.appointment_id WHERE a.hospital_id = ${hid} ORDER BY ash.id DESC LIMIT 10;`;
             break;
           case "tickets":
-            countSql = `SELECT count(*)::int as cnt FROM tickets WHERE hospital_id = ${hid};`;
-            previewSql = `SELECT * FROM tickets WHERE hospital_id = ${hid} ORDER BY id DESC LIMIT 10;`;
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM tickets WHERE hospital_id = ${hid};`;
+            rows = await prisma.$queryRaw`SELECT * FROM tickets WHERE hospital_id = ${hid} ORDER BY id DESC LIMIT 10;`;
             break;
           case "queue_events":
-            countSql = `SELECT count(*)::int as cnt FROM queue_events WHERE hospital_id = ${hid};`;
-            previewSql = `SELECT * FROM queue_events WHERE hospital_id = ${hid} ORDER BY id DESC LIMIT 10;`;
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM queue_events WHERE hospital_id = ${hid};`;
+            rows = await prisma.$queryRaw`SELECT * FROM queue_events WHERE hospital_id = ${hid} ORDER BY id DESC LIMIT 10;`;
             break;
           case "service_logs":
-            countSql = `SELECT count(*)::int as cnt FROM service_logs WHERE hospital_id = ${hid};`;
-            previewSql = `SELECT * FROM service_logs WHERE hospital_id = ${hid} ORDER BY id DESC LIMIT 10;`;
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM service_logs WHERE hospital_id = ${hid};`;
+            rows = await prisma.$queryRaw`SELECT * FROM service_logs WHERE hospital_id = ${hid} ORDER BY id DESC LIMIT 10;`;
             break;
           case "tenant_historical_data":
-            countSql = `SELECT count(*)::int as cnt FROM tenant_historical_data WHERE hospital_id = ${hid} OR legacy_tenant_id = '${hcode}';`;
-            previewSql = `SELECT * FROM tenant_historical_data WHERE hospital_id = ${hid} OR legacy_tenant_id = '${hcode}' ORDER BY id DESC LIMIT 10;`;
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM tenant_historical_data WHERE hospital_id = ${hid} OR legacy_tenant_id = ${hcode};`;
+            rows = await prisma.$queryRaw`SELECT * FROM tenant_historical_data WHERE hospital_id = ${hid} OR legacy_tenant_id = ${hcode} ORDER BY id DESC LIMIT 10;`;
             break;
           case "tenant_config":
-            countSql = `SELECT count(*)::int as cnt FROM tenant_config WHERE hospital_id = ${hid};`;
-            previewSql = `SELECT * FROM tenant_config WHERE hospital_id = ${hid} LIMIT 10;`;
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM tenant_config WHERE hospital_id = ${hid};`;
+            rows = await prisma.$queryRaw`SELECT * FROM tenant_config WHERE hospital_id = ${hid} LIMIT 10;`;
             break;
           case "tenant_mapping":
-            countSql = `SELECT count(*)::int as cnt FROM tenant_mapping WHERE hospital_id = ${hid};`;
-            previewSql = `SELECT * FROM tenant_mapping WHERE hospital_id = ${hid} LIMIT 10;`;
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM tenant_mapping WHERE hospital_id = ${hid};`;
+            rows = await prisma.$queryRaw`SELECT * FROM tenant_mapping WHERE hospital_id = ${hid} LIMIT 10;`;
             break;
           case "audit_logs":
-            countSql = `SELECT count(*)::int as cnt FROM audit_logs WHERE hospital_id = ${hid};`;
-            previewSql = `SELECT * FROM audit_logs WHERE hospital_id = ${hid} ORDER BY id DESC LIMIT 10;`;
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM audit_logs WHERE hospital_id = ${hid};`;
+            rows = await prisma.$queryRaw`SELECT * FROM audit_logs WHERE hospital_id = ${hid} ORDER BY id DESC LIMIT 10;`;
             break;
           case "users":
-            countSql = `SELECT count(*)::int as cnt FROM users WHERE primary_hospital_code = '${hcode}' OR id IN (SELECT user_id FROM employees WHERE hospital_id = ${hid}) OR id = ${hospital.owner_user_id || -1};`;
-            previewSql = `SELECT * FROM users WHERE primary_hospital_code = '${hcode}' OR id IN (SELECT user_id FROM employees WHERE hospital_id = ${hid}) OR id = ${hospital.owner_user_id || -1} ORDER BY id DESC LIMIT 10;`;
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM users WHERE primary_hospital_code = ${hcode} OR id IN (SELECT user_id FROM employees WHERE hospital_id = ${hid}) OR id = ${ownerId};`;
+            rows = await prisma.$queryRaw`SELECT * FROM users WHERE primary_hospital_code = ${hcode} OR id IN (SELECT user_id FROM employees WHERE hospital_id = ${hid}) OR id = ${ownerId} ORDER BY id DESC LIMIT 10;`;
             break;
           case "patients":
-            countSql = `SELECT count(*)::int as cnt FROM patients WHERE id IN (SELECT patient_id FROM tickets WHERE hospital_id = ${hid} AND patient_id IS NOT NULL) OR id IN (SELECT patient_id FROM appointments WHERE hospital_id = ${hid} AND patient_id IS NOT NULL) OR user_id IN (SELECT id FROM users WHERE primary_hospital_code = '${hcode}');`;
-            previewSql = `SELECT * FROM patients WHERE id IN (SELECT patient_id FROM tickets WHERE hospital_id = ${hid} AND patient_id IS NOT NULL) OR id IN (SELECT patient_id FROM appointments WHERE hospital_id = ${hid} AND patient_id IS NOT NULL) OR user_id IN (SELECT id FROM users WHERE primary_hospital_code = '${hcode}') ORDER BY id DESC LIMIT 10;`;
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM patients WHERE id IN (SELECT patient_id FROM tickets WHERE hospital_id = ${hid} AND patient_id IS NOT NULL) OR id IN (SELECT patient_id FROM appointments WHERE hospital_id = ${hid} AND patient_id IS NOT NULL) OR user_id IN (SELECT id FROM users WHERE primary_hospital_code = ${hcode});`;
+            rows = await prisma.$queryRaw`SELECT * FROM patients WHERE id IN (SELECT patient_id FROM tickets WHERE hospital_id = ${hid} AND patient_id IS NOT NULL) OR id IN (SELECT patient_id FROM appointments WHERE hospital_id = ${hid} AND patient_id IS NOT NULL) OR user_id IN (SELECT id FROM users WHERE primary_hospital_code = ${hcode}) ORDER BY id DESC LIMIT 10;`;
             break;
           case "family_members":
-            countSql = `SELECT count(*)::int as cnt FROM family_members WHERE patient_id IN (SELECT id FROM patients WHERE id IN (SELECT patient_id FROM tickets WHERE hospital_id = ${hid} AND patient_id IS NOT NULL) OR id IN (SELECT patient_id FROM appointments WHERE hospital_id = ${hid} AND patient_id IS NOT NULL) OR user_id IN (SELECT id FROM users WHERE primary_hospital_code = '${hcode}')) OR user_id IN (SELECT id FROM users WHERE primary_hospital_code = '${hcode}' OR id IN (SELECT user_id FROM employees WHERE hospital_id = ${hid}));`;
-            previewSql = `SELECT * FROM family_members WHERE patient_id IN (SELECT id FROM patients WHERE id IN (SELECT patient_id FROM tickets WHERE hospital_id = ${hid} AND patient_id IS NOT NULL) OR id IN (SELECT patient_id FROM appointments WHERE hospital_id = ${hid} AND patient_id IS NOT NULL) OR user_id IN (SELECT id FROM users WHERE primary_hospital_code = '${hcode}')) OR user_id IN (SELECT id FROM users WHERE primary_hospital_code = '${hcode}' OR id IN (SELECT user_id FROM employees WHERE hospital_id = ${hid})) ORDER BY created_at DESC LIMIT 10;`;
+            countRes = await prisma.$queryRaw`SELECT count(*)::int as cnt FROM family_members WHERE patient_id IN (SELECT id FROM patients WHERE id IN (SELECT patient_id FROM tickets WHERE hospital_id = ${hid} AND patient_id IS NOT NULL) OR id IN (SELECT patient_id FROM appointments WHERE hospital_id = ${hid} AND patient_id IS NOT NULL) OR user_id IN (SELECT id FROM users WHERE primary_hospital_code = ${hcode})) OR user_id IN (SELECT id FROM users WHERE primary_hospital_code = ${hcode} OR id IN (SELECT user_id FROM employees WHERE hospital_id = ${hid}));`;
+            rows = await prisma.$queryRaw`SELECT * FROM family_members WHERE patient_id IN (SELECT id FROM patients WHERE id IN (SELECT patient_id FROM tickets WHERE hospital_id = ${hid} AND patient_id IS NOT NULL) OR id IN (SELECT patient_id FROM appointments WHERE hospital_id = ${hid} AND patient_id IS NOT NULL) OR user_id IN (SELECT id FROM users WHERE primary_hospital_code = ${hcode})) OR user_id IN (SELECT id FROM users WHERE primary_hospital_code = ${hcode} OR id IN (SELECT user_id FROM employees WHERE hospital_id = ${hid})) ORDER BY created_at DESC LIMIT 10;`;
             break;
           default:
-            countSql = `SELECT count(*)::int as cnt FROM ${tbl};`;
-            previewSql = `SELECT * FROM ${tbl} LIMIT 10;`;
+            countRes = [{ cnt: 0 }];
+            rows = [];
         }
       }
 
-      const countRes = await prisma.$queryRawUnsafe(countSql);
       const cnt = countRes[0]?.cnt || 0;
-      const rows = await prisma.$queryRawUnsafe(previewSql);
-
-      const sanitizedRows = rows.map((r) => {
-        const copy = { ...r };
-        if (copy.password_hash) {
-          copy.password_hash = "•••••••••••• [ENCRYPTED]";
-        }
-        return copy;
-      });
+      const sanitizedRows = rows.map((r) => maskSensitiveDbRow(r));
 
       result[tbl] = {
         count: cnt,
@@ -2709,6 +3319,11 @@ module.exports = {
   getHospitalBranding,
   updateHospitalBranding,
   deleteHospital,
+  archiveHospital,
+  restoreHospital,
+  purgeHospital,
+  getHospitalPurgeSummary,
+  exportHospitalData,
   getHospitalEmployees,
   addHospitalEmployee,
   updateHospitalEmployee,

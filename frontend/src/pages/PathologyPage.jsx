@@ -738,11 +738,13 @@ export default function PathologyPage({
           "info"
         );
       } else {
+        const token = localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || currentUser?.token;
         const res = await fetch(`${API_BASE}/api/v1/plugin/serve-next`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             ...(currentUser?.email ? { "X-User-Email": currentUser.email } : {}),
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
           body: JSON.stringify(payload),
         });
@@ -1168,11 +1170,13 @@ export default function PathologyPage({
           prescription_notes: mergedNotes,
         });
       } else {
+        const token = localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || currentUser?.token;
         await fetch(`${API_BASE}/api/v1/plugin/complete`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             ...(currentUser?.email ? { "X-User-Email": currentUser.email } : {}),
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
           body: JSON.stringify({
             tenant_id: effectiveHospitalCode,

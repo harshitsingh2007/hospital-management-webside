@@ -52,10 +52,15 @@ async function cleanDummyData() {
         "raja@gmail.com",
         "rahul@gmail.com",
         "hariom@gmail.com",
-        "superadmin@hospital.com",
       ];
       const realUsers = await tx.users.findMany({
-        where: { email: { in: realEmails } },
+        where: {
+          OR: [
+            { email: { in: realEmails } },
+            { role: { in: ["superadmin", "super_admin"] } },
+            { is_superadmin: true },
+          ],
+        },
         select: { id: true, email: true, username: true },
       });
       const realUserIds = realUsers.map((u) => u.id);

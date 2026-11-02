@@ -1061,9 +1061,15 @@ async function cancelTicket(tenantId = "city-hospital-01", ticketId, reason = "N
     };
   }
 
-  if (!["waiting", "scheduled", "on_hold", "pending", "serving"].includes(currStatus)) {
+  if (currStatus === "serving") {
+    const err = new Error("Cannot cancel ticket that is actively serving.");
+    err.status = 409;
+    throw err;
+  }
+
+  if (!["waiting", "scheduled", "on_hold", "pending"].includes(currStatus)) {
     const err = new Error(
-      `Cannot cancel ticket: Ticket status is '${currStatus.toUpperCase()}'. Only WAITING, SCHEDULED, ON_HOLD, or SERVING tickets can be cancelled.`
+      `Cannot cancel ticket: Ticket status is '${currStatus.toUpperCase()}'. Only WAITING, SCHEDULED, or ON_HOLD tickets can be cancelled.`
     );
     err.status = 409;
     throw err;

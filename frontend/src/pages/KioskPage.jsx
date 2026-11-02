@@ -255,13 +255,13 @@ export default function KioskPage({
   useEffect(() => {
     const socket = io(WS_URL, {
       transports: ["websocket", "polling"],
-      auth: { tenant_id: hospitalCode },
+      auth: { tenant_id: hospitalCode, is_public: true },
     });
     socketRef.current = socket;
 
     socket.on("connect", () => {
       setSocketConnected(true);
-      socket.emit("join_room", { tenant_id: hospitalCode });
+      socket.emit("join_room", { tenant_id: hospitalCode, is_public: true });
     });
 
     socket.on("disconnect", () => setSocketConnected(false));

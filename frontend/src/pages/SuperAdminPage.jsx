@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { io } from "socket.io-client";
 import { API_BASE } from "../config/hospitalConfig";
+import { apiFetch } from "../utils/apiFetch";
 import { t, getCategoryLabel } from "../utils/i18n";
 import { generateOperatingHoursText } from "../utils/operatingHoursHelper";
 import Footer from "../components/common/Footer";
@@ -65,6 +66,7 @@ import {
     AddDeptModal,
     EditDeptModal,
     NABHReportModal,
+    PurgeHospitalModal,
 } from "../components/superadmin/modals";
 
 export default function SuperAdminPage({
@@ -161,6 +163,7 @@ export default function SuperAdminPage({
     // Deep-Dive Selected Hospital Mode
     const [selectedHospital, setSelectedHospital] = useState(null);
     const selectedHospitalRef = useRef(selectedHospital);
+    const [purgeTargetHospital, setPurgeTargetHospital] = useState(null);
 
     // Selected Hospital Sub-Data & Live Operations Telemetry
     const [hospitalEmployees, setHospitalEmployees] = useState([]);
@@ -260,10 +263,10 @@ export default function SuperAdminPage({
         tagline: "Care you can trust • NABH Accredited",
         emergency_helpline: "Emergency Helpline: 108 / +91 98765 43210",
         slip_footer_text: "Non-transferable official patient record. Please keep until consultation is complete.",
-        about_us_title: "About City General Hospital",
+        about_us_title: "",
         about_us_subtitle: "Care you can trust • NABH Accredited",
-        about_us: "City General Hospital is a premier medical institution dedicated to patient-first care. Our AI-driven intelligent queue orchestration minimizes waiting times and prioritizes critical medical needs dynamically.",
-        about_us_hi: "सिटी जनरल अस्पताल मरीज़-प्रथम सेवा हेतु समर्पित एक अग्रणी चिकित्सा संस्थान है। हमारा एआई-संचालित बुद्धिमान कतार प्रबंधन प्रतीक्षा समय को कम करता है और गंभीर मामलों को प्राथमिकता देता है।",
+        about_us: "",
+        about_us_hi: "",
         about_service_1: "24/7 Emergency Triage • Priority ambulance & ICU care",
         about_service_2: "AI Wait Prediction • Live queue synchronization",
         about_service_3: "Multi-Specialty OPD • General, Cardiac, Neuro, Ortho",
@@ -314,7 +317,10 @@ export default function SuperAdminPage({
             }
         } catch (e) { }
         return headers;
-    }, [currentUser?.email, currentUser?.token]);
+    }, [currentUser?.email]);
+
+    // Error state for failed data loads
+    const [loadError, setLoadError] = useState(null);
 
     // Form States
     const [newHospitalForm, setNewHospitalForm] = useState({
@@ -808,7 +814,7 @@ export default function SuperAdminPage({
           <td>${d.totalVolume ?? 0} patients</td>
           <td>${d.completedCount ?? 0}</td>
           <td>${d.waitingCount ?? 0}</td>
-          <td>${d.avgTAT ?? 12} mins</td>
+          <td>${d.avgTAT != null ? `${d.avgTAT} mins` : "N/A"}</td>
           <td>
             <span class="badge ${d.severity === 'OPTIMAL' ? 'badge-optimal' : d.severity === 'MODERATE' ? 'badge-moderate' : 'badge-severe'}">
               ${d.severity || 'OPTIMAL'}
@@ -930,7 +936,7 @@ export default function SuperAdminPage({
                     `"${d.totalVolume ?? 0}"`,
                     `"${d.completedCount ?? 0}"`,
                     `"${d.waitingCount ?? 0}"`,
-                    `"${d.avgTAT ?? 12}"`,
+                    `"${d.avgTAT != null ? d.avgTAT : "N/A"}"`,
                     `"${d.severity || 'OPTIMAL'}"`,
                     `"${(d.recommendation || '').replace(/"/g, '""')}"`,
                 ].join(",")
@@ -1079,16 +1085,19 @@ export default function SuperAdminPage({
     // Fast toggle active/inactive status for doctors & staff
     const handleToggleEmployeeStatus = async (emp) => {
         if (!selectedHospital || !emp) return;
-        const currentIsActive = (emp.status || "").toLowerCase() === "active";
+        const currentIsActive = (emp.status || "").toLowerCase() === "active" && (emp.duty_status || "").toUpperCase() === "ACTIVE";
         const newStatus = currentIsActive ? "inactive" : "active";
+        const newDutyStatus = currentIsActive ? "OFF_DUTY" : "ACTIVE";
         const empTargetId = emp.user_id || emp.id || emp.employee_id_num;
         setIsTogglingEmpStatus(empTargetId);
         try {
-            const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/employees/${empTargetId}`, {
+            const res = await apiFetch(`${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/employees/${empTargetId}`, {
                 method: "PUT",
                 headers: getAuthHeaders(),
+                skipAuthRedirect: true,
                 body: JSON.stringify({
                     status: newStatus,
+                    duty_status: newDutyStatus,
                 }),
             });
             const data = await res.json();
@@ -1096,14 +1105,14 @@ export default function SuperAdminPage({
                 setHospitalEmployees((prev) =>
                     prev.map((e) =>
                         (e.user_id === empTargetId || e.id === empTargetId || e.employee_id_num === empTargetId)
-                            ? { ...e, status: newStatus }
+                            ? { ...e, status: newStatus, duty_status: newDutyStatus }
                             : e
                     )
                 );
                 notify(
                     isHi
-                        ? `'${emp.name || emp.username}' की स्थिति '${newStatus === "active" ? "सक्रिय" : "निष्क्रिय"}' में बदली गई!`
-                        : `Status for '${emp.name || emp.username}' changed to ${newStatus === "active" ? "Active" : "Inactive"}!`
+                        ? `'${emp.name || emp.username}' की स्थिति '${newStatus === "active" ? "सक्रिय (ऑनलाइन)" : "निष्क्रिय (ऑफलाइन)"}' में बदली गई!`
+                        : `Status for '${emp.name || emp.username}' changed to ${newStatus === "active" ? "Active (Online)" : "Inactive (Offline)"}!`
                 );
                 fetchHospitalDeepDive(selectedHospital.hospital_code);
             } else {
@@ -1149,9 +1158,24 @@ export default function SuperAdminPage({
         try {
             const headers = getAuthHeaders();
             const [overviewRes, hospitalsRes, broadcastsRes] = await Promise.all([
-                fetch(`${API_BASE}/api/v1/superadmin/overview`, { headers }).then((r) => r.json()).catch(() => null),
-                fetch(`${API_BASE}/api/v1/superadmin/hospitals`, { headers }).then((r) => r.json()).catch(() => null),
-                fetch(`${API_BASE}/api/v1/broadcasts/active`, { headers }).then((r) => r.json()).catch(() => null),
+                apiFetch(`${API_BASE}/api/v1/superadmin/overview`, { headers, skipAuthRedirect: true }).then(async (r) => {
+                    if (!r.ok) {
+                        const err = await r.json().catch(() => ({}));
+                        throw new Error(err.message || `Overview error (${r.status})`);
+                    }
+                    return r.json();
+                }),
+                apiFetch(`${API_BASE}/api/v1/superadmin/hospitals`, { headers, skipAuthRedirect: true }).then(async (r) => {
+                    if (!r.ok) {
+                        const err = await r.json().catch(() => ({}));
+                        throw new Error(err.message || `Hospitals error (${r.status})`);
+                    }
+                    return r.json();
+                }),
+                apiFetch(`${API_BASE}/api/v1/broadcasts/active`, { headers, skipAuthRedirect: true }).then(async (r) => {
+                    if (!r.ok) return null;
+                    return r.json();
+                }).catch(() => null),
             ]);
 
             if (overviewRes && overviewRes.status === "success") {
@@ -1163,12 +1187,13 @@ export default function SuperAdminPage({
             if (hospitalsRes && hospitalsRes.status === "success") {
                 let list = hospitalsRes.hospitals || [];
 
-                // Filter to only hospitals related to current user if user has an assigned hospital or owned facility
+                // Filter to only hospitals related to current user if user is NOT a global superadmin
                 const userHospCode = currentUser?.primary_hospital_code || currentUser?.hospital_code;
                 const userEmail = (currentUser?.email || "").toLowerCase();
                 const userId = currentUser?.id;
+                const isSuperAdminRole = (currentUser?.role || "").toLowerCase().includes("super");
 
-                if (currentUser && (userHospCode || userId || userEmail)) {
+                if (!isSuperAdminRole && currentUser && (userHospCode || userId || userEmail)) {
                     const scoped = list.filter((h) => {
                         if (userHospCode && userHospCode !== "all" && h.hospital_code === userHospCode) return true;
                         if (userId && h.owner_user_id && String(h.owner_user_id) === String(userId)) return true;
@@ -1205,12 +1230,14 @@ export default function SuperAdminPage({
                     }
                 }
             }
+            setLoadError(null);
             if (!silent) setLoading(false);
         } catch (e) {
-            console.log("Superadmin fetch error:", e);
+            console.error("Superadmin fetch error:", e);
+            setLoadError(`Failed to load hospitals: ${e.message || "Network error"}`);
             if (!silent) setLoading(false);
         }
-    }, [getAuthHeaders, currentUser]);
+    }, [getAuthHeaders, currentUser?.id, currentUser?.email, currentUser?.primary_hospital_code, currentUser?.hospital_code]);
 
     // Live Sync Error Tracking & Visits Period Filter State
     const [deepDiveError, setDeepDiveError] = useState(null);
@@ -1226,20 +1253,32 @@ export default function SuperAdminPage({
         try {
             const headers = getAuthHeaders();
             const [summaryRes, analyticsRes, snapshotRes, desksRes] = await Promise.all([
-                fetch(`${API_BASE}/api/v1/superadmin/hospitals/${hCode}/live-summary`, { headers }).then(async (r) => {
-                    if (!r.ok) throw new Error(`Live summary error (${r.status})`);
+                apiFetch(`${API_BASE}/api/v1/superadmin/hospitals/${hCode}/live-summary`, { headers, skipAuthRedirect: true }).then(async (r) => {
+                    if (!r.ok) {
+                        const err = await r.json().catch(() => ({}));
+                        throw new Error(err.message || `Live summary error (${r.status})`);
+                    }
                     return r.json();
                 }),
-                fetch(`${API_BASE}/api/v1/plugin/analytics/${hCode}`).then(async (r) => {
-                    if (!r.ok) throw new Error(`Analytics error (${r.status})`);
+                apiFetch(`${API_BASE}/api/v1/plugin/analytics/${hCode}`, { skipAuthRedirect: true }).then(async (r) => {
+                    if (!r.ok) {
+                        const err = await r.json().catch(() => ({}));
+                        throw new Error(err.message || `Analytics error (${r.status})`);
+                    }
                     return r.json();
                 }),
-                fetch(`${API_BASE}/api/v1/plugin/queue/snapshot/${hCode}`).then(async (r) => {
-                    if (!r.ok) throw new Error(`Snapshot error (${r.status})`);
+                apiFetch(`${API_BASE}/api/v1/plugin/queue/snapshot/${hCode}`, { skipAuthRedirect: true }).then(async (r) => {
+                    if (!r.ok) {
+                        const err = await r.json().catch(() => ({}));
+                        throw new Error(err.message || `Snapshot error (${r.status})`);
+                    }
                     return r.json();
                 }),
-                fetch(`${API_BASE}/api/v1/superadmin/hospitals/${hCode}/desks`, { headers }).then(async (r) => {
-                    if (!r.ok) throw new Error(`Desks error (${r.status})`);
+                apiFetch(`${API_BASE}/api/v1/superadmin/hospitals/${hCode}/desks`, { headers, skipAuthRedirect: true }).then(async (r) => {
+                    if (!r.ok) {
+                        const err = await r.json().catch(() => ({}));
+                        throw new Error(err.message || `Desks error (${r.status})`);
+                    }
                     return r.json();
                 }),
             ]);
@@ -1279,20 +1318,32 @@ export default function SuperAdminPage({
         try {
             const headers = getAuthHeaders();
             const [detailRes, empRes, deptsRes, visitsRes] = await Promise.all([
-                fetch(`${API_BASE}/api/v1/superadmin/hospitals/${hCode}`, { headers }).then(async (r) => {
-                    if (!r.ok) throw new Error(`Hospital detail error (${r.status})`);
+                apiFetch(`${API_BASE}/api/v1/superadmin/hospitals/${hCode}`, { headers, skipAuthRedirect: true }).then(async (r) => {
+                    if (!r.ok) {
+                        const err = await r.json().catch(() => ({}));
+                        throw new Error(err.message || `Hospital detail error (${r.status})`);
+                    }
                     return r.json();
                 }),
-                fetch(`${API_BASE}/api/v1/superadmin/hospitals/${hCode}/employees`, { headers }).then(async (r) => {
-                    if (!r.ok) throw new Error(`Employees error (${r.status})`);
+                apiFetch(`${API_BASE}/api/v1/superadmin/hospitals/${hCode}/employees`, { headers, skipAuthRedirect: true }).then(async (r) => {
+                    if (!r.ok) {
+                        const err = await r.json().catch(() => ({}));
+                        throw new Error(err.message || `Employees error (${r.status})`);
+                    }
                     return r.json();
                 }),
-                fetch(`${API_BASE}/api/v1/superadmin/hospitals/${hCode}/departments`, { headers }).then(async (r) => {
-                    if (!r.ok) throw new Error(`Departments error (${r.status})`);
+                apiFetch(`${API_BASE}/api/v1/superadmin/hospitals/${hCode}/departments`, { headers, skipAuthRedirect: true }).then(async (r) => {
+                    if (!r.ok) {
+                        const err = await r.json().catch(() => ({}));
+                        throw new Error(err.message || `Departments error (${r.status})`);
+                    }
                     return r.json();
                 }),
-                fetch(`${API_BASE}/api/v1/superadmin/hospitals/${hCode}/visits?period=${period}`, { headers }).then(async (r) => {
-                    if (!r.ok) throw new Error(`Visits error (${r.status})`);
+                apiFetch(`${API_BASE}/api/v1/superadmin/hospitals/${hCode}/visits?period=${period}`, { headers, skipAuthRedirect: true }).then(async (r) => {
+                    if (!r.ok) {
+                        const err = await r.json().catch(() => ({}));
+                        throw new Error(err.message || `Visits error (${r.status})`);
+                    }
                     return r.json();
                 }),
             ]);
@@ -1361,6 +1412,23 @@ export default function SuperAdminPage({
         }, 1500);
     }, [fetchHospitalLiveMetrics]);
 
+    // Stable callback refs to prevent circular effect feedback loops
+    const triggerDebouncedLiveMetricsRef = useRef(triggerDebouncedLiveMetrics);
+    const fetchHospitalMetadataRef = useRef(fetchHospitalMetadata);
+    const fetchGlobalDataRef = useRef(fetchGlobalData);
+    const fetchHospitalLiveMetricsRef = useRef(fetchHospitalLiveMetrics);
+    const fetchHospitalDeepDiveRef = useRef(fetchHospitalDeepDive);
+    const visitsPeriodRef = useRef(visitsPeriod);
+
+    useEffect(() => {
+        triggerDebouncedLiveMetricsRef.current = triggerDebouncedLiveMetrics;
+        fetchHospitalMetadataRef.current = fetchHospitalMetadata;
+        fetchGlobalDataRef.current = fetchGlobalData;
+        fetchHospitalLiveMetricsRef.current = fetchHospitalLiveMetrics;
+        fetchHospitalDeepDiveRef.current = fetchHospitalDeepDive;
+        visitsPeriodRef.current = visitsPeriod;
+    });
+
     // Real-Time Socket.IO Live Telemetry Integration
     useEffect(() => {
         const hCode = selectedHospital?.hospital_code;
@@ -1371,14 +1439,14 @@ export default function SuperAdminPage({
             const token = currentUser?.token || localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || "";
             socket = io(API_BASE, {
                 transports: ["websocket", "polling"],
-                auth: { tenant_id: hCode, token },
+                auth: { tenant_id: hCode, token, is_public: !token },
                 reconnectionAttempts: 10,
                 reconnectionDelay: 1000,
             });
 
             socket.on("connect", () => {
                 setSocketConnected(true);
-                socket.emit("join_room", { tenant_id: hCode });
+                socket.emit("join_room", { tenant_id: hCode, is_public: !token });
             });
             socket.on("disconnect", () => setSocketConnected(false));
             socket.on("connect_error", () => setSocketConnected(false));
@@ -1451,19 +1519,19 @@ export default function SuperAdminPage({
             socket.on("staff_duty_status_changed", handleDutyStatusChange);
             socket.on("hospital_data_changed", () => {
                 setLastSyncedAt(new Date());
-                fetchHospitalMetadata(hCode, visitsPeriod, true);
-                triggerDebouncedLiveMetrics(hCode);
-                fetchGlobalData(true);
+                fetchHospitalMetadataRef.current(hCode, visitsPeriodRef.current, true);
+                triggerDebouncedLiveMetricsRef.current(hCode);
+                fetchGlobalDataRef.current(true);
             });
 
             // Fast Queue Event triggers -> debounced (1.5s) live metrics refresh
-            socket.on("ticket_served", () => triggerDebouncedLiveMetrics(hCode));
-            socket.on("now_serving", () => triggerDebouncedLiveMetrics(hCode));
-            socket.on("ticket_called", () => triggerDebouncedLiveMetrics(hCode));
-            socket.on("ticket_transferred", () => triggerDebouncedLiveMetrics(hCode));
-            socket.on("ticket_completed", () => triggerDebouncedLiveMetrics(hCode));
-            socket.on("ticket_cancelled", () => triggerDebouncedLiveMetrics(hCode));
-            socket.on("desk_update", () => triggerDebouncedLiveMetrics(hCode));
+            socket.on("ticket_served", () => triggerDebouncedLiveMetricsRef.current(hCode));
+            socket.on("now_serving", () => triggerDebouncedLiveMetricsRef.current(hCode));
+            socket.on("ticket_called", () => triggerDebouncedLiveMetricsRef.current(hCode));
+            socket.on("ticket_transferred", () => triggerDebouncedLiveMetricsRef.current(hCode));
+            socket.on("ticket_completed", () => triggerDebouncedLiveMetricsRef.current(hCode));
+            socket.on("ticket_cancelled", () => triggerDebouncedLiveMetricsRef.current(hCode));
+            socket.on("desk_update", () => triggerDebouncedLiveMetricsRef.current(hCode));
         } catch (err) {
             console.log("SuperAdmin Socket live stream error:", err);
         }
@@ -1474,45 +1542,57 @@ export default function SuperAdminPage({
                 socket.disconnect();
             }
         };
-    }, [selectedHospital?.hospital_code, triggerDebouncedLiveMetrics, fetchHospitalMetadata, visitsPeriod, fetchGlobalData, currentUser?.token]);
+    }, [selectedHospital?.hospital_code]);
 
-    // Live Telemetry Sync (Heartbeat: 20s live metrics, 60s full metadata)
+    const activeTabRef = useRef(activeTab);
+    useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
+
+    // Live Telemetry Sync (Heartbeat: 15 minutes periodic refresh)
     useEffect(() => {
-        fetchGlobalData();
+        fetchGlobalDataRef.current();
         const livePoll = setInterval(() => {
-            if (activeTab === "branding") return;
+            if (activeTabRef.current === "branding") return;
             if (selectedHospitalRef.current?.hospital_code) {
-                fetchHospitalLiveMetrics(selectedHospitalRef.current.hospital_code, true);
+                fetchHospitalLiveMetricsRef.current(selectedHospitalRef.current.hospital_code, true);
             }
-        }, 20000);
+        }, 15 * 60 * 1000); // 15 minutes
 
         const metaPoll = setInterval(() => {
-            if (activeTab === "branding") return;
-            fetchGlobalData(true);
+            if (activeTabRef.current === "branding") return;
+            fetchGlobalDataRef.current(true);
             if (selectedHospitalRef.current?.hospital_code) {
-                fetchHospitalMetadata(selectedHospitalRef.current.hospital_code, visitsPeriod, true);
+                fetchHospitalMetadataRef.current(selectedHospitalRef.current.hospital_code, visitsPeriodRef.current, true);
             }
-        }, 60000);
+        }, 15 * 60 * 1000); // 15 minutes
 
         return () => {
             clearInterval(livePoll);
             clearInterval(metaPoll);
         };
-    }, [fetchGlobalData, fetchHospitalLiveMetrics, fetchHospitalMetadata, visitsPeriod, activeTab]);
+    }, []);
 
+    // Re-fetch hospital metadata when visits filter changes
+    useEffect(() => {
+        if (selectedHospitalRef.current?.hospital_code) {
+            fetchHospitalMetadataRef.current(selectedHospitalRef.current.hospital_code, visitsPeriod, true);
+        }
+    }, [visitsPeriod]);
+
+    // Initial deep-dive fetch on hospital change
     useEffect(() => {
         if (selectedHospital && selectedHospital.hospital_code) {
-            fetchHospitalDeepDive(selectedHospital.hospital_code);
+            fetchHospitalDeepDiveRef.current(selectedHospital.hospital_code);
         }
-    }, [selectedHospital?.hospital_code, fetchHospitalDeepDive]);
+    }, [selectedHospital?.hospital_code]);
 
     // 3. Create Hospital Handler
     const handleCreateHospitalSubmit = async (e) => {
         e.preventDefault();
         try {
-            const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals`, {
+            const res = await apiFetch(`${API_BASE}/api/v1/superadmin/hospitals`, {
                 method: "POST",
                 headers: getAuthHeaders(),
+                skipAuthRedirect: true,
                 body: JSON.stringify(newHospitalForm),
             });
             const data = await res.json();
@@ -1542,9 +1622,10 @@ export default function SuperAdminPage({
     const handleUpdateHospitalSubmit = async (e) => {
         e.preventDefault();
         try {
-            const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${editHospitalForm.hospital_code}`, {
+            const res = await apiFetch(`${API_BASE}/api/v1/superadmin/hospitals/${editHospitalForm.hospital_code}`, {
                 method: "PUT",
                 headers: getAuthHeaders(),
+                skipAuthRedirect: true,
                 body: JSON.stringify(editHospitalForm),
             });
             const data = await res.json();
@@ -1574,40 +1655,63 @@ export default function SuperAdminPage({
         }
     };
 
-    // Delete Hospital Handler
-    const handleDeleteHospital = (hosp) => {
+    // Archive Hospital Handler (formerly hard delete)
+    const handleArchiveHospital = (hosp) => {
         const confirmMsg = isHi
-            ? `क्या आप वाकई अस्पताल '${hosp.name}' (${hosp.hospital_code}) को हटाना चाहते हैं? इसके सभी संबंधित कर्मचारी, विभाग और डेस्क भी हटा दिए जाएंगे।`
-            : `Are you sure you want to delete hospital '${hosp.name}' (${hosp.hospital_code}) and all its associated staff, departments, and desks?`;
+            ? `क्या आप वाकई अस्पताल '${hosp.name}' (${hosp.hospital_code}) को संग्रहीत (Archive) करना चाहते हैं? यह मरीज़ और स्टाफ पोर्टल से छिप जाएगा तथा टिकट जारी नहीं हो सकेंगे। आप इसे बाद में पुनर्स्थापित कर सकते हैं।`
+            : `Are you sure you want to archive hospital '${hosp.name}' (${hosp.hospital_code})? It will be hidden from patient and staff portals, and ticket issuance will be halted. You can restore it at any time.`;
 
         showConfirm({
-            title: isHi ? "अस्पताल हटाएं" : "Delete Hospital",
+            title: isHi ? "अस्पताल संग्रहीत करें (Archive)" : "Archive Hospital",
             message: confirmMsg,
-            confirmText: isHi ? "हाँ, हटाएं" : "Delete Hospital",
+            confirmText: isHi ? "हाँ, संग्रहीत करें" : "Archive Hospital",
             cancelText: isHi ? "रद्द करें" : "Cancel",
-            isDestructive: true,
+            isDestructive: false,
             onConfirm: async () => {
                 try {
-                    const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${hosp.hospital_code}`, {
+                    const res = await apiFetch(`${API_BASE}/api/v1/superadmin/hospitals/${hosp.hospital_code}`, {
                         method: "DELETE",
                         headers: getAuthHeaders(),
+                        skipAuthRedirect: true,
                     });
                     const data = await res.json();
                     if (res.ok && data.status === "success") {
-                        notify(isHi ? `अस्पताल '${hosp.name}' सफलतापूर्वक हटा दिया गया!` : `Hospital '${hosp.name}' successfully deleted!`);
+                        notify(isHi ? `अस्पताल '${hosp.name}' सफलतापूर्वक संग्रहीत किया गया!` : `Hospital '${hosp.name}' successfully archived!`, "success");
                         fetchGlobalData();
                         if (selectedHospital?.hospital_code === hosp.hospital_code) {
                             setSelectedHospital(null);
                         }
                     } else {
-                        notify(data.detail || data.message || "Failed to delete hospital.", "error");
+                        notify(data.detail || data.message || "Failed to archive hospital.", "error");
                     }
                 } catch (err) {
-                    notify(`Error deleting hospital: ${err.message}`, "error");
+                    notify(`Error archiving hospital: ${err.message}`, "error");
                 }
             },
         });
     };
+
+    // Restore Hospital Handler
+    const handleRestoreHospital = async (hosp) => {
+        try {
+            const res = await apiFetch(`${API_BASE}/api/v1/superadmin/hospitals/${hosp.hospital_code}/restore`, {
+                method: "POST",
+                headers: getAuthHeaders(),
+                skipAuthRedirect: true,
+            });
+            const data = await res.json();
+            if (res.ok && data.status === "success") {
+                notify(isHi ? `अस्पताल '${hosp.name}' सफलतापूर्वक सक्रिय कर दिया गया!` : `Hospital '${hosp.name}' successfully restored!`, "success");
+                fetchGlobalData();
+            } else {
+                notify(data.detail || data.message || "Failed to restore hospital.", "error");
+            }
+        } catch (err) {
+            notify(`Error restoring hospital: ${err.message}`, "error");
+        }
+    };
+
+    const handleDeleteHospital = handleArchiveHospital;
 
     // 4.5. Hospital Customization & Branding Handlers
     const loadHospitalBrandingData = useCallback(async (hosp) => {
@@ -1629,10 +1733,10 @@ export default function SuperAdminPage({
             tagline: "Care you can trust • NABH Accredited",
             emergency_helpline: "Emergency Helpline: 108 / +91 98765 43210",
             slip_footer_text: "Non-transferable official patient record. Please keep until consultation is complete.",
-            about_us_title: `About ${hosp.name || "City General Hospital"}`,
+            about_us_title: hosp.name ? `About ${hosp.name}` : "",
             about_us_subtitle: "Care you can trust • NABH Accredited",
-            about_us: hosp.description || "City General Hospital is a premier medical institution dedicated to patient-first care. Our AI-driven intelligent queue orchestration minimizes waiting times and prioritizes critical medical needs dynamically.",
-            about_us_hi: "सिटी जनरल अस्पताल मरीज़-प्रथम सेवा हेतु समर्पित एक अग्रणी चिकित्सा संस्थान है। हमारा एआई-संचालित बुद्धिमान कतार प्रबंधन प्रतीक्षा समय को कम करता है और गंभीर मामलों को प्राथमिकता देता है।",
+            about_us: hosp.description || "",
+            about_us_hi: "",
             about_service_1: "24/7 Emergency Triage • Priority ambulance & ICU care",
             about_service_2: "AI Wait Prediction • Live queue synchronization",
             about_service_3: "Multi-Specialty OPD • General, Cardiac, Neuro, Ortho",
@@ -1649,16 +1753,27 @@ export default function SuperAdminPage({
             opd_helpdesk_phone: hosp.phone || "+1 (800) 456-7890 (Ext: 101)",
             opd_helpdesk_hours: "Mon – Sat: 8:00 AM – 8:00 PM",
             opd_helpdesk_hours_hi: "सोम – शनि: सुबह 8:00 – रात 8:00",
-            support_email: hosp.email || "support@citygeneralhospital.org",
+            support_email: hosp.email || "",
         };
         setBrandingForm(defaultData);
 
         try {
-            const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${hosp.hospital_code}/branding`, {
+            let data = null;
+            const res = await apiFetch(`${API_BASE}/api/v1/superadmin/hospitals/${hosp.hospital_code}/branding`, {
                 headers: getAuthHeaders(),
+                skipAuthRedirect: true,
             });
-            const data = await res.json();
-            if (res.ok && data.branding) {
+            if (res && res.ok) {
+                data = await res.json();
+            } else {
+                try {
+                    const pubRes = await fetch(`${API_BASE}/api/v1/hospital/branding/${hosp.hospital_code}`);
+                    if (pubRes && pubRes.ok) {
+                        data = await pubRes.json();
+                    }
+                } catch (_) {}
+            }
+            if (data && data.branding) {
                 setBrandingForm({
                     name: data.branding.hospital_name || data.branding.name || hosp.name || "",
                     hospital_code: hosp.hospital_code || "",
@@ -1674,7 +1789,7 @@ export default function SuperAdminPage({
                     tagline: data.branding.tagline || "Care you can trust • NABH Accredited",
                     emergency_helpline: data.branding.emergency_helpline || "Emergency Helpline: 108 / +91 98765 43210",
                     slip_footer_text: data.branding.slip_footer_text || "Non-transferable official patient record. Please keep until consultation is complete.",
-                    about_us_title: data.branding.about_us_title || `About ${hosp.name || "City General Hospital"}`,
+                    about_us_title: data.branding.about_us_title || (hosp.name ? `About ${hosp.name}` : ""),
                     about_us_subtitle: data.branding.about_us_subtitle || data.branding.tagline || "Care you can trust • NABH Accredited",
                     about_us: data.branding.about_us || hosp.description || "",
                     about_us_hi: data.branding.about_us_hi || "",
@@ -1740,10 +1855,10 @@ export default function SuperAdminPage({
             tagline: "Care you can trust • NABH Accredited",
             emergency_helpline: "Emergency Helpline: 108 / +91 98765 43210",
             slip_footer_text: "Non-transferable official patient record. Please keep until consultation is complete.",
-            about_us_title: `About ${targetHosp.name || "City General Hospital"}`,
+            about_us_title: targetHosp.name ? `About ${targetHosp.name}` : "",
             about_us_subtitle: "Care you can trust • NABH Accredited",
-            about_us: "City General Hospital is a premier medical institution dedicated to patient-first care. Our AI-driven intelligent queue orchestration minimizes waiting times and prioritizes critical medical needs dynamically.",
-            about_us_hi: "सिटी जनरल अस्पताल मरीज़-प्रथम सेवा हेतु समर्पित एक अग्रणी चिकित्सा संस्थान है। हमारा एआई-संचालित बुद्धिमान कतार प्रबंधन प्रतीक्षा समय को कम करता है और गंभीर मामलों को प्राथमिकता देता है।",
+            about_us: targetHosp.description || "",
+            about_us_hi: "",
             about_service_1: "24/7 Emergency Triage • Priority ambulance & ICU care",
             about_service_2: "AI Wait Prediction • Live queue synchronization",
             about_service_3: "Multi-Specialty OPD • General, Cardiac, Neuro, Ortho",
@@ -1869,14 +1984,15 @@ export default function SuperAdminPage({
                     .filter(Boolean);
             }
 
-            const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${targetHosp.hospital_code}/branding`, {
+            const res = await apiFetch(`${API_BASE}/api/v1/superadmin/hospitals/${targetHosp.hospital_code}/branding`, {
                 method: "PUT",
                 headers: getAuthHeaders(),
                 body: JSON.stringify(formToSave),
+                skipAuthRedirect: true,
             });
             const data = await res.json();
 
-            await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${targetHosp.hospital_code}`, {
+            await apiFetch(`${API_BASE}/api/v1/superadmin/hospitals/${targetHosp.hospital_code}`, {
                 method: "PUT",
                 headers: getAuthHeaders(),
                 body: JSON.stringify({
@@ -1888,7 +2004,8 @@ export default function SuperAdminPage({
                     description: brandingForm.description || brandingForm.about_us || targetHosp.description,
                     status: brandingForm.status || targetHosp.status || "active",
                 }),
-            }).catch(() => null);
+                skipAuthRedirect: true,
+            });
 
             if (res.ok && data.status === "success") {
                 const hospDisplayName = brandingForm.name || targetHosp.name;
@@ -1924,7 +2041,16 @@ export default function SuperAdminPage({
 
     useEffect(() => {
         if (activeTab === "branding") {
-            const target = brandingTargetHospital || selectedHospital || hospitals[0];
+            const target =
+                brandingTargetHospital ||
+                selectedHospital ||
+                hospitals.find(
+                    (h) =>
+                        h.hospital_code === currentUser?.primary_hospital_code ||
+                        h.hospital_code === currentUser?.hospital_code ||
+                        h.owner_user_id === currentUser?.id
+                ) ||
+                hospitals[0];
             if (target && target.hospital_code) {
                 if (brandingLoadedHospCodeRef.current !== target.hospital_code) {
                     brandingLoadedHospCodeRef.current = target.hospital_code;
@@ -1993,9 +2119,10 @@ export default function SuperAdminPage({
         e.preventDefault();
         if (!selectedHospital) return;
         try {
-            const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/employees`, {
+            const res = await apiFetch(`${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/employees`, {
                 method: "POST",
                 headers: getAuthHeaders(),
+                skipAuthRedirect: true,
                 body: JSON.stringify(newEmployeeForm),
             });
             const data = await res.json();
@@ -2047,9 +2174,10 @@ export default function SuperAdminPage({
             if (!payload.password || !payload.password.trim()) {
                 delete payload.password;
             }
-            const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/employees/${editEmployeeForm.id}`, {
+            const res = await apiFetch(`${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/employees/${editEmployeeForm.id}`, {
                 method: "PUT",
                 headers: getAuthHeaders(),
+                skipAuthRedirect: true,
                 body: JSON.stringify(payload),
             });
             const data = await res.json();
@@ -2096,9 +2224,10 @@ export default function SuperAdminPage({
             onConfirm: async () => {
                 try {
                     const empId = emp.id || emp.employee_id_num;
-                    const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/employees/${empId}`, {
+                    const res = await apiFetch(`${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/employees/${empId}`, {
                         method: "DELETE",
                         headers: getAuthHeaders(),
+                        skipAuthRedirect: true,
                     });
                     const data = await res.json();
                     if (res.ok && data.status === "success") {
@@ -2120,9 +2249,10 @@ export default function SuperAdminPage({
         e.preventDefault();
         if (!selectedHospital) return;
         try {
-            const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/departments`, {
+            const res = await apiFetch(`${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/departments`, {
                 method: "POST",
                 headers: getAuthHeaders(),
+                skipAuthRedirect: true,
                 body: JSON.stringify(newDeptForm),
             });
             const data = await res.json();
@@ -2155,9 +2285,10 @@ export default function SuperAdminPage({
             isDestructive: true,
             onConfirm: async () => {
                 try {
-                    const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/departments/${dept.dept_code}`, {
+                    const res = await apiFetch(`${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/departments/${dept.dept_code}`, {
                         method: "DELETE",
                         headers: getAuthHeaders(),
+                        skipAuthRedirect: true,
                     });
                     const data = await res.json();
                     if (res.ok && data.status === "success") {
@@ -2190,9 +2321,10 @@ export default function SuperAdminPage({
                 status: newDeskForm.status || "AVAILABLE",
                 assigned_employee_id: newDeskForm.assigned_employee_id ? Number(newDeskForm.assigned_employee_id) : null,
             };
-            const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/desks`, {
+            const res = await apiFetch(`${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/desks`, {
                 method: "POST",
                 headers: getAuthHeaders(),
+                skipAuthRedirect: true,
                 body: JSON.stringify(payload),
             });
             const data = await res.json();
@@ -2230,9 +2362,10 @@ export default function SuperAdminPage({
             isDestructive: true,
             onConfirm: async () => {
                 try {
-                    const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/desks/${desk.id}`, {
+                    const res = await apiFetch(`${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/desks/${desk.id}`, {
                         method: "DELETE",
                         headers: getAuthHeaders(),
+                        skipAuthRedirect: true,
                     });
                     const data = await res.json();
                     if (res.ok && data.status === "success") {
@@ -2255,9 +2388,10 @@ export default function SuperAdminPage({
         const currentStatus = (desk.status || "").toUpperCase();
         const nextStatus = (currentStatus === "ACTIVE" || currentStatus === "AVAILABLE") ? "UNAVAILABLE" : "AVAILABLE";
         try {
-            const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/desks/${desk.id}/status`, {
+            const res = await apiFetch(`${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/desks/${desk.id}/status`, {
                 method: "PUT",
                 headers: getAuthHeaders(),
+                skipAuthRedirect: true,
                 body: JSON.stringify({ status: nextStatus }),
             });
             const data = await res.json();
@@ -2283,11 +2417,12 @@ export default function SuperAdminPage({
         e.preventDefault();
         if (!selectedHospital) return;
         try {
-            const res = await fetch(
+            const res = await apiFetch(
                 `${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/departments/${editDeptForm.dept_code}`,
                 {
                     method: "PUT",
                     headers: getAuthHeaders(),
+                    skipAuthRedirect: true,
                     body: JSON.stringify({
                         name: editDeptForm.name,
                         description: editDeptForm.description,
@@ -2318,11 +2453,12 @@ export default function SuperAdminPage({
                 dept_code: editDeskForm.dept_code,
                 assigned_employee_id: editDeskForm.assigned_employee_id ? Number(editDeskForm.assigned_employee_id) : null,
             };
-            const res = await fetch(
+            const res = await apiFetch(
                 `${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/desks/${editDeskForm.id}`,
                 {
                     method: "PUT",
                     headers: getAuthHeaders(),
+                    skipAuthRedirect: true,
                     body: JSON.stringify(payload),
                 }
             );
@@ -2345,11 +2481,12 @@ export default function SuperAdminPage({
         if (!selectedHospital || !deskId) return;
         try {
             const empId = employeeId && Number(employeeId) > 0 ? Number(employeeId) : null;
-            const res = await fetch(
+            const res = await apiFetch(
                 `${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/desks/${deskId}/assign`,
                 {
                     method: "PUT",
                     headers: getAuthHeaders(),
+                    skipAuthRedirect: true,
                     body: JSON.stringify({ assigned_employee_id: empId }),
                 }
             );
@@ -2387,11 +2524,12 @@ export default function SuperAdminPage({
             isDestructive: false,
             onConfirm: async () => {
                 try {
-                    const res = await fetch(
+                    const res = await apiFetch(
                         `${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/desks/bulk-status`,
                         {
                             method: "POST",
                             headers: getAuthHeaders(),
+                            skipAuthRedirect: true,
                             body: JSON.stringify({ dept_code: deptCode, status: targetStatus }),
                         }
                     );
@@ -2425,11 +2563,12 @@ export default function SuperAdminPage({
         setIsUpdatingPassword(true);
         try {
             const empId = passwordTargetEmployee.user_id || passwordTargetEmployee.id || passwordTargetEmployee.employee_id_num;
-            const res = await fetch(
+            const res = await apiFetch(
                 `${API_BASE}/api/v1/superadmin/hospitals/${selectedHospital.hospital_code}/employees/${empId}/password`,
                 {
                     method: "PUT",
                     headers: getAuthHeaders(),
+                    skipAuthRedirect: true,
                     body: JSON.stringify({
                         new_password: newPasswordValue.trim(),
                         password: newPasswordValue.trim(),
@@ -2708,6 +2847,56 @@ export default function SuperAdminPage({
                         </div>
                     )}
 
+                    {/* Data Load Error Banner with Retry */}
+                    {loadError && (
+                        <div
+                            role="alert"
+                            style={{
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                gap: "16px",
+                                background: "rgba(239, 68, 68, 0.08)",
+                                border: "1px solid rgba(239, 68, 68, 0.3)",
+                                borderRadius: "10px",
+                                padding: "12px 18px",
+                                color: "#b91c1c",
+                                fontSize: "14px",
+                                fontWeight: "500",
+                                boxShadow: "0 2px 8px rgba(239, 68, 68, 0.08)",
+                                marginBottom: "16px",
+                            }}
+                        >
+                            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                                <span style={{ fontSize: "20px" }}>⚠️</span>
+                                <span>{loadError}</span>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setLoadError(null);
+                                    fetchGlobalData(false);
+                                    if (selectedHospital?.hospital_code) {
+                                        fetchHospitalDeepDive(selectedHospital.hospital_code, false);
+                                    }
+                                }}
+                                style={{
+                                    background: "#dc2626",
+                                    color: "#ffffff",
+                                    border: "none",
+                                    borderRadius: "6px",
+                                    padding: "6px 16px",
+                                    cursor: "pointer",
+                                    fontWeight: "600",
+                                    fontSize: "13px",
+                                    whiteSpace: "nowrap",
+                                }}
+                            >
+                                {isHi ? "पुनः प्रयास करें" : "Retry"}
+                            </button>
+                        </div>
+                    )}
+
                     {/* Main Active Module Workspace View */}
                     <div className="superadmin-module-content" style={{ display: "flex", flexDirection: "column", gap: "24px", width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box" }}>
                         {/* TAB 0: 360° VISUAL HOSPITAL OPERATIONS DASHBOARD */}
@@ -2767,7 +2956,10 @@ export default function SuperAdminPage({
                                 searchQuery={searchQuery}
                                 setSearchQuery={setSearchQuery}
                                 onOpenAddModal={() => setShowAddHospitalModal(true)}
-                                onDeleteHospital={handleDeleteHospital}
+                                onDeleteHospital={handleArchiveHospital}
+                                onArchiveHospital={handleArchiveHospital}
+                                onRestoreHospital={handleRestoreHospital}
+                                onOpenPurgeModal={(hosp) => setPurgeTargetHospital(hosp)}
                                 onManageStaff={(hosp) => {
                                     setSelectedHospital(hosp);
                                     if (onSelectHospitalTenant) onSelectHospitalTenant(hosp.hospital_code);
@@ -2782,6 +2974,7 @@ export default function SuperAdminPage({
                                     window.scrollTo({ top: 380, behavior: "smooth" });
                                 }}
                                 hospitalVisitsData={hospitalVisitsData}
+                                hospitalEmployees={hospitalEmployees}
                                 isHi={isHi}
                             />
                         )}
@@ -3008,7 +3201,7 @@ export default function SuperAdminPage({
                     <div style={{ marginTop: "24px", marginBottom: "0px", width: "100%" }}>
                         <Footer
                             language={language}
-                            hospitalName={selectedHospital?.name || currentUser?.hospital_name || "City General Hospital"}
+                            hospitalName={selectedHospital?.name || currentUser?.hospital_name || ""}
                             currentUser={currentUser}
                         />
                     </div>
@@ -3166,6 +3359,24 @@ export default function SuperAdminPage({
                 handleDownloadNABHExcel={handleDownloadNABHExcel}
                 isHi={isHi}
             />
+
+            {purgeTargetHospital && (
+                <PurgeHospitalModal
+                    hospital={purgeTargetHospital}
+                    onClose={() => setPurgeTargetHospital(null)}
+                    onPurged={(purgedHosp) => {
+                        fetchGlobalData();
+                        if (selectedHospital?.hospital_code === purgedHosp?.hospital_code) {
+                            setSelectedHospital(null);
+                        }
+                    }}
+                    apiBase={API_BASE}
+                    getAuthHeaders={getAuthHeaders}
+                    notify={notify}
+                    isDark={isDark}
+                    isHi={isHi}
+                />
+            )}
 
 
 

@@ -9,34 +9,42 @@ const prisma = require("../config/prisma");
 
 /**
  * Checks if the given authenticated user has access to manage/view the given hospital_code.
+ * @param {string} hospitalCode - Target hospital code
+ * @param {Object} user - The authenticated user (from req.user)
+ * @param {Object} [options]
+ * @param {boolean} [options.allowPublic=false] - When true, permits anonymous/patient read access
  */
-async function verifyHospitalAccess(hospitalCode, user) {
+async function verifyHospitalAccess(hospitalCode, user, options = { allowPublic: false }) {
+  if (options && options.allowPublic) {
+    return true;
+  }
+
   if (!user) return false;
-  if (!hospitalCode) return true;
+  if (!hospitalCode) return false;
 
   const hCode = String(hospitalCode).trim();
   const role = (user.role || "").toLowerCase();
 
-  // Root platform superadmin has universal administrative access
-  if (user.email === "superadmin@hospital.com" || user.is_superadmin) {
+  // Platform root superadmin has universal administrative access
+  if (user.is_superadmin || role === "super_admin") {
     return true;
   }
 
-  // 1. Super Admin / Hospital Owner: owns the hospital or hospital has no owner assigned
-  if (role === "superadmin" || role === "super_admin" || role === "hospital_owner") {
+  // 1. Hospital Owner / Facility Superadmin: must own this specific hospital or have it assigned as primary
+  if (role === "hospital_owner" || role === "superadmin") {
+    if (user.primary_hospital_code && user.primary_hospital_code === hCode) {
+      return true;
+    }
     const hospital = await prisma.hospitals.findFirst({
       where: {
         hospital_code: hCode,
-        OR: [
-          { owner_user_id: user.id },
-          { owner_user_id: null },
-        ],
+        owner_user_id: user.id,
       },
     });
-    return !!hospital;
+    if (hospital) return true;
   }
 
-  // 2. Hospital Admin / Doctor / Staff / Pharmacist / Pathologist / Radiologist: employee record attached to this hospital
+  // 2. Hospital Admin / Doctor / Staff / Clinical roles: must have an active employee record attached to this specific hospital
   const staffRoles = [
     "admin",
     "doctor",
@@ -70,11 +78,15 @@ async function verifyHospitalAccess(hospitalCode, user) {
     return !!emp;
   }
 
-  // 3. Patient/User: can access public info or their own bookings
-  return true;
+  // 3. Management paths NEVER permit "user" (patient) role
+  return false;
 }
 
-function hospitalIsolation(paramName = "hospital_code") {
+/**
+ * Express middleware enforcing hospital isolation on route parameters.
+ * Automatically checks req.user and verifies tenant boundary.
+ */
+function hospitalIsolation(paramName = "hospital_code", options = {}) {
   return async (req, res, next) => {
     try {
       if (!req.user) {
@@ -95,10 +107,13 @@ function hospitalIsolation(paramName = "hospital_code") {
         req.headers["x-tenant-id"];
 
       if (!hCode) {
-        return next();
+        return res.status(400).json({
+          status: "error",
+          message: "Hospital code parameter required.",
+        });
       }
 
-      const allowed = await verifyHospitalAccess(hCode, req.user);
+      const allowed = await verifyHospitalAccess(hCode, req.user, options);
       if (!allowed) {
         return res.status(403).json({
           status: "error",

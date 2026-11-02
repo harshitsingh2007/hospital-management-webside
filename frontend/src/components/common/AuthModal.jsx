@@ -253,7 +253,7 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
             localStorage.setItem("ai_queue_current_hospital", data.user?.hospital_code || selectedHospitalCode || "city-hospital-01");
           } catch (e) {}
         }
-        onLoginSuccess(data.user);
+        onLoginSuccess({ ...data.user, token: data.token || data.user?.token });
       } else {
         if (data.remaining_attempts !== undefined) {
           setLoginRemainingAttempts(data.remaining_attempts);
@@ -388,7 +388,7 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
             localStorage.setItem("ai_queue_current_hospital", data.user.hospital_code);
           } catch (e) {}
         }
-        onLoginSuccess(data.user);
+        onLoginSuccess({ ...data.user, token: data.token || data.user?.token });
       } else {
         setErrorMsg(data.detail || "Authentication failed. Please check your credentials.");
       }

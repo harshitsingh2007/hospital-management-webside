@@ -45,15 +45,40 @@ export const hospitalCardStyle = {
     transition: "all 0.15s ease",
 };
 
-export const hospitalStatusBadgeStyle = (status) => ({
-    fontSize: "10px",
-    fontWeight: 800,
-    padding: "2px 7px",
-    borderRadius: "6px",
-    background: status === "active" ? "rgba(16, 185, 129, 0.15)" : "rgba(239, 68, 68, 0.15)",
-    color: status === "active" ? "#047857" : "#B91C1C",
-    border: status === "active" ? "1px solid rgba(16, 185, 129, 0.3)" : "1px solid rgba(239, 68, 68, 0.3)",
-});
+export const hospitalStatusBadgeStyle = (status) => {
+    const s = (status || "").toLowerCase();
+    if (s === "active") {
+        return {
+            fontSize: "10px",
+            fontWeight: 800,
+            padding: "2px 7px",
+            borderRadius: "6px",
+            background: "rgba(16, 185, 129, 0.15)",
+            color: "#047857",
+            border: "1px solid rgba(16, 185, 129, 0.3)",
+        };
+    }
+    if (s === "archived") {
+        return {
+            fontSize: "10px",
+            fontWeight: 800,
+            padding: "2px 7px",
+            borderRadius: "6px",
+            background: "rgba(245, 158, 11, 0.15)",
+            color: "#B45309",
+            border: "1px solid rgba(245, 158, 11, 0.35)",
+        };
+    }
+    return {
+        fontSize: "10px",
+        fontWeight: 800,
+        padding: "2px 7px",
+        borderRadius: "6px",
+        background: "rgba(239, 68, 68, 0.15)",
+        color: "#B91C1C",
+        border: "1px solid rgba(239, 68, 68, 0.3)",
+    };
+};
 
 export const primarySmallBtnStyle = {
     flex: 1,

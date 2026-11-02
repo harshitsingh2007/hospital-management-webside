@@ -601,7 +601,7 @@ async function recordCompletedVisit({
   let existingRx = {};
   const tkt = await prisma.tickets.findUnique({
     where: { ticket_id: String(ticket_id).trim() },
-    select: { patient_id: true, prescription_notes: true, medical_condition: true, served_by_doctor_name: true },
+    select: { patient_id: true, prescription_notes: true, medical_condition: true },
   });
   if (tkt) {
     if (!pId) pId = tkt.patient_id;

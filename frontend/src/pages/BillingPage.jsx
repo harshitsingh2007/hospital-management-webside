@@ -1,20 +1,3 @@
-/**
- * BillingPage.jsx
- * ---------------
- * Enterprise Hospital Cashier & Central Billing Portal.
- * 
- * Cloned strictly from the exact architectural design system and visual theme of PathologyPage.jsx & RadiologyPage.jsx.
- * Features:
- * - Executive Dark-Navy Clinical Hero Container with Sky Blue Accents (#0284C7 / #38BDF8)
- * - 4 Real-time Stat Cards: Waiting at Billing Counter, Today's Collection, Pending Dues, Bills Generated
- * - Modern Tab Switcher (.tab-button-modern) matching Pathology & Radiology:
- *   1. Billing Workstation: Live Queue, Active Patient Station, Auto-pull Prescription Items, Split Payments, Change Calculator
- *   2. Bills & Receipts Archive: Search & reprint A4 Tax Invoice / 80mm POS Thermal Receipts, Apply Discounts, Cancel Bills
- *   3. Collections & Financial Reports: Payment Mode breakdowns, Department collections, Cashier audits, Excel export
- *   4. Cash Shift Management: Day-end cash register opening, reconciliation, expected vs counted cash, difference audit
- * - Multi-Language (English/Hindi) and Light/Dark Theme support.
- */
-
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { API_BASE } from "../config/hospitalConfig";
 import { announceTicketVoice } from "../utils/voiceSynthesizer";
@@ -177,7 +160,7 @@ export default function BillingPage({
       setDutyStatus(newDutyId);
       try {
         localStorage.setItem("ai_queue_billing_duty", newDutyId);
-      } catch (_) {}
+      } catch (_) { }
 
       const backendStatus = newDutyId === "BREAK" ? "ON_BREAK" : newDutyId === "OFF_DUTY" ? "OFF_DUTY" : "ACTIVE";
       const targetUserId = currentUser?.id || currentUser?.user_id;
@@ -468,9 +451,9 @@ export default function BillingPage({
         (t) =>
           (isBillingMatch(t.service_category) || isBillingMatch(t.department)) &&
           (String(t.doctor_name || "").toLowerCase() === String(cashierName).toLowerCase() ||
-           (myDeskId && String(t.desk_id || "") === myDeskId) ||
-           (myDeskName && String(t.desk_name || "") === String(myDeskName)) ||
-           !t.doctor_name)
+            (myDeskId && String(t.desk_id || "") === myDeskId) ||
+            (myDeskName && String(t.desk_name || "") === String(myDeskName)) ||
+            !t.doctor_name)
       ) || servingTickets.find((t) => isBillingMatch(t.service_category) || isBillingMatch(t.department)) || null
     );
   }, [servingTickets, cashierName, selectedDesk, assignedDesk, activeDesk]);
@@ -509,11 +492,13 @@ export default function BillingPage({
         socketRef.current.emit("serve_next", payload);
         showToast(isHi ? "अगले बिलिंग मरीज़ को पुकारा जा रहा है..." : "Calling next billing patient...", "info");
       } else {
+        const token = localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || currentUser?.token;
         await fetch(`${API_BASE}/api/v1/plugin/serve-next`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             ...(currentUser?.email ? { "X-User-Email": currentUser.email } : {}),
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
           body: JSON.stringify(payload),
         });
@@ -2857,7 +2842,7 @@ export default function BillingPage({
                   <span>👤</span>
                   <span>{isHi ? "1. मरीज़ पहचान एवं जनसांख्यिकी" : "1. Patient Identification & Demographics"}</span>
                 </div>
-                
+
                 <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: "10px", marginBottom: "10px" }}>
                   <div>
                     <label style={{ fontSize: "11px", fontWeight: 700, color: mutedText, display: "block", marginBottom: "4px" }}>
@@ -3138,7 +3123,6 @@ export default function BillingPage({
                     notes: walkInForm.notes.trim(),
                     is_walkin: true,
                   });
-                  setActiveServingTicket(null);
                   setCurrentCreatedBill(null);
                   setIsWalkInModalOpen(false);
                   showToast(isHi ? "वॉक-इन मरीज़ विवरण सफलतापूर्वक सेट हुआ ✓" : "Walk-in patient profile initialized ✓", "success");

@@ -15,6 +15,11 @@ const {
   getHospitalBranding,
   updateHospitalBranding,
   deleteHospital,
+  archiveHospital,
+  restoreHospital,
+  purgeHospital,
+  getHospitalPurgeSummary,
+  exportHospitalData,
   getHospitalEmployees,
   addHospitalEmployee,
   updateHospitalEmployee,
@@ -38,13 +43,17 @@ const {
   bulkAddHospitalVisits,
 } = require("../services/hospitalService");
 const { verifyHospitalAccess } = require("../middleware/hospitalIsolation");
+const { SUPER_ROLES } = require("../middleware/role");
 const { getIo } = require("../socket");
+const { writeAudit } = require("../utils/auditLogger");
+const { validatePassword } = require("../utils/passwordPolicy");
 
 function notifyHospitalChange(req, hospitalCode, eventType = "hospital_data_changed") {
   try {
     const io = req?.app?.get("io") || getIo();
     if (io && hospitalCode) {
       io.to(hospitalCode).emit(eventType, { hospital_code: hospitalCode, timestamp: new Date().toISOString() });
+      io.to(`${hospitalCode}:public`).emit(eventType, { hospital_code: hospitalCode, timestamp: new Date().toISOString() });
     }
   } catch (e) {
     // Ignore socket error
@@ -58,6 +67,30 @@ function notifyDeskChange(req, hospitalCode, deskData = null) {
       io.to(hospitalCode).emit("desk_update", {
         hospital_code: hospitalCode,
         desk: deskData,
+        timestamp: new Date().toISOString(),
+      });
+
+      const publicDesk = deskData && typeof deskData === "object" ? {
+        id: deskData.id,
+        desk_name: deskData.desk_name,
+        desk_number: deskData.desk_number,
+        dept_code: deskData.dept_code,
+        status: deskData.status,
+        is_active: deskData.is_active,
+        counter_name: deskData.counter_name,
+        deleted: deskData.deleted,
+        assigned_employee: deskData.assigned_employee ? {
+          id: deskData.assigned_employee.id,
+          name: deskData.assigned_employee.name,
+          role: deskData.assigned_employee.role,
+          designation: deskData.assigned_employee.designation,
+          status: deskData.assigned_employee.status,
+        } : null,
+      } : null;
+
+      io.to(`${hospitalCode}:public`).emit("desk_update", {
+        hospital_code: hospitalCode,
+        desk: publicDesk,
         timestamp: new Date().toISOString(),
       });
     }
@@ -317,6 +350,13 @@ async function createHospitalEndpoint(req, res, next) {
       ownerUserId: req.user?.id || null,
     });
 
+    writeAudit(req, {
+      action: "hospital_created",
+      hospital_id: result.hospital?.id,
+      target: result.hospital?.hospital_code,
+      meta: { name: result.hospital?.name },
+    });
+
     return res.status(200).json({
       status: "success",
       hospital: result.hospital,
@@ -338,16 +378,6 @@ async function createHospitalEndpoint(req, res, next) {
 async function getHospitalDetailEndpoint(req, res, next) {
   try {
     const hospitalCode = req.params.hospital_code;
-    if (req.user) {
-      const allowed = await verifyHospitalAccess(hospitalCode, req.user);
-      if (!allowed) {
-        return res.status(403).json({
-          status: "error",
-          message: "Forbidden: You do not have access to this hospital's resources.",
-        });
-      }
-    }
-
     const hospital = await getHospitalByCode(hospitalCode);
     if (!hospital) {
       return res.status(404).json({ status: "error", message: "Hospital not found" });
@@ -365,17 +395,13 @@ async function getHospitalDetailEndpoint(req, res, next) {
 async function updateHospitalEndpoint(req, res, next) {
   try {
     const hospitalCode = req.params.hospital_code;
-    if (req.user) {
-      const allowed = await verifyHospitalAccess(hospitalCode, req.user);
-      if (!allowed) {
-        return res.status(403).json({
-          status: "error",
-          message: "Forbidden: You do not have ownership of this hospital.",
-        });
-      }
-    }
-
     const updated = await updateHospital(hospitalCode, req.body);
+    writeAudit(req, {
+      action: "hospital_updated",
+      hospital_id: updated?.id,
+      target: hospitalCode,
+      meta: { name: updated?.name },
+    });
     return res.status(200).json({
       status: "success",
       hospital: updated,
@@ -402,16 +428,6 @@ async function getHospitalBrandingEndpoint(req, res, next) {
 async function updateHospitalBrandingEndpoint(req, res, next) {
   try {
     const hospitalCode = req.params.hospital_code;
-    if (req.user) {
-      const allowed = await verifyHospitalAccess(hospitalCode, req.user);
-      if (!allowed) {
-        return res.status(403).json({
-          status: "error",
-          message: "Forbidden: You do not have permission to customize this hospital's branding.",
-        });
-      }
-    }
-
     const result = await updateHospitalBranding(hospitalCode, req.body);
 
     const io = req.app.get("io");
@@ -426,6 +442,12 @@ async function updateHospitalBrandingEndpoint(req, res, next) {
       });
     }
 
+    writeAudit(req, {
+      action: "branding_updated",
+      target: hospitalCode,
+      meta: { hospital_code: hospitalCode },
+    });
+
     return res.status(200).json(result);
   } catch (error) {
     next(error);
@@ -435,18 +457,84 @@ async function updateHospitalBrandingEndpoint(req, res, next) {
 async function deleteHospitalEndpoint(req, res, next) {
   try {
     const hospitalCode = req.params.hospital_code;
-    if (req.user) {
-      const allowed = await verifyHospitalAccess(hospitalCode, req.user);
-      if (!allowed) {
-        return res.status(403).json({
-          status: "error",
-          message: "Forbidden: You do not have ownership of this hospital.",
-        });
-      }
+    const result = await archiveHospital(hospitalCode);
+
+    writeAudit(req, {
+      action: "hospital_archived",
+      target: hospitalCode,
+      meta: { hospital_code: hospitalCode },
+    });
+
+    notifyHospitalChange(req, hospitalCode, "hospital_archived");
+    return res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function restoreHospitalEndpoint(req, res, next) {
+  try {
+    const hospitalCode = req.params.hospital_code;
+    const result = await restoreHospital(hospitalCode);
+
+    writeAudit(req, {
+      action: "hospital_restored",
+      target: hospitalCode,
+      meta: { hospital_code: hospitalCode },
+    });
+
+    notifyHospitalChange(req, hospitalCode, "hospital_restored");
+    return res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function getHospitalPurgeSummaryEndpoint(req, res, next) {
+  try {
+    const hospitalCode = req.params.hospital_code;
+    const result = await getHospitalPurgeSummary(hospitalCode);
+    return res.status(200).json({ status: "success", summary: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function purgeHospitalEndpoint(req, res, next) {
+  try {
+    const hospitalCode = req.params.hospital_code;
+    const { confirm_code } = req.body || {};
+
+    if (!confirm_code || String(confirm_code).trim() !== hospitalCode) {
+      return res.status(400).json({
+        status: "error",
+        message: `Confirmation code mismatch. You must provide confirm_code="${hospitalCode}" to permanently purge.`,
+      });
     }
 
-    const result = await deleteHospital(hospitalCode);
+    const result = await purgeHospital(hospitalCode, confirm_code);
+
+    writeAudit(req, {
+      action: "hospital_purged",
+      target: hospitalCode,
+      meta: { hospital_code: hospitalCode, summary: result.summary },
+    });
+
+    notifyHospitalChange(req, hospitalCode, "hospital_purged");
     return res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function exportHospitalDataEndpoint(req, res, next) {
+  try {
+    const hospitalCode = req.params.hospital_code;
+    const csvContent = await exportHospitalData(hospitalCode);
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${hospitalCode}_backup_${Date.now()}.csv"`);
+    return res.status(200).send(csvContent);
   } catch (error) {
     next(error);
   }
@@ -455,16 +543,6 @@ async function deleteHospitalEndpoint(req, res, next) {
 async function getHospitalEmployeesEndpoint(req, res, next) {
   try {
     const hospitalCode = req.params.hospital_code;
-    if (req.user) {
-      const allowed = await verifyHospitalAccess(hospitalCode, req.user);
-      if (!allowed) {
-        return res.status(403).json({
-          status: "error",
-          message: "Forbidden: You do not have access to this hospital's employees.",
-        });
-      }
-    }
-
     const employees = await getHospitalEmployees(hospitalCode);
     return res.status(200).json({
       status: "success",
@@ -478,16 +556,6 @@ async function getHospitalEmployeesEndpoint(req, res, next) {
 async function addHospitalEmployeeEndpoint(req, res, next) {
   try {
     const hospitalCode = req.params.hospital_code;
-    if (req.user) {
-      const allowed = await verifyHospitalAccess(hospitalCode, req.user);
-      if (!allowed) {
-        return res.status(403).json({
-          status: "error",
-          message: "Forbidden: You cannot provision employees for another hospital.",
-        });
-      }
-    }
-
     const {
       name,
       email,
@@ -503,6 +571,14 @@ async function addHospitalEmployeeEndpoint(req, res, next) {
       experience_years = 0,
       room_number = "",
     } = req.body;
+
+    const pwdCheck = validatePassword(password);
+    if (!pwdCheck.valid) {
+      return res.status(400).json({
+        status: "error",
+        message: pwdCheck.error,
+      });
+    }
 
     const employee = await addHospitalEmployee({
       hospitalCode,
@@ -523,6 +599,13 @@ async function addHospitalEmployeeEndpoint(req, res, next) {
 
     notifyHospitalChange(req, hospitalCode);
 
+    writeAudit(req, {
+      action: "employee_added",
+      hospital_id: employee?.hospital_id,
+      target: String(employee?.id || email),
+      meta: { name, email, role, department },
+    });
+
     return res.status(200).json({
       status: "success",
       employee,
@@ -537,18 +620,15 @@ async function updateHospitalEmployeeEndpoint(req, res, next) {
     const hospitalCode = req.params.hospital_code;
     const userId = req.params.user_id;
 
-    if (req.user) {
-      const allowed = await verifyHospitalAccess(hospitalCode, req.user);
-      if (!allowed) {
-        return res.status(403).json({
-          status: "error",
-          message: "Forbidden: You do not have access to manage this employee.",
-        });
-      }
-    }
-
     const updated = await updateHospitalEmployee(userId, req.body);
     notifyHospitalChange(req, hospitalCode);
+
+    writeAudit(req, {
+      action: "employee_updated",
+      target: String(userId),
+      meta: { hospital_code: hospitalCode, updated_fields: Object.keys(req.body || {}) },
+    });
+
     return res.status(200).json({
       status: "success",
       employee: updated,
@@ -565,30 +645,36 @@ async function updateEmployeePasswordEndpoint(req, res, next) {
     const { new_password, password } = req.body;
     const targetPassword = new_password || password;
 
-    if (!targetPassword || String(targetPassword).trim().length < 4) {
+    const pwdCheck = validatePassword(targetPassword);
+    if (!pwdCheck.valid) {
       return res.status(400).json({
         status: "error",
-        detail: "Password must be at least 4 characters.",
+        detail: pwdCheck.error,
+        message: pwdCheck.error,
       });
     }
 
-    if (req.user) {
-      const allowed = await verifyHospitalAccess(hospitalCode, req.user);
-      if (!allowed) {
-        return res.status(403).json({
-          status: "error",
-          detail: "Forbidden: You do not have access to manage this employee's credentials.",
-        });
-      }
-    }
+    const result = await updateEmployeePassword(userId, targetPassword, hospitalCode, req.user);
 
-    const result = await updateEmployeePassword(userId, targetPassword);
+    writeAudit(req, {
+      action: "employee_password_reset",
+      target: String(userId),
+      meta: { hospital_code: hospitalCode, target_email: result.email },
+    });
+
     return res.status(200).json({
       status: "success",
       result,
       message: "Password updated successfully",
     });
   } catch (error) {
+    if (error.status === 403 || error.status === 404) {
+      return res.status(error.status).json({
+        status: "error",
+        detail: error.message,
+        message: error.message,
+      });
+    }
     next(error);
   }
 }
@@ -598,17 +684,14 @@ async function deleteHospitalEmployeeEndpoint(req, res, next) {
     const hospitalCode = req.params.hospital_code;
     const userId = req.params.user_id;
 
-    if (req.user) {
-      const allowed = await verifyHospitalAccess(hospitalCode, req.user);
-      if (!allowed) {
-        return res.status(403).json({
-          status: "error",
-          message: "Forbidden: You do not have access to delete this employee.",
-        });
-      }
-    }
-
     const result = await deleteHospitalEmployee(userId);
+
+    writeAudit(req, {
+      action: "employee_deleted",
+      target: String(userId),
+      meta: { hospital_code: hospitalCode },
+    });
+
     return res.status(200).json({
       status: "success",
       result,
@@ -621,16 +704,6 @@ async function deleteHospitalEmployeeEndpoint(req, res, next) {
 async function getHospitalDepartmentsEndpoint(req, res, next) {
   try {
     const hospitalCode = req.params.hospital_code;
-    if (req.user) {
-      const allowed = await verifyHospitalAccess(hospitalCode, req.user);
-      if (!allowed) {
-        return res.status(403).json({
-          status: "error",
-          message: "Forbidden: You do not have access to this hospital's departments.",
-        });
-      }
-    }
-
     const departments = await getHospitalDepartments(hospitalCode);
     return res.status(200).json({
       status: "success",
@@ -644,18 +717,14 @@ async function getHospitalDepartmentsEndpoint(req, res, next) {
 async function addHospitalDepartmentEndpoint(req, res, next) {
   try {
     const hospitalCode = req.params.hospital_code;
-    if (req.user) {
-      const allowed = await verifyHospitalAccess(hospitalCode, req.user);
-      if (!allowed) {
-        return res.status(403).json({
-          status: "error",
-          message: "Forbidden: You cannot modify departments for another hospital.",
-        });
-      }
-    }
-
     const { dept_code, name, description = "" } = req.body;
     const department = await addHospitalDepartment(hospitalCode, dept_code, name, description);
+
+    writeAudit(req, {
+      action: "department_added",
+      target: dept_code,
+      meta: { hospital_code: hospitalCode, name },
+    });
 
     return res.status(200).json({
       status: "success",
@@ -671,17 +740,14 @@ async function deleteHospitalDepartmentEndpoint(req, res, next) {
     const hospitalCode = req.params.hospital_code;
     const deptCode = req.params.dept_code;
 
-    if (req.user) {
-      const allowed = await verifyHospitalAccess(hospitalCode, req.user);
-      if (!allowed) {
-        return res.status(403).json({
-          status: "error",
-          message: "Forbidden: You cannot delete departments from another hospital.",
-        });
-      }
-    }
-
     const result = await deleteHospitalDepartment(hospitalCode, deptCode);
+
+    writeAudit(req, {
+      action: "department_deleted",
+      target: deptCode,
+      meta: { hospital_code: hospitalCode },
+    });
+
     return res.status(200).json({
       status: "success",
       result,
@@ -694,16 +760,6 @@ async function deleteHospitalDepartmentEndpoint(req, res, next) {
 async function getHospitalDesksEndpoint(req, res, next) {
   try {
     const hospitalCode = req.params.hospital_code;
-    if (req.user) {
-      const allowed = await verifyHospitalAccess(hospitalCode, req.user);
-      if (!allowed) {
-        return res.status(403).json({
-          status: "error",
-          message: "Forbidden: You do not have access to this hospital's desks.",
-        });
-      }
-    }
-
     const desks = await getHospitalDesks(hospitalCode);
     return res.status(200).json({
       status: "success",
@@ -722,6 +778,13 @@ async function addHospitalDeskEndpoint(req, res, next) {
     const desk = await addHospitalDesk(hospitalCode, dept_code, desk_name, status, assigned_employee_id);
     notifyHospitalChange(req, hospitalCode);
     notifyDeskChange(req, hospitalCode, desk);
+
+    writeAudit(req, {
+      action: "desk_added",
+      target: String(desk?.id || desk_name),
+      meta: { hospital_code: hospitalCode, dept_code, desk_name },
+    });
+
     return res.status(200).json({
       status: "success",
       desk,
@@ -740,6 +803,13 @@ async function assignHospitalDeskEndpoint(req, res, next) {
     const desk = await assignHospitalDesk(hospitalCode, deskId, assigned_employee_id);
     notifyHospitalChange(req, hospitalCode);
     notifyDeskChange(req, hospitalCode, desk);
+
+    writeAudit(req, {
+      action: "desk_assigned",
+      target: String(deskId),
+      meta: { hospital_code: hospitalCode, assigned_employee_id },
+    });
+
     return res.status(200).json({
       status: "success",
       desk,
@@ -764,6 +834,13 @@ async function updateHospitalDeskEndpoint(req, res, next) {
     );
     notifyHospitalChange(req, hospitalCode);
     notifyDeskChange(req, hospitalCode, desk);
+
+    writeAudit(req, {
+      action: "desk_updated",
+      target: String(deskId),
+      meta: { hospital_code: hospitalCode, desk_name, dept_code },
+    });
+
     return res.status(200).json({
       status: "success",
       desk,
@@ -781,6 +858,13 @@ async function updateHospitalDepartmentEndpoint(req, res, next) {
 
     const department = await updateHospitalDepartment(hospitalCode, deptCode, name, description);
     notifyHospitalChange(req, hospitalCode);
+
+    writeAudit(req, {
+      action: "department_updated",
+      target: deptCode,
+      meta: { hospital_code: hospitalCode, name },
+    });
+
     return res.status(200).json({
       status: "success",
       department,
@@ -798,6 +882,13 @@ async function bulkUpdateDeskStatusEndpoint(req, res, next) {
     const result = await bulkUpdateDeskStatus(hospitalCode, dept_code, status);
     notifyHospitalChange(req, hospitalCode);
     notifyDeskChange(req, hospitalCode, result);
+
+    writeAudit(req, {
+      action: "desk_bulk_status_updated",
+      target: dept_code || "all",
+      meta: { hospital_code: hospitalCode, status },
+    });
+
     return res.status(200).json({
       status: "success",
       result,
@@ -814,6 +905,13 @@ async function deleteHospitalDeskEndpoint(req, res, next) {
     const result = await deleteHospitalDesk(deskId);
     notifyHospitalChange(req, hospitalCode);
     notifyDeskChange(req, hospitalCode, { id: deskId, deleted: true });
+
+    writeAudit(req, {
+      action: "desk_deleted",
+      target: String(deskId),
+      meta: { hospital_code: hospitalCode },
+    });
+
     return res.status(200).json({
       status: "success",
       result,
@@ -832,6 +930,13 @@ async function updateDeskStatusEndpoint(req, res, next) {
     const desk = await updateDeskStatus(deskId, status);
     notifyHospitalChange(req, hospitalCode);
     notifyDeskChange(req, hospitalCode, desk);
+
+    writeAudit(req, {
+      action: "desk_status_updated",
+      target: String(deskId),
+      meta: { hospital_code: hospitalCode, status },
+    });
+
     return res.status(200).json({
       status: "success",
       desk,
@@ -843,22 +948,30 @@ async function updateDeskStatusEndpoint(req, res, next) {
 
 async function getDbOverviewEndpoint(req, res, next) {
   try {
-    let hospitalCode = req.query.hospital_code || req.query.tenant_id || null;
-
-    // Enforce role authorization: Only Receptionist, Staff, and Super Admin can access Database Inspector
-    const userRole = (req.user?.role || req.query?.role || "").toLowerCase();
-    if (userRole === "doctor" || userRole === "user" || userRole === "patient") {
-      return res.status(403).json({
+    if (!req.user) {
+      return res.status(401).json({
         status: "error",
-        message: "Forbidden: Database Inspector is restricted to Receptionists, Staff, and Super Admins only.",
+        message: "Unauthorized: Verified authentication required.",
       });
     }
 
-    if (userRole !== "super_admin" && userRole !== "superadmin") {
-      if (req.user?.hospital_code && req.user.hospital_code !== "all") {
-        hospitalCode = req.user.hospital_code;
-      }
+    const userRole = (req.user?.role || "").toLowerCase();
+    const isSuper = SUPER_ROLES.includes(userRole) || Boolean(req.user?.is_superadmin);
+    if (!isSuper) {
+      return res.status(403).json({
+        status: "error",
+        message: "Forbidden: Database Inspector is strictly restricted to Super Administrators.",
+      });
     }
+
+    const hospitalCode = req.query.hospital_code || req.query.tenant_id || null;
+
+    // Audit log access to Database Inspector
+    writeAudit(req, {
+      action: "db_inspector_accessed",
+      target: hospitalCode || "all",
+      meta: { requested_hospital: hospitalCode },
+    });
 
     const { tables, hospital, all_hospitals } = await getDatabaseOverview(hospitalCode);
     return res.status(200).json({
@@ -971,6 +1084,10 @@ module.exports = {
   getHospitalBrandingEndpoint,
   updateHospitalBrandingEndpoint,
   deleteHospitalEndpoint,
+  restoreHospitalEndpoint,
+  getHospitalPurgeSummaryEndpoint,
+  purgeHospitalEndpoint,
+  exportHospitalDataEndpoint,
   getHospitalEmployeesEndpoint,
   addHospitalEmployeeEndpoint,
   updateHospitalEmployeeEndpoint,

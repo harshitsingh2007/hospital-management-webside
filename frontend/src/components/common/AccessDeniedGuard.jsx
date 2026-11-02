@@ -36,8 +36,8 @@ export default function AccessDeniedGuard({ requiredRole, pageName, currentUser,
             </svg>
           ) : (
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#0284C7" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
             </svg>
           )}
         </div>
@@ -236,7 +236,7 @@ function AuthModalInline({ onLoginSuccess, defaultRole, language = "en" }) {
           setErrorMsg("Login failed: Account does not have administrative permissions.");
           return;
         }
-        onLoginSuccess(data.user);
+        onLoginSuccess({ ...data.user, token: data.token || data.user?.token });
       } else {
         setErrorMsg(data.message || data.detail || "Invalid credentials.");
       }

@@ -638,11 +638,13 @@ export default function PharmacyPage({
     }
 
     // Persist to backend PostgreSQL database
+    const token = localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || currentUser?.token;
     fetch(`${API_BASE}/api/v1/doctor/duty-status`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
         ...(currentUser?.email ? { "X-User-Email": currentUser.email } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify(payload),
     }).catch(() => { });

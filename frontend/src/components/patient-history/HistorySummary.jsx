@@ -1,177 +1,226 @@
 /**
  * HistorySummary.jsx
  * ------------------
- * Summary chip and metric card showing patient visit classification:
- * First-Time Patient vs Returning Patient, total visits, last visit date,
- * and historical diagnoses.
+ * Compact 3-stat summary row for patient history:
+ * Total visits | Last visit (date + doctor) | Last diagnosis
+ * With collapsible past diagnoses link.
  */
 
-import React from "react";
+import React, { useState } from "react";
+import { t, formatCleanText } from "../../utils/i18n";
 
 export default function HistorySummary({
   patient,
   summary,
-  isReturningPatient,
-  totalVisits,
+  totalVisits = 0,
   language = "en",
-  onViewAllVisits,
 }) {
-  const isHi = language === "hi";
+  const [showPastDiagnoses, setShowPastDiagnoses] = useState(false);
 
-  if (!patient && (!summary || summary.total_visits === 0)) {
-    return (
-      <div style={{
+  const displayTotal = totalVisits || summary?.total_visits || 0;
+  const lastDate = summary?.last_visit || "—";
+  const lastDoctor = summary?.last_doctor || "";
+
+  const rawDiag =
+    (summary?.past_diagnoses && summary.past_diagnoses.length > 0
+      ? summary.past_diagnoses[0]
+      : summary?.last_diagnosis) || "—";
+  const cleanedDiag = rawDiag !== "—" ? formatCleanText(String(rawDiag).slice(0, 45), language) : "—";
+
+  const pastDiagnosesList = Array.isArray(summary?.past_diagnoses)
+    ? summary.past_diagnoses.filter(Boolean)
+    : [];
+
+  return (
+    <div
+      style={{
         background: "var(--patient-sub-card, #F8FAFC)",
         border: "1px solid var(--patient-card-border, #E2E8F0)",
         borderRadius: "14px",
         padding: "12px 16px",
-        display: "flex",
-        alignItems: "center",
-        gap: "12px",
-        boxShadow: "0 1px 3px rgba(0, 0, 0, 0.02)",
-      }}>
-        <div style={{
-          width: "36px",
-          height: "36px",
-          borderRadius: "10px",
-          background: "var(--patient-sub-card, #F1F5F9)",
-          display: "flex",
+      }}
+    >
+      {/* 3 Compact Stats */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
+          gap: "12px",
           alignItems: "center",
-          justifyContent: "center",
-          fontSize: "16px",
-          flexShrink: 0,
-        }}>
-          <span>🆕</span>
-        </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{ fontWeight: 800, fontSize: "13.5px", color: "var(--patient-text-main, #0F172A)" }}>
-              {isHi ? "नया मरीज़ (प्रथम परामर्श)" : "First-Time Patient"}
-            </span>
-            <span style={{
-              background: "var(--patient-sub-card, #F1F5F9)",
-              color: "var(--patient-text-sub, #475569)",
+        }}
+      >
+        {/* Stat 1: Total Visits */}
+        <div>
+          <span
+            style={{
               fontSize: "11px",
-              fontWeight: 800,
-              padding: "2px 8px",
-              borderRadius: "9999px",
-            }}>
-              {isHi ? "प्रथम विज़िट" : "1st Visit"}
+              fontWeight: 600,
+              color: "var(--patient-text-sub, #64748B)",
+              display: "block",
+              marginBottom: "2px",
+            }}
+          >
+            {t("totalVisitsStat", language)}
+          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span
+              style={{
+                fontSize: "17px",
+                fontWeight: 800,
+                color: "var(--patient-text-main, #0F172A)",
+              }}
+            >
+              {displayTotal}
             </span>
+            {displayTotal === 1 && (
+              <span
+                style={{
+                  fontSize: "10px",
+                  fontWeight: 700,
+                  color: "#0369A1",
+                  background: "var(--patient-tag-bg, #E0F2FE)",
+                  border: "1px solid var(--patient-tag-border, #BAE6FD)",
+                  padding: "1px 6px",
+                  borderRadius: "9999px",
+                }}
+              >
+                {t("firstVisitBadge", language)}
+              </span>
+            )}
           </div>
-          <div style={{ fontSize: "11.5px", color: "var(--patient-text-sub, #64748B)", marginTop: "2px" }}>
-            {isHi
-              ? "इस अस्पताल में कोई पिछला रिकॉर्ड नहीं मिला। आज की दवा पर्ची स्थायी रूप से सहेजी जाएगी।"
-              : "No previous clinical consultation records on file for this facility."}
+        </div>
+
+        {/* Stat 2: Last Visit */}
+        <div>
+          <span
+            style={{
+              fontSize: "11px",
+              fontWeight: 600,
+              color: "var(--patient-text-sub, #64748B)",
+              display: "block",
+              marginBottom: "2px",
+            }}
+          >
+            {t("lastVisitStat", language)}
+          </span>
+          <div
+            style={{
+              fontSize: "13.5px",
+              fontWeight: 700,
+              color: "var(--patient-text-main, #0F172A)",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {lastDate}
+          </div>
+          {lastDoctor && (
+            <div
+              style={{
+                fontSize: "11px",
+                color: "var(--patient-text-sub, #64748B)",
+                fontWeight: 500,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {lastDoctor}
+            </div>
+          )}
+        </div>
+
+        {/* Stat 3: Last Diagnosis */}
+        <div>
+          <span
+            style={{
+              fontSize: "11px",
+              fontWeight: 600,
+              color: "var(--patient-text-sub, #64748B)",
+              display: "block",
+              marginBottom: "2px",
+            }}
+          >
+            {t("lastDiagnosisStat", language)}
+          </span>
+          <div
+            style={{
+              fontSize: "13px",
+              fontWeight: 700,
+              color: cleanedDiag !== "—" ? "#0284C7" : "var(--patient-text-sub, #64748B)",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+            title={rawDiag !== "—" ? rawDiag : ""}
+          >
+            {cleanedDiag}
           </div>
         </div>
       </div>
-    );
-  }
 
-  return (
-    <div style={{
-      background: "var(--apt-active-bg, #F0F9FF)",
-      border: "1.5px solid var(--apt-active-border, #BAE6FD)",
-      borderRadius: "14px",
-      padding: "14px 16px",
-      boxShadow: "0 4px 14px -2px rgba(2, 132, 199, 0.08)",
-    }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "10px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <div style={{
-            width: "36px",
-            height: "36px",
-            borderRadius: "10px",
-            background: "var(--patient-tag-bg, #E0F2FE)",
+      {/* Collapsible Past Diagnoses Link */}
+      {pastDiagnosesList.length > 0 && (
+        <div
+          style={{
+            marginTop: "10px",
+            paddingTop: "8px",
+            borderTop: "1px solid var(--patient-card-border, #E2E8F0)",
             display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: "16px",
-            flexShrink: 0,
-          }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0284C7" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-              <path d="M3 3v5h5" />
-            </svg>
-          </div>
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-              <span style={{ fontWeight: 800, fontSize: "14px", color: "var(--patient-text-main, #0F172A)" }}>
-                {isHi ? "🔄 पुनः परामर्श (फॉलो-अप मरीज़)" : "🔄 Returning Follow-Up Patient"}
-              </span>
-              <span style={{
-                background: "var(--patient-tag-bg, #E0F2FE)",
-                color: "var(--patient-tag-color, #0284C7)",
-                fontSize: "11px",
-                fontWeight: 800,
-                padding: "2px 8px",
-                borderRadius: "9999px",
-                border: "1px solid var(--patient-tag-border, #BAE6FD)",
-              }}>
-                {totalVisits} {isHi ? "विज़िट्स रिकॉर्ड पर" : "Visits on File"}
-              </span>
-            </div>
-            <div style={{ fontSize: "12px", color: "var(--patient-text-sub, #475569)", marginTop: "3px", display: "flex", gap: "12px", flexWrap: "wrap" }}>
-              {summary?.last_visit && (
-                <span>
-                  <strong>{isHi ? "अंतिम विज़िट:" : "Last Visit:"}</strong> {summary.last_visit}
-                </span>
-              )}
-              {summary?.last_department && (
-                <span>
-                  <strong>{isHi ? "विभाग:" : "Dept:"}</strong> {summary.last_department}
-                </span>
-              )}
-              {summary?.last_doctor && (
-                <span>
-                  <strong>{isHi ? "डॉक्टर:" : "Doctor:"}</strong> {summary.last_doctor}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {onViewAllVisits && (
+            flexDirection: "column",
+            gap: "6px",
+          }}
+        >
           <button
             type="button"
-            onClick={onViewAllVisits}
+            onClick={() => setShowPastDiagnoses((prev) => !prev)}
             style={{
-              background: "var(--patient-card-bg, #FFFFFF)",
-              border: "1px solid var(--patient-card-border, #CBD5E1)",
+              background: "none",
+              border: "none",
+              padding: 0,
               color: "#0284C7",
               fontSize: "11.5px",
               fontWeight: 700,
-              padding: "4px 10px",
-              borderRadius: "8px",
               cursor: "pointer",
-              transition: "all 0.15s ease",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "4px",
+              alignSelf: "flex-start",
             }}
+            aria-expanded={showPastDiagnoses}
           >
-            {isHi ? "पूर्ण इतिहास देखें" : "View Full Timeline"} &rarr;
+            <span>{showPastDiagnoses ? t("hidePastDiagnoses", language) : t("showPastDiagnoses", language)}</span>
+            <span style={{ fontSize: "10px" }}>{showPastDiagnoses ? "▲" : "▼"}</span>
           </button>
-        )}
-      </div>
 
-      {/* Chronic / Past Diagnoses tags */}
-      {summary?.past_diagnoses && summary.past_diagnoses.length > 0 && (
-        <div style={{ marginTop: "10px", paddingTop: "8px", borderTop: "1px dashed var(--patient-card-border, #E2E8F0)", display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
-          <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--patient-text-sub, #64748B)" }}>
-            {isHi ? "पूर्व निदान (Past Diagnoses):" : "Past Diagnoses:"}
-          </span>
-          {summary.past_diagnoses.map((diag, i) => (
-            <span key={i} style={{
-              background: "var(--patient-sub-card, #F1F5F9)",
-              color: "var(--patient-text-main, #334155)",
-              fontSize: "11px",
-              fontWeight: 700,
-              padding: "2px 8px",
-              borderRadius: "6px",
-              border: "1px solid var(--patient-card-border, #E2E8F0)",
-            }}>
-              🩺 {diag}
-            </span>
-          ))}
+          {showPastDiagnoses && (
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "6px",
+                marginTop: "4px",
+              }}
+            >
+              {pastDiagnosesList.map((diag, idx) => (
+                <span
+                  key={idx}
+                  style={{
+                    fontSize: "11.5px",
+                    fontWeight: 600,
+                    color: "var(--patient-text-main, #334155)",
+                    background: "var(--patient-card-bg, #FFFFFF)",
+                    border: "1px solid var(--patient-card-border, #E2E8F0)",
+                    padding: "2px 8px",
+                    borderRadius: "6px",
+                  }}
+                >
+                  {formatCleanText(diag, language)}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

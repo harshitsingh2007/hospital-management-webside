@@ -26,72 +26,86 @@ async function authenticate(req, res, next) {
 
     if (token) {
       const decoded = verifyToken(token);
-      if (!decoded) {
-        if (env.ALLOW_LEGACY_EMAIL_AUTH && (legacyEmail || legacyPhone)) {
-          token = null; // fallback to legacy
-        } else {
+      if (decoded) {
+        const userId = decoded.id || decoded.userId;
+        if (!userId || decoded.is_guest) {
           return res.status(401).json({
             status: "error",
             success: false,
-            message: "Unauthorized: Invalid or expired authentication token.",
+            message: "Unauthorized: Active user session required.",
           });
         }
-      }
 
-      const user = await prisma.users.findUnique({
-        where: { id: decoded.id || decoded.userId },
-        include: {
-          patients: true,
-          employees: {
-            include: {
-              departments: true,
-              hospitals: true,
+        const user = await prisma.users.findUnique({
+          where: { id: userId },
+          include: {
+            patients: true,
+            employees: {
+              include: {
+                departments: true,
+                hospitals: true,
+              },
             },
+            hospitals: true,
           },
-          hospitals: true,
-        },
-      });
-
-      const DEACTIVATED_STATUSES = ["deactivated", "suspended", "blocked"];
-      if (!user || DEACTIVATED_STATUSES.includes(user.status)) {
-        return res.status(401).json({
-          status: "error",
-          success: false,
-          message: "Unauthorized: User account not found or deactivated.",
         });
-      }
 
-      req.user = {
-        id: user.id,
-        email: user.email,
-        username: user.username,
-        role: user.role,
-        status: user.status,
-        phone: user.phone || "",
-        patient: user.patients[0] || null,
-        employee: user.employees[0] || null,
-        ownedHospital: user.hospitals[0] || null,
-        primary_hospital_code: user.primary_hospital_code || null,
-        hospital_code:
-          user.primary_hospital_code ||
-          user.employees[0]?.hospitals?.hospital_code ||
-          user.hospitals[0]?.hospital_code ||
-          (user.role !== "user" ? "city-hospital-01" : null),
-        department: user.employees[0]?.departments?.dept_code || "all",
-      };
+        const DEACTIVATED_STATUSES = ["deactivated", "suspended", "blocked"];
+        if (!user || DEACTIVATED_STATUSES.includes(user.status)) {
+          return res.status(401).json({
+            status: "error",
+            success: false,
+            message: "Unauthorized: User account not found or deactivated.",
+          });
+        }
 
-      // Sliding session activity: refresh 15-minute token and attach to response header
-      try {
-        const refreshedToken = generateToken({
+        req.user = {
           id: user.id,
           email: user.email,
           username: user.username,
           role: user.role,
-        }, "15m");
-        res.setHeader("X-Refreshed-Token", refreshedToken);
-      } catch (e) {}
+          is_superadmin: !!user.is_superadmin,
+          status: user.status,
+          phone: user.phone || "",
+          patient: user.patients[0] || null,
+          employee: user.employees[0] || null,
+          ownedHospital: user.hospitals[0] || null,
+          primary_hospital_code: user.primary_hospital_code || null,
+          hospital_code:
+            user.primary_hospital_code ||
+            user.employees[0]?.hospitals?.hospital_code ||
+            user.hospitals[0]?.hospital_code ||
+            (user.role !== "user" ? "city-hospital-01" : null),
+          department: user.employees[0]?.departments?.dept_code || "all",
+        };
+        req.authMethod = "jwt";
 
-      return next();
+        // Sliding session activity: refresh token if current token has < 24 hours remaining
+        try {
+          const nowSec = Math.floor(Date.now() / 1000);
+          if (decoded && decoded.exp && (decoded.exp - nowSec < 86400)) {
+            const refreshedToken = generateToken({
+              id: user.id,
+              email: user.email,
+              username: user.username,
+              role: user.role,
+            }, env.JWT_EXPIRES_IN || "7d");
+            res.setHeader("X-Refreshed-Token", refreshedToken);
+          }
+        } catch (e) {}
+
+        return next();
+      }
+
+      // If token verification failed and legacy is not allowed (or no legacy headers)
+      if (!env.ALLOW_LEGACY_EMAIL_AUTH || (!legacyEmail && !legacyPhone)) {
+        return res.status(401).json({
+          status: "error",
+          success: false,
+          message: "Unauthorized: Invalid or expired authentication token.",
+        });
+      }
+      // If legacy is allowed and legacy header is present, fall through to legacy check below
     }
 
     // Optional legacy header fallback (controlled strictly via environment flag)
@@ -120,6 +134,7 @@ async function authenticate(req, res, next) {
           email: user.email,
           username: user.username,
           role: user.role,
+          is_superadmin: !!user.is_superadmin,
           status: user.status,
           phone: user.phone || "",
           patient: user.patients[0] || null,
@@ -133,6 +148,22 @@ async function authenticate(req, res, next) {
             (user.role !== "user" ? "city-hospital-01" : null),
           department: user.employees[0]?.departments?.dept_code || "all",
         };
+        if (env.ALLOW_LEGACY_EMAIL_AUTH) {
+          try {
+            const upgradedToken = generateToken({
+              id: user.id,
+              email: user.email,
+              username: user.username,
+              role: user.role,
+            }, env.JWT_EXPIRES_IN || "30d");
+            res.setHeader("X-Refreshed-Token", upgradedToken);
+            req.authMethod = "jwt";
+          } catch (_) {
+            req.authMethod = "legacy";
+          }
+        } else {
+          req.authMethod = "legacy";
+        }
         return next();
       }
     }
@@ -170,8 +201,17 @@ async function optionalAuth(req, res, next) {
     if (token) {
       const decoded = verifyToken(token);
       if (decoded) {
+        const userId = decoded.id || decoded.userId;
+        if (!userId || decoded.is_guest) {
+          return res.status(401).json({
+            status: "error",
+            success: false,
+            message: "Unauthorized: Active user session required.",
+          });
+        }
+
         const user = await prisma.users.findUnique({
-          where: { id: decoded.id || decoded.userId },
+          where: { id: userId },
           include: {
             patients: true,
             employees: {
@@ -189,6 +229,7 @@ async function optionalAuth(req, res, next) {
             email: user.email,
             username: user.username,
             role: user.role,
+            is_superadmin: !!user.is_superadmin,
             status: user.status,
             phone: user.phone || "",
             patient: user.patients[0] || null,
@@ -202,9 +243,10 @@ async function optionalAuth(req, res, next) {
               (user.role !== "user" ? "city-hospital-01" : null),
             department: user.employees[0]?.departments?.dept_code || "all",
           };
+          req.authMethod = "jwt";
         }
       }
-    } else if (legacyEmail) {
+    } else if (env.ALLOW_LEGACY_EMAIL_AUTH && legacyEmail) {
       const cleanEmail = String(legacyEmail).trim().toLowerCase();
       const user = await prisma.users.findFirst({
         where: {
@@ -227,6 +269,7 @@ async function optionalAuth(req, res, next) {
           email: user.email,
           username: user.username,
           role: user.role,
+          is_superadmin: !!user.is_superadmin,
           status: user.status,
           phone: user.phone || "",
           patient: user.patients[0] || null,
@@ -240,6 +283,7 @@ async function optionalAuth(req, res, next) {
             (user.role !== "user" ? "city-hospital-01" : null),
           department: user.employees[0]?.departments?.dept_code || "all",
         };
+        req.authMethod = "legacy";
       }
     }
 

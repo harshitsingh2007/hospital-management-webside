@@ -21,6 +21,7 @@ const { PRIORITY_EMERGENCY, PRIORITY_ROUTINE, PRIORITY_STANDARD } = require("../
 const { getCurrentQueueDate, parseQueueDate, queueDateToPrismaDate } = require("../utils/timezone");
 const { getHospitalBranding } = require("../services/hospitalService");
 const prisma = require("../config/prisma");
+const { stripTicketForPublic } = require("../utils/stripTicket");
 
 function urgencyToPriority(consumerType, urgency, priorityVal) {
   if (priorityVal === 1 || priorityVal === "1" || priorityVal === PRIORITY_EMERGENCY) return PRIORITY_EMERGENCY;
@@ -55,6 +56,20 @@ async function joinQueueEndpoint(req, res, next) {
     );
 
     const priority = urgencyToPriority(consumer_type, urgency, explicitPriority);
+
+    // Verify hospital status: Archived hospitals cannot issue tickets
+    if (consumer_type === "hospital" && tenant_id) {
+      const hosp = await prisma.hospitals.findUnique({
+        where: { hospital_code: tenant_id },
+        select: { status: true, name: true },
+      });
+      if (hosp && hosp.status === "archived") {
+        return res.status(403).json({
+          status: "error",
+          message: `Cannot issue tickets: Hospital '${hosp.name}' (${tenant_id}) is archived.`,
+        });
+      }
+    }
 
     // Registration window check
     if (consumer_type === "hospital" && tenant_id) {
@@ -217,7 +232,8 @@ async function joinQueueEndpoint(req, res, next) {
     const io = getIo();
     if (io) {
       await broadcastQueueUpdate(io, tenant_id);
-      io.emit("ticket_created", { ticket, tenant_id });
+      io.to(tenant_id).emit("ticket_created", { ticket, tenant_id });
+      io.to(`${tenant_id}:public`).emit("ticket_created", { ticket: stripTicketForPublic(ticket), tenant_id });
     }
 
     // Automatic Phone OTP Dispatch & Account Claiming for Walk-in Patients
@@ -309,9 +325,9 @@ async function serveNextEndpoint(req, res, next) {
     const io = getIo();
     if (io) {
       io.to(tenant_id).emit("now_serving", { ticket, tenant_id });
-      io.emit("now_serving", { ticket, tenant_id });
+      io.to(`${tenant_id}:public`).emit("now_serving", { ticket: stripTicketForPublic(ticket), tenant_id });
       io.to(tenant_id).emit("ticket_called", { ticket, tenant_id });
-      io.emit("ticket_called", { ticket, tenant_id });
+      io.to(`${tenant_id}:public`).emit("ticket_called", { ticket: stripTicketForPublic(ticket), tenant_id });
       await broadcastQueueUpdate(io, tenant_id);
     }
 
@@ -341,7 +357,7 @@ async function completeEndpoint(req, res, next) {
     if (io) {
       if (ticket) {
         io.to(tenant_id).emit("ticket_completed", { ticket, ticket_id, tenant_id });
-        io.emit("ticket_completed", { ticket, ticket_id, tenant_id });
+        io.to(`${tenant_id}:public`).emit("ticket_completed", { ticket: stripTicketForPublic(ticket), ticket_id, tenant_id });
       }
       await broadcastQueueUpdate(io, tenant_id);
     }
@@ -364,9 +380,9 @@ async function holdTicketEndpoint(req, res, next) {
     const io = getIo();
     if (io) {
       io.to(tenant_id).emit("ticket_held", { ticket, ticket_id, tenant_id });
-      io.emit("ticket_held", { ticket, ticket_id, tenant_id });
+      io.to(`${tenant_id}:public`).emit("ticket_held", { ticket: stripTicketForPublic(ticket), ticket_id, tenant_id });
       io.to(tenant_id).emit("ticket_updated", { ticket, ticket_id, tenant_id });
-      io.emit("ticket_updated", { ticket, ticket_id, tenant_id });
+      io.to(`${tenant_id}:public`).emit("ticket_updated", { ticket: stripTicketForPublic(ticket), ticket_id, tenant_id });
       await broadcastQueueUpdate(io, tenant_id);
     }
 
@@ -394,9 +410,9 @@ async function recallTicketEndpoint(req, res, next) {
     const io = getIo();
     if (io) {
       io.to(tenant_id).emit("ticket_recalled", { ticket, ticket_id, tenant_id });
-      io.emit("ticket_recalled", { ticket, ticket_id, tenant_id });
+      io.to(`${tenant_id}:public`).emit("ticket_recalled", { ticket: stripTicketForPublic(ticket), ticket_id, tenant_id });
       io.to(tenant_id).emit("ticket_updated", { ticket, ticket_id, tenant_id });
-      io.emit("ticket_updated", { ticket, ticket_id, tenant_id });
+      io.to(`${tenant_id}:public`).emit("ticket_updated", { ticket: stripTicketForPublic(ticket), ticket_id, tenant_id });
       await broadcastQueueUpdate(io, tenant_id);
     }
 
@@ -424,10 +440,10 @@ async function reAnnounceEndpoint(req, res, next) {
     const io = getIo();
     if (io) {
       io.to(tenant_id).emit("ticket_announced", { ticket: finalTicket, re_announced: true, tenant_id });
-      io.emit("ticket_announced", { ticket: finalTicket, re_announced: true, tenant_id });
+      io.to(`${tenant_id}:public`).emit("ticket_announced", { ticket: stripTicketForPublic(finalTicket), re_announced: true, tenant_id });
       if (finalTicket.status === "serving" || finalTicket.status === "called") {
         io.to(tenant_id).emit("now_serving", { ticket: finalTicket, re_announced: true, tenant_id });
-        io.emit("now_serving", { ticket: finalTicket, re_announced: true, tenant_id });
+        io.to(`${tenant_id}:public`).emit("now_serving", { ticket: stripTicketForPublic(finalTicket), re_announced: true, tenant_id });
       }
       await broadcastQueueUpdate(io, tenant_id);
     }
@@ -450,9 +466,9 @@ async function noShowEndpoint(req, res, next) {
     const io = getIo();
     if (io) {
       io.to(tenant_id).emit("ticket_noshow", { ticket_id, tenant_id });
-      io.emit("ticket_noshow", { ticket_id, tenant_id });
+      io.to(`${tenant_id}:public`).emit("ticket_noshow", { ticket_id, tenant_id });
       io.to(tenant_id).emit("ticket_cancelled", { ticket_id, tenant_id });
-      io.emit("ticket_cancelled", { ticket_id, tenant_id });
+      io.to(`${tenant_id}:public`).emit("ticket_cancelled", { ticket_id, tenant_id });
       await broadcastQueueUpdate(io, tenant_id);
     }
 

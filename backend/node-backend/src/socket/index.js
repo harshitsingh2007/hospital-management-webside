@@ -20,6 +20,7 @@ const { triggerModelRetrain } = require("../services/aiService");
 const { PRIORITY_EMERGENCY, PRIORITY_ROUTINE, PRIORITY_STANDARD } = require("../utils/clinicalComplexity");
 const { verifyToken } = require("../utils/jwt");
 const { verifyHospitalAccess } = require("../middleware/hospitalIsolation");
+const { stripTicketForPublic } = require("../utils/stripTicket");
 
 let ioInstance = null;
 
@@ -42,9 +43,36 @@ async function broadcastQueueUpdate(io, tenantId) {
   io.to(tid).emit("queue_update", queuePayload);
   io.to(tid).emit("analytics_update", analytics);
 
+  // Emit sanitized non-sensitive payload to public room (kiosks, TVs, logged-out trackers)
+  const publicSnapshot = Array.isArray(snapshot) ? snapshot.map(stripTicketForPublic) : [];
+  const publicServing = Array.isArray(serving) ? serving.map(stripTicketForPublic) : [];
+  const publicHeld = Array.isArray(held) ? held.map(stripTicketForPublic) : [];
+  const publicAnalytics = {
+    total_waiting: analytics?.total_waiting || 0,
+    total_serving: analytics?.total_serving || 0,
+    total_completed: analytics?.total_completed || 0,
+    estimated_wait_minutes_waiting: analytics?.estimated_wait_minutes_waiting || 0,
+    peak_wait_window: analytics?.peak_wait_window || null,
+  };
+
+  const publicPayload = {
+    snapshot: publicSnapshot,
+    serving: publicServing,
+    held: publicHeld,
+    analytics: publicAnalytics,
+    tenant_id: tid,
+  };
+  io.to(`${tid}:public`).emit("queue_updated", publicPayload);
+  io.to(`${tid}:public`).emit("queue_update", publicPayload);
+  io.to(`${tid}:public`).emit("analytics_update", publicAnalytics);
+
   const alerts = await engine.getTicketsNeedingTurnAlert(tid);
   if (alerts && alerts.length > 0) {
     io.to(tid).emit("turn_alert", { tickets: alerts, tenant_id: tid });
+    io.to(`${tid}:public`).emit("turn_alert", {
+      tickets: alerts.map(stripTicketForPublic),
+      tenant_id: tid,
+    });
   }
 }
 
@@ -59,7 +87,7 @@ function initSocket(server, corsOrigin = "*") {
 
   ioInstance = io;
 
-  // Socket Security Middleware: Require Verified JWT in socket.handshake.auth.token
+  // Socket Security Middleware: Supports Verified JWT OR Limited Public Mode
   io.use(async (socket, next) => {
     try {
       const rawToken =
@@ -67,32 +95,54 @@ function initSocket(server, corsOrigin = "*") {
         socket.handshake.headers?.authorization?.replace(/^Bearer\s+/i, "") ||
         socket.handshake.query?.token;
 
-      if (!rawToken) {
-        return next(new Error("Authentication token required for socket connection"));
+      const isExplicitPublic =
+        socket.handshake.auth?.is_public === true ||
+        socket.handshake.auth?.public === true ||
+        socket.handshake.query?.is_public === "true" ||
+        socket.handshake.query?.public === "true";
+
+      if (!rawToken || isExplicitPublic) {
+        // Limited Public Mode
+        socket.user = null;
+        socket.isPublic = true;
+        return next();
       }
 
       const decoded = verifyToken(rawToken);
       if (!decoded) {
-        return next(new Error("Invalid or expired authentication token"));
+        // Fall back to limited public mode for graceful kiosk/TV connection
+        socket.user = null;
+        socket.isPublic = true;
+        return next();
       }
 
       socket.user = decoded;
+      socket.isPublic = false;
       next();
     } catch (err) {
-      next(new Error("Socket authentication failed: " + err.message));
+      socket.user = null;
+      socket.isPublic = true;
+      next();
     }
   });
 
   io.on("connection", async (socket) => {
-    const authTenant = socket.handshake.auth?.tenant_id ? String(socket.handshake.auth.tenant_id).trim() : null;
+    const authTenant = socket.handshake.auth?.tenant_id
+      ? String(socket.handshake.auth.tenant_id).trim()
+      : (socket.handshake.query?.tenant_id ? String(socket.handshake.query.tenant_id).trim() : null);
+
     if (authTenant) {
-      const allowed = await verifyHospitalAccess(authTenant, socket.user);
-      if (allowed) {
-        socket.join(authTenant);
+      if (socket.isPublic || !socket.user) {
+        socket.join(`${authTenant}:public`);
+      } else {
+        const allowed = await verifyHospitalAccess(authTenant, socket.user);
+        if (allowed) {
+          socket.join(authTenant);
+        }
       }
     }
 
-    // join_room with multi-tenant access control
+    // join_room with multi-tenant access control & public room fallback
     socket.on("join_room", async (data = {}) => {
       const tenantId = data.tenant_id ? String(data.tenant_id).trim() : null;
       if (!tenantId) {
@@ -100,6 +150,30 @@ function initSocket(server, corsOrigin = "*") {
         return;
       }
 
+      // Public connection mode: restricted to ${tenantId}:public
+      if (socket.isPublic || !socket.user || data.is_public) {
+        socket.join(`${tenantId}:public`);
+        const snapshot = await engine.getQueueSnapshot(tenantId);
+        const serving = await engine.getServingTickets(tenantId);
+        const held = await engine.getHeldTickets(tenantId);
+        const analytics = await engine.getTenantAnalytics(tenantId);
+
+        socket.emit("queue_update", {
+          snapshot: Array.isArray(snapshot) ? snapshot.map(stripTicketForPublic) : [],
+          serving: Array.isArray(serving) ? serving.map(stripTicketForPublic) : [],
+          held: Array.isArray(held) ? held.map(stripTicketForPublic) : [],
+          tenant_id: tenantId,
+        });
+        socket.emit("analytics_update", {
+          total_waiting: analytics?.total_waiting || 0,
+          total_serving: analytics?.total_serving || 0,
+          total_completed: analytics?.total_completed || 0,
+          estimated_wait_minutes_waiting: analytics?.estimated_wait_minutes_waiting || 0,
+        });
+        return;
+      }
+
+      // Authenticated connection mode: access controlled
       const allowed = await verifyHospitalAccess(tenantId, socket.user);
       if (!allowed) {
         socket.emit("error", { message: `Unauthorized: No access to hospital ${tenantId}` });
@@ -113,8 +187,32 @@ function initSocket(server, corsOrigin = "*") {
       const held = await engine.getHeldTickets(tenantId);
       const analytics = await engine.getTenantAnalytics(tenantId);
 
-      socket.emit("queue_update", { snapshot, serving, held });
+      socket.emit("queue_update", { snapshot, serving, held, tenant_id: tenantId });
       socket.emit("analytics_update", analytics);
+    });
+
+    // Explicit public room subscription
+    socket.on("join_public_room", async (data = {}) => {
+      const tenantId = data.tenant_id ? String(data.tenant_id).trim() : null;
+      if (!tenantId) return;
+      socket.join(`${tenantId}:public`);
+      const snapshot = await engine.getQueueSnapshot(tenantId);
+      const serving = await engine.getServingTickets(tenantId);
+      const held = await engine.getHeldTickets(tenantId);
+      const analytics = await engine.getTenantAnalytics(tenantId);
+
+      socket.emit("queue_update", {
+        snapshot: Array.isArray(snapshot) ? snapshot.map(stripTicketForPublic) : [],
+        serving: Array.isArray(serving) ? serving.map(stripTicketForPublic) : [],
+        held: Array.isArray(held) ? held.map(stripTicketForPublic) : [],
+        tenant_id: tenantId,
+      });
+      socket.emit("analytics_update", {
+        total_waiting: analytics?.total_waiting || 0,
+        total_serving: analytics?.total_serving || 0,
+        total_completed: analytics?.total_completed || 0,
+        estimated_wait_minutes_waiting: analytics?.estimated_wait_minutes_waiting || 0,
+      });
     });
 
     // join_queue
@@ -186,6 +284,10 @@ function initSocket(server, corsOrigin = "*") {
         io.to(tenantId).emit("ticket_served", { ticket, tenant_id: tenantId });
         io.to(tenantId).emit("now_serving", { ticket, tenant_id: tenantId });
         io.to(tenantId).emit("ticket_called", { ticket, tenant_id: tenantId });
+
+        io.to(`${tenantId}:public`).emit("ticket_served", { ticket: stripTicketForPublic(ticket), tenant_id: tenantId });
+        io.to(`${tenantId}:public`).emit("now_serving", { ticket: stripTicketForPublic(ticket), tenant_id: tenantId });
+        io.to(`${tenantId}:public`).emit("ticket_called", { ticket: stripTicketForPublic(ticket), tenant_id: tenantId });
         await broadcastQueueUpdate(io, tenantId);
       } catch (err) {
         socket.emit("error", {
@@ -213,6 +315,7 @@ function initSocket(server, corsOrigin = "*") {
         const completed = await completeTicket(tenantId, ticketId, department, prescriptionNotes);
         if (completed) {
           io.to(tenantId).emit("ticket_completed", { ticket: completed, tenant_id: tenantId });
+          io.to(`${tenantId}:public`).emit("ticket_completed", { ticket: stripTicketForPublic(completed), tenant_id: tenantId });
         }
         await broadcastQueueUpdate(io, tenantId);
       } catch (err) {
@@ -236,6 +339,11 @@ function initSocket(server, corsOrigin = "*") {
           new_ticket: newTicket,
           tenant_id: tenantId,
         });
+        io.to(`${tenantId}:public`).emit("ticket_transferred", {
+          original_ticket: stripTicketForPublic(originalTicket),
+          new_ticket: stripTicketForPublic(newTicket),
+          tenant_id: tenantId,
+        });
         socket.emit("transfer_success", {
           original_ticket: originalTicket,
           new_ticket: newTicket,
@@ -256,6 +364,7 @@ function initSocket(server, corsOrigin = "*") {
 
         const held = await holdTicket(tenantId, ticketId, graceMinutes);
         io.to(tenantId).emit("ticket_held", { ticket: held, tenant_id: tenantId });
+        io.to(`${tenantId}:public`).emit("ticket_held", { ticket: stripTicketForPublic(held), tenant_id: tenantId });
         await broadcastQueueUpdate(io, tenantId);
         socket.emit("hold_success", { ticket: held });
       } catch (err) {
@@ -280,6 +389,9 @@ function initSocket(server, corsOrigin = "*") {
         io.to(tenantId).emit("ticket_served", { ticket: recalled, tenant_id: tenantId });
         io.to(tenantId).emit("ticket_recalled", { ticket: recalled, tenant_id: tenantId });
         io.to(tenantId).emit("now_serving", { ticket: recalled, re_announced: true, tenant_id: tenantId });
+        io.to(`${tenantId}:public`).emit("ticket_served", { ticket: stripTicketForPublic(recalled), tenant_id: tenantId });
+        io.to(`${tenantId}:public`).emit("ticket_recalled", { ticket: stripTicketForPublic(recalled), tenant_id: tenantId });
+        io.to(`${tenantId}:public`).emit("now_serving", { ticket: stripTicketForPublic(recalled), re_announced: true, tenant_id: tenantId });
         await broadcastQueueUpdate(io, tenantId);
         socket.emit("recall_success", { ticket: recalled });
       } catch (err) {
@@ -297,6 +409,7 @@ function initSocket(server, corsOrigin = "*") {
 
         await markNoShow(tenantId, ticketId, reason);
         io.to(tenantId).emit("ticket_noshow", { ticket_id: ticketId, tenant_id: tenantId });
+        io.to(`${tenantId}:public`).emit("ticket_noshow", { ticket_id: ticketId, tenant_id: tenantId });
         await broadcastQueueUpdate(io, tenantId);
       } catch (err) {
         socket.emit("error", { message: err.message });
@@ -315,14 +428,19 @@ function initSocket(server, corsOrigin = "*") {
           const finalTicket = updatedTicket || ticket;
           io.to(tenantId).emit("now_serving", { ticket: finalTicket, re_announced: true, tenant_id: tenantId });
           io.to(tenantId).emit("ticket_announced", { ticket: finalTicket, re_announced: true, tenant_id: tenantId });
+          io.to(`${tenantId}:public`).emit("now_serving", { ticket: stripTicketForPublic(finalTicket), re_announced: true, tenant_id: tenantId });
+          io.to(`${tenantId}:public`).emit("ticket_announced", { ticket: stripTicketForPublic(finalTicket), re_announced: true, tenant_id: tenantId });
           await broadcastQueueUpdate(io, tenantId);
         } else if (ticket) {
           io.to(tenantId).emit("now_serving", { ticket, re_announced: true, tenant_id: tenantId });
           io.to(tenantId).emit("ticket_announced", { ticket, re_announced: true, tenant_id: tenantId });
+          io.to(`${tenantId}:public`).emit("now_serving", { ticket: stripTicketForPublic(ticket), re_announced: true, tenant_id: tenantId });
+          io.to(`${tenantId}:public`).emit("ticket_announced", { ticket: stripTicketForPublic(ticket), re_announced: true, tenant_id: tenantId });
         }
       } catch (e) {
         if (data.ticket && data.tenant_id) {
           io.to(data.tenant_id).emit("now_serving", { ticket: data.ticket, re_announced: true, tenant_id: data.tenant_id });
+          io.to(`${data.tenant_id}:public`).emit("now_serving", { ticket: stripTicketForPublic(data.ticket), re_announced: true, tenant_id: data.tenant_id });
         }
       }
     });
@@ -339,6 +457,7 @@ function initSocket(server, corsOrigin = "*") {
         const cancelled = await cancelTicket(tenantId, ticketId, reason, userEmail);
         if (cancelled) {
           io.to(tenantId).emit("ticket_cancelled", { ticket: cancelled, ticket_id: ticketId, tenant_id: tenantId });
+          io.to(`${tenantId}:public`).emit("ticket_cancelled", { ticket: stripTicketForPublic(cancelled), ticket_id: ticketId, tenant_id: tenantId });
         }
         await broadcastQueueUpdate(io, tenantId);
       } catch (err) {

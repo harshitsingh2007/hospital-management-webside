@@ -53,7 +53,17 @@ export default function BrandingStudioTab({
     getAuthHeaders,
     currentUser,
 }) {
-    const currentHosp = brandingTargetHospital || selectedHospital || hospitals[0] || null;
+    const currentHosp =
+        brandingTargetHospital ||
+        selectedHospital ||
+        hospitals.find(
+            (h) =>
+                h.hospital_code === currentUser?.primary_hospital_code ||
+                h.hospital_code === currentUser?.hospital_code ||
+                h.owner_user_id === currentUser?.id
+        ) ||
+        hospitals[0] ||
+        null;
     const primaryClr = brandingForm.primary_color || "#0284C7";
     const secondaryClr = brandingForm.secondary_color || "#0369A1";
 

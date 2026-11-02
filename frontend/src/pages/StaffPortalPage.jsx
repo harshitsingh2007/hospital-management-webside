@@ -261,9 +261,16 @@ export default function StaffPortalPage({
   const fetchDesksAndDoctors = useCallback(async () => {
     if (!effectiveHospitalCode) return;
     try {
+      const headers = { "Content-Type": "application/json" };
+      if (currentUser?.email) headers["X-User-Email"] = currentUser.email;
+      try {
+        const token = localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || currentUser?.token;
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+      } catch (_) { }
+
       const [desksRes, empRes] = await Promise.all([
-        fetch(`${API_BASE}/api/v1/superadmin/hospitals/${effectiveHospitalCode}/desks`).then((r) => r.json()).catch(() => null),
-        fetch(`${API_BASE}/api/v1/superadmin/hospitals/${effectiveHospitalCode}/employees`).then((r) => r.json()).catch(() => null),
+        fetch(`${API_BASE}/api/v1/superadmin/hospitals/${effectiveHospitalCode}/desks`, { headers }).then((r) => r.json()).catch(() => null),
+        fetch(`${API_BASE}/api/v1/superadmin/hospitals/${effectiveHospitalCode}/employees`, { headers }).then((r) => r.json()).catch(() => null),
       ]);
 
       if (desksRes && desksRes.status === "success" && Array.isArray(desksRes.desks)) {
@@ -1099,9 +1106,16 @@ export default function StaffPortalPage({
     if (!deskId) return;
     const nextStatus = currentStatus === "AVAILABLE" ? "OFFLINE" : "AVAILABLE";
     try {
+      const headers = { "Content-Type": "application/json" };
+      if (currentUser?.email) headers["X-User-Email"] = currentUser.email;
+      try {
+        const token = localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || currentUser?.token;
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+      } catch (_) { }
+
       const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${effectiveHospitalCode}/desks/${deskId}/status`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ status: nextStatus }),
       });
       if (res.ok) {

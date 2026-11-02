@@ -978,6 +978,30 @@ export default function StaffRosterTab({
                                                 const isShiftEnded = !isAccountInactive && (d === "SHIFT_ENDED" || s === "shift_ended");
                                                 const isActiveOnline = !isAccountInactive && !isProcessing && !isOnBreak && !isEmergency && !isShiftEnded && (d === "ACTIVE");
 
+                                                if (isAccountInactive) {
+                                                    return (
+                                                        <span
+                                                            style={{
+                                                                display: "inline-flex",
+                                                                alignItems: "center",
+                                                                gap: "5px",
+                                                                padding: "3px 9px",
+                                                                borderRadius: "999px",
+                                                                fontSize: "11px",
+                                                                fontWeight: 800,
+                                                                background: "rgba(239, 68, 68, 0.12)",
+                                                                color: "#DC2626",
+                                                                border: "1px solid rgba(239, 68, 68, 0.3)",
+                                                                whiteSpace: "nowrap",
+                                                            }}
+                                                            title={isHi ? "खाता सुपर एडमिन द्वारा निष्क्रिय किया गया है" : "Account deactivated by admin"}
+                                                        >
+                                                            <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#DC2626" }} />
+                                                            <span>{isHi ? "निष्क्रिय" : "INACTIVE"}</span>
+                                                        </span>
+                                                    );
+                                                }
+
                                                 if (isProcessing) {
                                                     return (
                                                         <span
@@ -1125,7 +1149,7 @@ export default function StaffRosterTab({
                                             <div style={{ display: "inline-flex", gap: "6px", alignItems: "center" }}>
                                                 {/* 1. Toggle Online/Offline Status */}
                                                 {(() => {
-                                                    const isAccountActive = (emp.status || "").toLowerCase() !== "inactive";
+                                                    const isOnlineOrActive = (emp.status || "").toLowerCase() === "active" && (emp.duty_status || "").toUpperCase() === "ACTIVE";
 
                                                     return (
                                                         <button
@@ -1134,16 +1158,16 @@ export default function StaffRosterTab({
                                                             onClick={() => onToggleStatus && onToggleStatus(emp)}
                                                             style={{
                                                                 ...editSmallBtnStyle,
-                                                                background: isAccountActive ? "rgba(239, 68, 68, 0.1)" : "rgba(16, 185, 129, 0.1)",
-                                                                color: isAccountActive ? "#DC2626" : "#059669",
-                                                                border: isAccountActive ? "1px solid rgba(239, 68, 68, 0.3)" : "1px solid rgba(16, 185, 129, 0.3)",
+                                                                background: isOnlineOrActive ? "rgba(239, 68, 68, 0.1)" : "rgba(16, 185, 129, 0.1)",
+                                                                color: isOnlineOrActive ? "#DC2626" : "#059669",
+                                                                border: isOnlineOrActive ? "1px solid rgba(239, 68, 68, 0.3)" : "1px solid rgba(16, 185, 129, 0.3)",
                                                                 fontWeight: 700,
                                                                 fontSize: "11px",
                                                                 opacity: isTogglingEmpStatus === (emp.user_id || emp.id || emp.employee_id_num) ? 0.6 : 1,
                                                             }}
-                                                            title={isAccountActive ? (isHi ? "खाता निष्क्रिय करें" : "Deactivate Account") : (isHi ? "खाता सक्रिय करें" : "Activate Account")}
+                                                            title={isOnlineOrActive ? (isHi ? "ड्यूटी / खाता निष्क्रिय करें" : "Set Inactive / Off Duty") : (isHi ? "ड्यूटी / खाता सक्रिय करें" : "Set Active / Put On Duty")}
                                                         >
-                                                            {isAccountActive
+                                                            {isOnlineOrActive
                                                                 ? (isHi ? "निष्क्रिय करें" : "Set Inactive")
                                                                 : (isHi ? "सक्रिय करें" : "Set Active")}
                                                         </button>

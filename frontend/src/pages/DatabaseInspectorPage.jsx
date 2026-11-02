@@ -43,9 +43,10 @@ export default function DatabaseInspectorPage({
   const [activeTable, setActiveTable] = useState("users");
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(null);
 
   const userRole = (currentUser?.role || "").toLowerCase();
-  const isSuperAdmin = userRole === "super_admin" || userRole === "superadmin";
+  const isSuperAdmin = ["super_admin", "superadmin", "hospital_owner"].includes(userRole) || Boolean(currentUser?.is_superadmin);
 
   useEffect(() => {
     const code =
@@ -58,6 +59,7 @@ export default function DatabaseInspectorPage({
 
   const fetchDatabaseData = async (targetCode = selectedHospitalCode) => {
     setLoading(true);
+    setFetchError(null);
     try {
       const token =
         localStorage.getItem("ai_queue_token") ||
@@ -83,10 +85,13 @@ export default function DatabaseInspectorPage({
         if (availableTables.length > 0 && (!res.database[activeTable] || EXCLUDED_TABLES.includes(activeTable))) {
           setActiveTable(availableTables[0]);
         }
+      } else {
+        setFetchError(res.message || "Failed to load database overview");
       }
       setLoading(false);
     } catch (e) {
       console.log("DB fetch error:", e);
+      setFetchError("Network or server error while retrieving database overview");
       setLoading(false);
     }
   };
@@ -120,6 +125,41 @@ export default function DatabaseInspectorPage({
 
   return (
     <div style={{ maxWidth: "1180px", margin: "0 auto", paddingBottom: "40px" }}>
+      {fetchError && (
+        <div
+          style={{
+            marginBottom: "16px",
+            padding: "12px 16px",
+            borderRadius: "10px",
+            background: "#FEF2F2",
+            border: "1px solid #FCA5A5",
+            color: "#991B1B",
+            fontSize: "13px",
+            fontWeight: 600,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <span>{fetchError}</span>
+          <button
+            onClick={() => fetchDatabaseData()}
+            style={{
+              background: "#DC2626",
+              color: "#FFF",
+              border: "none",
+              borderRadius: "6px",
+              padding: "4px 10px",
+              fontSize: "11px",
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Top Header & Connection Card */}
       <div style={{ ...dbCardStyle, marginBottom: "20px" }}>
         <div

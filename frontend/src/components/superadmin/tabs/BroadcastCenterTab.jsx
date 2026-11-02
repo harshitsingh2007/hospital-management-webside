@@ -168,10 +168,13 @@ export default function BroadcastCenterTab({
     setIsRefreshing(false);
   }, [fetchStats, fetchActiveBroadcasts, fetchHistory]);
 
-  // Initial load
+  const handleRefreshAllRef = useRef(handleRefreshAll);
+  useEffect(() => { handleRefreshAllRef.current = handleRefreshAll; });
+
+  // Initial load once on tab mount
   useEffect(() => {
-    handleRefreshAll();
-  }, [handleRefreshAll]);
+    handleRefreshAllRef.current();
+  }, []);
 
   // Listen to socket events for auto-sync without page reload
   useEffect(() => {
@@ -192,12 +195,12 @@ export default function BroadcastCenterTab({
     };
   }, [fetchActiveBroadcasts, fetchStats, fetchHistory]);
 
-  // 20-second background fallback polling
+  // 15-minute background fallback polling
   useEffect(() => {
     const interval = setInterval(() => {
       fetchActiveBroadcasts();
       fetchStats();
-    }, 20000);
+    }, 15 * 60 * 1000); // 15 minutes
     return () => clearInterval(interval);
   }, [fetchActiveBroadcasts, fetchStats]);
 

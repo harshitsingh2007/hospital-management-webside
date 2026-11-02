@@ -134,7 +134,15 @@ export default function App() {
         if (m && (m.includes("reg") || m.includes("signup") || m.includes("login") || m.includes("signin") || m.includes("auth"))) return null;
       }
       const saved = localStorage.getItem("ai_queue_user");
-      return saved ? JSON.parse(saved) : null;
+      const savedToken = localStorage.getItem("ai_queue_token") || localStorage.getItem("token");
+      if (saved) {
+        const u = JSON.parse(saved);
+        if (!u.token && savedToken) {
+          u.token = savedToken;
+        }
+        return u;
+      }
+      return null;
     } catch (e) {
       return null;
     }
@@ -263,7 +271,7 @@ export default function App() {
         ? currentUser.hospital_code
         : (currentHospitalTenant || HOSPITAL_CONFIG.tenantId);
     fetchBranding(activeCode);
-  }, [currentHospitalTenant, currentUser, fetchBranding]);
+  }, [currentHospitalTenant, currentUser?.role, currentUser?.hospital_code, fetchBranding]);
 
   useEffect(() => {
     if (hospitalBranding?.primary_color) {
@@ -473,12 +481,18 @@ export default function App() {
   // Sync latest user profile on initial mount and purge session if account was deleted
   useEffect(() => {
     if (currentUser?.email) {
-      fetch(`${API_BASE}/api/v1/auth/me?email=${encodeURIComponent(currentUser.email)}`)
+      const token = localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || currentUser?.token;
+      fetch(`${API_BASE}/api/v1/auth/me?email=${encodeURIComponent(currentUser.email)}`, {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        }
+      })
         .then((res) => res.json())
         .then((data) => {
           if (data.status === "success" && data.user) {
             setCurrentUser((prev) => {
-              const updated = { ...prev, ...data.user };
+              const currentTok = prev?.token || localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || "";
+              const updated = { ...prev, ...data.user, token: currentTok };
               try {
                 localStorage.setItem("ai_queue_user", JSON.stringify(updated));
               } catch (e) {}
@@ -502,11 +516,17 @@ export default function App() {
   const [inactivityNotice, setInactivityNotice] = useState(null);
 
   const handleLoginSuccess = (userData) => {
-    setCurrentUser(userData);
+    const token = userData?.token || localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || "";
+    const userWithToken = { ...userData, token };
+    setCurrentUser(userWithToken);
     setShowAuthModal(false);
     setInactivityNotice(null);
     try {
-      localStorage.setItem("ai_queue_user", JSON.stringify(userData));
+      localStorage.setItem("ai_queue_user", JSON.stringify(userWithToken));
+      if (token) {
+        localStorage.setItem("ai_queue_token", token);
+        localStorage.setItem("token", token);
+      }
       localStorage.setItem("ai_queue_last_active", String(Date.now()));
     } catch (e) {}
 
@@ -605,6 +625,40 @@ export default function App() {
     }
   }, [inactivityNotice]);
 
+  // Handle Session Expiration and Token Refresh events from apiFetch
+  useEffect(() => {
+    const handleSessionExpired = (e) => {
+      console.warn("Session expired (401):", e?.detail?.url);
+      handleLogout();
+      setInactivityNotice("Your session has expired. Please sign in again.");
+      setShowAuthModal(true);
+    };
+
+    const handleTokenRefreshed = (e) => {
+      const refreshed = e?.detail?.token;
+      if (refreshed) {
+        // Silently update stored user token without churning root currentUser reference
+        try {
+          const s = localStorage.getItem("ai_queue_user");
+          if (s) {
+            const u = JSON.parse(s);
+            if (u.token !== refreshed) {
+              u.token = refreshed;
+              localStorage.setItem("ai_queue_user", JSON.stringify(u));
+            }
+          }
+        } catch (_) {}
+      }
+    };
+
+    window.addEventListener("auth_session_expired", handleSessionExpired);
+    window.addEventListener("ai_token_refreshed", handleTokenRefreshed);
+    return () => {
+      window.removeEventListener("auth_session_expired", handleSessionExpired);
+      window.removeEventListener("ai_token_refreshed", handleTokenRefreshed);
+    };
+  }, [handleLogout]);
+
   // Fetch family members from backend
   const fetchFamilyMembers = useCallback((user) => {
     let savedUser = null;
@@ -641,7 +695,7 @@ export default function App() {
         }
       })
       .catch((e) => console.log("Family members fetch error:", e));
-  }, [currentUser]);
+  }, [currentUser?.id, currentUser?.email, currentUser?.phone]);
 
   // Real-time synchronization when family members are updated anywhere in the app (including other tabs)
   useEffect(() => {
@@ -703,8 +757,10 @@ export default function App() {
 
   // Load family members when user is available
   useEffect(() => {
-    fetchFamilyMembers(currentUser);
-  }, [currentUser, fetchFamilyMembers]);
+    if (currentUser?.id || currentUser?.email) {
+      fetchFamilyMembers(currentUser);
+    }
+  }, [currentUser?.id, currentUser?.email, fetchFamilyMembers]);
 
   // Handle profile switch from header
   const handleSwitchProfile = useCallback((member) => {
@@ -717,11 +773,13 @@ export default function App() {
   const handleAddFamilyMemberFromHeader = useCallback(async (newMember) => {
     if (!currentUser || !currentUser.email) return;
     try {
+      const token = localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || currentUser?.token;
       const res = await fetch(`${API_BASE}/api/v1/family-members`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-User-Email": currentUser.email
+          "X-User-Email": currentUser.email,
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
         },
         body: JSON.stringify(newMember)
       });
@@ -1035,8 +1093,7 @@ export default function App() {
   );
   const canAccessDbInspector =
     Boolean(currentUser) &&
-    userRole !== "doctor" &&
-    ["receptionist", "staff", "super_admin", "superadmin", "admin", "pharmacist"].includes(userRole);
+    (["superadmin", "super_admin", "hospital_owner"].includes(userRole) || Boolean(currentUser?.is_superadmin));
   const adminDepartment = currentUser && currentUser.department ? currentUser.department.toLowerCase() : "all";
   const adminDeptRef = useRef(adminDepartment);
   const activePageRef = useRef(activePage);
@@ -1062,9 +1119,7 @@ export default function App() {
             const data = await res.json();
             if (data?.token) {
               token = data.token;
-              try {
-                localStorage.setItem("ai_queue_token", token);
-              } catch (_) {}
+              // Note: Never persist guest token to localStorage as it will overwrite real user credentials
             }
           }
         } catch (_) {}
@@ -1074,13 +1129,13 @@ export default function App() {
 
       socket = io(WS_URL, {
         transports: ["websocket", "polling"],
-        auth: { tenant_id: tenantId, token: token || "" }
+        auth: { tenant_id: tenantId, token: token || "", is_public: !token }
       });
       socketRef.current = socket;
 
       socket.on("connect", () => {
         setSocketConnected(true);
-        socket.emit("join_room", { tenant_id: tenantId });
+        socket.emit("join_room", { tenant_id: tenantId, is_public: !token });
       });
 
       socket.on("disconnect", () => setSocketConnected(false));
@@ -2257,7 +2312,7 @@ export default function App() {
             {activePage === "db" && (
               !canAccessDbInspector ? (
                 <AccessDeniedGuard
-                  requiredRole="staff"
+                  requiredRole="superadmin"
                   pageName="Database Inspector"
                   currentUser={currentUser}
                   onLoginSuccess={handleLoginSuccess}

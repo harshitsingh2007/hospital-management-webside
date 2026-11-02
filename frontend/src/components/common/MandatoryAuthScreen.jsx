@@ -281,7 +281,7 @@ export default function MandatoryAuthScreen({
             localStorage.setItem("ai_queue_current_hospital", data.user.hospital_code);
           } catch (e) { }
         }
-        if (onLoginSuccess) onLoginSuccess(data.user);
+        if (onLoginSuccess) onLoginSuccess({ ...data.user, token: data.token || data.user?.token });
       } else {
         setErrorMsg(
           data.detail ||
@@ -379,7 +379,7 @@ export default function MandatoryAuthScreen({
             localStorage.setItem("ai_queue_current_hospital", data.user?.hospital_code || selectedHospitalCode || "city-hospital-01");
           } catch (e) {}
         }
-        if (onLoginSuccess) onLoginSuccess(data.user);
+        if (onLoginSuccess) onLoginSuccess({ ...data.user, token: data.token || data.user?.token });
       } else {
         if (data.remaining_attempts !== undefined) {
           setLoginRemainingAttempts(data.remaining_attempts);
@@ -640,7 +640,7 @@ export default function MandatoryAuthScreen({
             localStorage.setItem("ai_queue_current_hospital", payload.hospital_code);
           } catch (e) { }
         }
-        if (onLoginSuccess) onLoginSuccess(data.user);
+        if (onLoginSuccess) onLoginSuccess({ ...data.user, token: data.token || data.user?.token });
       } else {
         if (data.code === "PHONE_ALREADY_EXISTS" || data.message?.includes("already exists") || data.message?.includes("already registered")) {
           setSignupPhoneStatus("taken");

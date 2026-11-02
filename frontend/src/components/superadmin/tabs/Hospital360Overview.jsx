@@ -29,7 +29,7 @@ import { getCategoryLabel } from "../../../utils/i18n";
 import DoctorProductivitySection from "./DoctorProductivitySection";
 import "../SuperAdmin.css";
 
-export default function Hospital360Overview({
+export function Hospital360OverviewContent({
     selectedHospital,
     hospitals = [],
     setSelectedHospital,
@@ -69,40 +69,11 @@ export default function Hospital360Overview({
     computeHourlyAnalytics,
     computeDepartmentBottlenecks,
     isHi = false,
+    currentHosp,
 }) {
-    const currentHosp = selectedHospital || hospitals[0] || null;
-
-    if (!currentHosp) {
-        return (
-            <div style={standaloneCardStyle}>
-                <div style={{ textAlign: "center", padding: "40px 20px" }}>
-                    <IconHospital size={44} color="#94A3B8" />
-                    <h3 style={{ margin: "14px 0 6px", color: "var(--superadmin-text-main, #0F172A)", fontSize: "18px", fontWeight: 800 }}>
-                        {isHi ? "कोई अस्पताल उपलब्ध नहीं है" : "No Hospital Data Available"}
-                    </h3>
-                    <p style={{ margin: "0 0 20px", color: "var(--superadmin-text-muted, #64748B)", fontSize: "13.5px" }}>
-                        {isHi ? "कृपया पहले अस्पताल जोड़ें या नेटवर्क से एक का चयन करें।" : "Please add a hospital first or select one from the directory."}
-                    </p>
-                    <button
-                        type="button"
-                        onClick={() => setShowAddHospitalModal(true)}
-                        style={{
-                            ...actionBtnStyle,
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "6px",
-                            padding: "8px 16px",
-                        }}
-                    >
-                        <IconPlus size={15} />
-                        <span>{isHi ? "+ नया अस्पताल जोड़ें" : "+ Add Hospital"}</span>
-                    </button>
-                </div>
-            </div>
-        );
-    }
-
-    const activeBranding = currentHosp.branding || hospitalBranding || {};
+    const activeHospital = currentHosp || selectedHospital || hospitals[0];
+    const currentHospResolved = activeHospital;
+    const activeBranding = activeHospital?.branding || hospitalBranding || {};
     const facilityPrimary = activeBranding.primary_color || "#0284C7";
     const facilitySecondary = activeBranding.secondary_color || "#0369A1";
     const facilityAccent = activeBranding.accent_color || "#F0F9FF";
@@ -111,7 +82,7 @@ export default function Hospital360Overview({
     const facilityHours = activeBranding.opd_start_time && activeBranding.opd_end_time
         ? `${activeBranding.opd_start_time} - ${activeBranding.opd_end_time}`
         : (isHi ? "निर्धारित नहीं" : "Not set");
-    const helpline = activeBranding.emergency_helpline || currentHosp.phone || (isHi ? "निर्धारित नहीं" : "Not set");
+    const helpline = activeBranding.emergency_helpline || currentHospResolved?.phone || (isHi ? "निर्धारित नहीं" : "Not set");
 
     // Aggregate metrics & Footfall history
     const footfallSummary = hospitalVisitsData?.summary || {};
@@ -585,14 +556,14 @@ export default function Hospital360Overview({
                                 border: socketConnected === true ? "1px solid rgba(16, 185, 129, 0.3)" : socketConnected === false ? "1px solid rgba(239, 68, 68, 0.3)" : "1px solid rgba(245, 158, 11, 0.3)",
                                 color: socketConnected === true ? "#10B981" : socketConnected === false ? "#EF4444" : "#F59E0B",
                             }}
-                            title={socketConnected === true ? "WebSocket connected to real-time telemetry stream" : socketConnected === false ? "Offline. Polling every 20s" : "Reconnecting to live telemetry stream"}
+                            title={socketConnected === true ? "WebSocket connected to real-time telemetry stream" : socketConnected === false ? "Offline. Polling every 15m" : "Reconnecting to live telemetry stream"}
                         >
                             <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: socketConnected === true ? "#10B981" : socketConnected === false ? "#EF4444" : "#F59E0B" }} />
                             <span>
                                 {socketConnected === true
                                     ? (isHi ? "लाइव" : "Live")
                                     : socketConnected === false
-                                    ? (isHi ? "ऑफ़लाइन - हर 20s में रिफ्रेश" : "Offline - refreshing every 20s")
+                                    ? (isHi ? "ऑफ़लाइन - हर 15m में रीफ़्रेश" : "Offline – refreshing every 15m")
                                     : (isHi ? "पुनः कनेक्ट हो रहा है…" : "Reconnecting…")}
                             </span>
                             <span style={{ opacity: 0.7, fontWeight: 600, fontSize: "10px", marginLeft: "2px" }}>
@@ -1834,4 +1805,40 @@ export default function Hospital360Overview({
 
         </div>
     );
+}
+
+export default function Hospital360Overview(props) {
+    const currentHosp = props.selectedHospital || props.hospitals?.[0] || null;
+
+    if (!currentHosp) {
+        return (
+            <div style={standaloneCardStyle}>
+                <div style={{ textAlign: "center", padding: "40px 20px" }}>
+                    <IconHospital size={44} color="#94A3B8" />
+                    <h3 style={{ margin: "14px 0 6px", color: "var(--superadmin-text-main, #0F172A)", fontSize: "18px", fontWeight: 800 }}>
+                        {props.isHi ? "कोई अस्पताल उपलब्ध नहीं है" : "No Hospital Data Available"}
+                    </h3>
+                    <p style={{ margin: "0 0 20px", color: "var(--superadmin-text-muted, #64748B)", fontSize: "13.5px" }}>
+                        {props.isHi ? "कृपया पहले अस्पताल जोड़ें या नेटवर्क से एक का चयन करें।" : "Please add a hospital first or select one from the directory."}
+                    </p>
+                    <button
+                        type="button"
+                        onClick={() => props.setShowAddHospitalModal && props.setShowAddHospitalModal(true)}
+                        style={{
+                            ...actionBtnStyle,
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            padding: "8px 16px",
+                        }}
+                    >
+                        <IconPlus size={15} />
+                        <span>{props.isHi ? "+ नया अस्पताल जोड़ें" : "+ Add Hospital"}</span>
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    return <Hospital360OverviewContent {...props} currentHosp={currentHosp} />;
 }

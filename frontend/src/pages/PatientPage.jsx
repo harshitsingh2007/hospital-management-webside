@@ -1,11 +1,3 @@
-/**
- * PatientPage.jsx
- * ---------------
- * Patient Self-Checkin & Pre-scheduled Appointment Booking Kiosk.
- * Theme: Unified Medical Blue & Clean White (Clinical Healthcare System)
- * Professional Healthcare Vector Styling matching IMAGE 2.
- */
-
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { API_BASE, HOSPITAL_CONFIG } from "../config/hospitalConfig";
 import { t, getCategoryLabel, getStatusLabel, SYMPTOM_OPTIONS, RISK_OPTIONS, formatSymptomLabel, formatRiskLabel, formatCleanText, cleanAdviceText } from "../utils/i18n";
@@ -2758,6 +2750,7 @@ export default function PatientPage({
             headers: {
               "Content-Type": "application/json",
               ...(currentUser?.email ? { "X-User-Email": currentUser.email } : {}),
+              ...((currentUser?.token || localStorage.getItem("ai_queue_token") || localStorage.getItem("token")) ? { Authorization: `Bearer ${currentUser?.token || localStorage.getItem("ai_queue_token") || localStorage.getItem("token")}` } : {}),
             },
             body: JSON.stringify({
               appointment_id: appointmentId,
@@ -2820,11 +2813,13 @@ export default function PatientPage({
     setAdjustSuccessMsg("");
 
     try {
+      const token = currentUser?.token || localStorage.getItem("ai_queue_token") || localStorage.getItem("token");
       const res = await fetch(`${API_BASE}/api/v1/tickets/${activeTicket.ticket_id}/adjust`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...(currentUser?.email ? { "X-User-Email": currentUser.email } : {}),
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           tenant_id: tenantId,

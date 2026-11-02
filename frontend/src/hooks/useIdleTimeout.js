@@ -44,20 +44,9 @@ export function useIdleTimeout({ timeoutMinutes = 15, onTimeout, isEnabled = tru
       }
     };
 
-    // 1. Immediate mount check: If stored last-active is already older than the limit, log out immediately
-    const initialStored = localStorage.getItem(STORAGE_KEY);
-    if (initialStored) {
-      const initialLastActive = parseInt(initialStored, 10);
-      if (!isNaN(initialLastActive) && Date.now() - initialLastActive >= timeoutMs) {
-        isTimedOutRef.current = true;
-        if (typeof onTimeoutRef.current === "function") {
-          onTimeoutRef.current();
-        }
-        return;
-      }
-    } else {
-      localStorage.setItem(STORAGE_KEY, String(Date.now()));
-    }
+    // 1. Reset active timestamp on mount/page load (loading/refreshing is explicit user interaction)
+    localStorage.setItem(STORAGE_KEY, String(Date.now()));
+    isTimedOutRef.current = false;
 
     // 2. Activity listeners (throttled to once every 5 seconds)
     const handleActivity = () => {

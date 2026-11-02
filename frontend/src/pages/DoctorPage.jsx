@@ -247,7 +247,7 @@ export default function DoctorPage({
   const canModifyDesks = !isStaffOrDoctor && (userRole === "super_admin" || userRole === "superadmin");
   const canViewDbInspector =
     userRole !== "doctor" &&
-    ["receptionist", "staff", "super_admin", "superadmin", "admin"].includes(userRole);
+    (["super_admin", "superadmin", "hospital_owner"].includes(userRole) || Boolean(currentUser?.is_superadmin));
   // Clinical Consultation Tickets only (excluding pharmacy dispensing tickets)
   const clinicalServingTickets = (servingTickets || []).filter(
     (t) => (t.service_category || "").toLowerCase() !== "pharmacy"
