@@ -102,9 +102,12 @@ export default function StaffPortalPage({
   const [allQueuesSearchQuery, setAllQueuesSearchQuery] = useState("");
   const [isRefreshingQueue, setIsRefreshingQueue] = useState(false);
 
-  // Operational Service Counters & Clinicians Tracker Filters & Search State
+  // Operational Service Counters, Clinicians & Active Staff Tracker State
   const [countersSearchQuery, setCountersSearchQuery] = useState("");
-  const [countersFilterType, setCountersFilterType] = useState("all"); // "all" | "counters" | "doctors" | "online"
+  const [countersFilterType, setCountersFilterType] = useState("all"); // "all" | "counters" | "doctors" | "staff" | "online"
+  const [countersFilterDept, setCountersFilterDept] = useState("all");
+  const [countersFilterStatus, setCountersFilterStatus] = useState("all"); // "all" | "online" | "busy" | "offline"
+  const [countersSortBy, setCountersSortBy] = useState("default"); // "default" | "name_asc" | "name_desc" | "status" | "queue" | "dept"
 
   // Transfer Ticket Modal State
   const [showTransferModal, setShowTransferModal] = useState(false);
@@ -370,6 +373,14 @@ export default function StaffPortalPage({
           attachedSocket.off("priority_changed", handleRealtimeUpdate);
           attachedSocket.off("ticket_held", handleRealtimeUpdate);
           attachedSocket.off("ticket_recalled", handleIncomingAnnouncement);
+          attachedSocket.off("desk_update", handleRealtimeUpdate);
+          attachedSocket.off("desk_updated", handleRealtimeUpdate);
+          attachedSocket.off("desk_status_updated", handleRealtimeUpdate);
+          attachedSocket.off("doctor_duty_status_changed", handleRealtimeUpdate);
+          attachedSocket.off("duty_status_changed", handleRealtimeUpdate);
+          attachedSocket.off("hospital_data_changed", handleRealtimeUpdate);
+          attachedSocket.off("employee_updated", handleRealtimeUpdate);
+          attachedSocket.off("employee_status_changed", handleRealtimeUpdate);
         }
         attachedSocket = socket;
         socket.on("queue_updated", handleRealtimeUpdate);
@@ -387,6 +398,14 @@ export default function StaffPortalPage({
         socket.on("priority_changed", handleRealtimeUpdate);
         socket.on("ticket_held", handleRealtimeUpdate);
         socket.on("ticket_recalled", handleIncomingAnnouncement);
+        socket.on("desk_update", handleRealtimeUpdate);
+        socket.on("desk_updated", handleRealtimeUpdate);
+        socket.on("desk_status_updated", handleRealtimeUpdate);
+        socket.on("doctor_duty_status_changed", handleRealtimeUpdate);
+        socket.on("duty_status_changed", handleRealtimeUpdate);
+        socket.on("hospital_data_changed", handleRealtimeUpdate);
+        socket.on("employee_updated", handleRealtimeUpdate);
+        socket.on("employee_status_changed", handleRealtimeUpdate);
       }
     };
 
@@ -413,6 +432,12 @@ export default function StaffPortalPage({
       "ticket_completed",
       "ticket_noshow",
       "appointment_updated",
+      "desk_update",
+      "desk_updated",
+      "desk_status_updated",
+      "doctor_duty_status_changed",
+      "hospital_data_changed",
+      "employee_updated",
       "storage",
     ];
 
@@ -441,12 +466,13 @@ export default function StaffPortalPage({
       }
     } catch (e) { }
 
-    // 4. Background quiet sync timer (every 30 seconds fallback; WebSockets push live changes)
+    // 4. Background quiet sync timer (every 15 seconds fallback; WebSockets push live changes)
     const livePollTimer = setInterval(() => {
       if (document.hidden) return; // Do not poll when tab is inactive/hidden!
       fetchLiveQueueData();
       fetchAppointments();
-    }, 30000);
+      fetchDesksAndDoctors();
+    }, 15000);
 
     // 5. Immediate sync on Tab Focus & Page Visibility
     const handleFocus = () => {
@@ -477,6 +503,14 @@ export default function StaffPortalPage({
         attachedSocket.off("priority_changed", handleRealtimeUpdate);
         attachedSocket.off("ticket_held", handleRealtimeUpdate);
         attachedSocket.off("ticket_recalled", handleIncomingAnnouncement);
+        attachedSocket.off("desk_update", handleRealtimeUpdate);
+        attachedSocket.off("desk_updated", handleRealtimeUpdate);
+        attachedSocket.off("desk_status_updated", handleRealtimeUpdate);
+        attachedSocket.off("doctor_duty_status_changed", handleRealtimeUpdate);
+        attachedSocket.off("duty_status_changed", handleRealtimeUpdate);
+        attachedSocket.off("hospital_data_changed", handleRealtimeUpdate);
+        attachedSocket.off("employee_updated", handleRealtimeUpdate);
+        attachedSocket.off("employee_status_changed", handleRealtimeUpdate);
       }
       eventNames.forEach((evName) => {
         window.removeEventListener(evName, handleRealtimeUpdate);
@@ -1104,7 +1138,8 @@ export default function StaffPortalPage({
   // 9. Counter Desk Status Toggle
   const handleToggleDeskStatus = async (deskId, currentStatus) => {
     if (!deskId) return;
-    const nextStatus = currentStatus === "AVAILABLE" ? "OFFLINE" : "AVAILABLE";
+    const isCurrentlyOnline = ["AVAILABLE", "ACTIVE", "BUSY", "IN_USE"].includes(String(currentStatus || "").toUpperCase());
+    const nextStatus = isCurrentlyOnline ? "OFFLINE" : "AVAILABLE";
     try {
       const headers = { "Content-Type": "application/json" };
       if (currentUser?.email) headers["X-User-Email"] = currentUser.email;
@@ -1112,6 +1147,11 @@ export default function StaffPortalPage({
         const token = localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || currentUser?.token;
         if (token) headers["Authorization"] = `Bearer ${token}`;
       } catch (_) { }
+
+      // Optimistically update local state immediately
+      setDesksList((prev) =>
+        prev.map((d) => (d.id === deskId ? { ...d, status: nextStatus } : d))
+      );
 
       const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${effectiveHospitalCode}/desks/${deskId}/status`, {
         method: "PUT",
@@ -1121,10 +1161,13 @@ export default function StaffPortalPage({
       if (res.ok) {
         showFeedback(isHi ? `✓ डेस्क की स्थिति '${nextStatus}' में बदली गई!` : `✓ Desk status updated to ${nextStatus}!`, "success");
         fetchDesksAndDoctors();
+        broadcastLiveQueueChange("desk_status_updated", { desk_id: deskId, status: nextStatus, tenant_id: effectiveHospitalCode });
       } else {
+        fetchDesksAndDoctors();
         showFeedback(isHi ? "डेस्क स्थिति अपडेट करने में विफलता।" : "Failed to update desk status.", "error");
       }
     } catch (e) {
+      fetchDesksAndDoctors();
       showFeedback(`Error updating desk: ${e.message}`, "error");
     }
   };
@@ -1259,76 +1302,252 @@ export default function StaffPortalPage({
     });
   }, [allActiveLiveTickets, allQueuesFilterDept, allQueuesFilterStatus, allQueuesFilterPriority, allQueuesSearchQuery]);
 
-  // 12. Operational Service Counters & Clinicians Filters & Live Telemetry Computation
-  // Exclude logged-in staff / doctor's own account from the fleet overview
-  const filteredDoctorsList = React.useMemo(() => {
-    if (!Array.isArray(doctorsList)) return [];
+  // 12. Operational Service Counters, Clinicians & Active Staff Telemetry Computation
+  const isDeskOnline = useCallback((desk) => {
+    if (!desk) return false;
+    const s = String(desk.status || "").toUpperCase();
+    return ["AVAILABLE", "ACTIVE", "BUSY", "IN_USE", "SERVING"].includes(s);
+  }, []);
 
-    return doctorsList.filter((doc) => {
-      if (!doc) return false;
-
-      // Check if doc matches the logged-in user to exclude own account
-      if (currentUser) {
-        const curId = String(currentUser.id || currentUser.user_id || currentUser._id || "");
-        const curEmp = String(currentUser.employee_code || currentUser.employee_id || "");
-        const curEmail = (currentUser.email || "").toLowerCase().trim();
-        const curUser = (currentUser.username || "").toLowerCase().trim();
-        const curName = (currentUser.name || "").toLowerCase().trim();
-
-        const docId = String(doc.id || doc.user_id || doc.employee_id || "");
-        const docEmp = String(doc.employee_code || doc.employee_id || "");
-        const docEmail = (doc.email || "").toLowerCase().trim();
-        const docUser = (doc.username || "").toLowerCase().trim();
-        const docName = (doc.name || "").toLowerCase().trim();
-
-        if (curId && docId && curId === docId) return false;
-        if (curEmp && docEmp && curEmp === docEmp) return false;
-        if (curEmail && docEmail && curEmail === docEmail) return false;
-        if (curUser && docUser && curUser === docUser) return false;
-        if (curName && docName && curName === docName) return false;
-      }
-      return true;
+  const getDeskServingTicket = useCallback((desk) => {
+    if (!desk) return null;
+    const deskDept = (desk.dept_code || desk.department || "").toLowerCase();
+    return effectiveServingTickets.find((t) => {
+      if (desk.current_ticket_id && String(t.ticket_id) === String(desk.current_ticket_id)) return true;
+      if (t.desk_id && String(t.desk_id) === String(desk.id)) return true;
+      if (t.assigned_desk && desk.desk_name && t.assigned_desk.toLowerCase() === desk.desk_name.toLowerCase()) return true;
+      if (t.counter_number && (String(t.counter_number) === String(desk.desk_number) || String(t.counter_number) === String(desk.counter_number))) return true;
+      return false;
+    }) || effectiveServingTickets.find((t) => {
+      const tDept = (t.service_category || t.department || t.dept_code || t.category || "").toLowerCase();
+      return tDept && tDept === deskDept;
     });
-  }, [doctorsList, currentUser]);
+  }, [effectiveServingTickets]);
 
-  // Filtered desks based on search and status filter
+  const getDeskWaitingCount = useCallback((desk) => {
+    if (!desk) return 0;
+    const deskDept = (desk.dept_code || desk.department || "").toLowerCase();
+    return effectiveWaitingTickets.filter((t) => {
+      const tDept = (t.service_category || t.department || t.dept_code || t.category || "").toLowerCase();
+      return tDept && tDept === deskDept;
+    }).length;
+  }, [effectiveWaitingTickets]);
+
+  const isDocOnline = useCallback((doc) => {
+    if (!doc) return false;
+    const s = (doc.status || "").toLowerCase();
+    const ds = String(doc.duty_status || "").toUpperCase();
+    return s === "active" || ["ACTIVE", "ON_BREAK", "EMERGENCY_ROUND", "PROCESSING"].includes(ds);
+  }, []);
+
+  const getDocServingTicket = useCallback((doc) => {
+    if (!doc) return null;
+    const docDept = (doc.department || doc.dept_code || "").toLowerCase();
+    return effectiveServingTickets.find((t) => {
+      if (t.doctor_id && (String(t.doctor_id) === String(doc.id) || String(t.doctor_id) === String(doc.employee_id) || String(t.doctor_id) === String(doc.employee_code))) return true;
+      if (t.doctor_name && doc.name && t.doctor_name.toLowerCase().includes(doc.name.toLowerCase())) return true;
+      if (t.served_by_doctor_name && doc.name && t.served_by_doctor_name.toLowerCase().includes(doc.name.toLowerCase())) return true;
+      return false;
+    }) || effectiveServingTickets.find((t) => {
+      const tDept = (t.service_category || t.department || t.dept_code || t.category || "").toLowerCase();
+      return tDept && tDept === docDept;
+    });
+  }, [effectiveServingTickets]);
+
+  const getDocWaitingCount = useCallback((doc) => {
+    if (!doc) return 0;
+    const docDept = (doc.department || doc.dept_code || "").toLowerCase();
+    return effectiveWaitingTickets.filter((t) => {
+      if (t.doctor_id && (String(t.doctor_id) === String(doc.id) || String(t.doctor_id) === String(doc.employee_id) || String(t.doctor_id) === String(doc.employee_code))) return true;
+      const tDept = (t.service_category || t.department || t.dept_code || t.category || "").toLowerCase();
+      return tDept && tDept === docDept;
+    }).length;
+  }, [effectiveWaitingTickets]);
+
+  const isStaffOnline = useCallback((staff) => {
+    if (!staff) return false;
+    const s = (staff.status || "").toLowerCase();
+    const ds = String(staff.duty_status || "").toUpperCase();
+    return s === "active" || ["ACTIVE", "PROCESSING", "ON_DUTY"].includes(ds);
+  }, []);
+
+  const getStaffAssignedDesk = useCallback((staff) => {
+    if (!staff || !Array.isArray(desksList)) return null;
+    return desksList.find((d) => {
+      if (d.assigned_employee_id && (String(d.assigned_employee_id) === String(staff.id) || String(d.assigned_employee_id) === String(staff.employee_id_num))) return true;
+      if (d.assigned_user_id && String(d.assigned_user_id) === String(staff.user_id || staff.id)) return true;
+      if (d.assigned_employee_name && staff.name && d.assigned_employee_name.toLowerCase() === staff.name.toLowerCase()) return true;
+      if (d.assigned_employee_code && staff.employee_id && d.assigned_employee_code.toLowerCase() === staff.employee_id.toLowerCase()) return true;
+      return false;
+    });
+  }, [desksList]);
+
+  const getStaffDeptWaitingCount = useCallback((staff) => {
+    if (!staff) return 0;
+    const staffDept = (staff.department || staff.dept_code || "").toLowerCase();
+    if (!staffDept || staffDept === "all") return effectiveWaitingTickets.length;
+    return effectiveWaitingTickets.filter((t) => {
+      const tDept = (t.service_category || t.department || t.dept_code || t.category || "").toLowerCase();
+      return tDept && tDept === staffDept;
+    }).length;
+  }, [effectiveWaitingTickets]);
+
+  // Separate hospital employee roster into Clinicians and Staff Members
+  const { allClinicians, allStaffMembers } = React.useMemo(() => {
+    if (!Array.isArray(doctorsList)) return { allClinicians: [], allStaffMembers: [] };
+    const clinicians = [];
+    const staff = [];
+
+    doctorsList.forEach((emp) => {
+      if (!emp) return;
+      const role = String(emp.role || "").toLowerCase().trim();
+      if (role === "doctor" || role === "physician") {
+        clinicians.push(emp);
+      } else {
+        staff.push(emp);
+      }
+    });
+
+    return { allClinicians: clinicians, allStaffMembers: staff };
+  }, [doctorsList]);
+
+  // Sorting helper for desks, clinicians, and staff
+  const sortItems = useCallback((items, type) => {
+    return [...items].sort((a, b) => {
+      if (countersSortBy === "name_asc") {
+        const nameA = String(a.desk_name || a.name || a.username || "").toLowerCase();
+        const nameB = String(b.desk_name || b.name || b.username || "").toLowerCase();
+        return nameA.localeCompare(nameB);
+      }
+      if (countersSortBy === "name_desc") {
+        const nameA = String(a.desk_name || a.name || a.username || "").toLowerCase();
+        const nameB = String(b.desk_name || b.name || b.username || "").toLowerCase();
+        return nameB.localeCompare(nameA);
+      }
+      if (countersSortBy === "dept") {
+        const deptA = String(a.dept_code || a.department || "").toLowerCase();
+        const deptB = String(b.dept_code || b.department || "").toLowerCase();
+        return deptA.localeCompare(deptB);
+      }
+      if (countersSortBy === "status") {
+        const onlineA = type === "desk" ? isDeskOnline(a) : type === "doctor" ? isDocOnline(a) : isStaffOnline(a);
+        const onlineB = type === "desk" ? isDeskOnline(b) : type === "doctor" ? isDocOnline(b) : isStaffOnline(b);
+        if (onlineA && !onlineB) return -1;
+        if (!onlineA && onlineB) return 1;
+        return 0;
+      }
+      if (countersSortBy === "queue") {
+        const qA = type === "desk" ? getDeskWaitingCount(a) : type === "doctor" ? getDocWaitingCount(a) : getStaffDeptWaitingCount(a);
+        const qB = type === "desk" ? getDeskWaitingCount(b) : type === "doctor" ? getDocWaitingCount(b) : getStaffDeptWaitingCount(b);
+        return qB - qA;
+      }
+      // "default": online first, then desk number or name
+      const onlineA = type === "desk" ? isDeskOnline(a) : type === "doctor" ? isDocOnline(a) : isStaffOnline(a);
+      const onlineB = type === "desk" ? isDeskOnline(b) : type === "doctor" ? isDocOnline(b) : isStaffOnline(b);
+      if (onlineA && !onlineB) return -1;
+      if (!onlineA && onlineB) return 1;
+      const numA = Number(a.desk_number || a.id || 0);
+      const numB = Number(b.desk_number || b.id || 0);
+      if (numA && numB && numA !== numB) return numA - numB;
+      const nameA = String(a.desk_name || a.name || a.username || "").toLowerCase();
+      const nameB = String(b.desk_name || b.name || b.username || "").toLowerCase();
+      return nameA.localeCompare(nameB);
+    });
+  }, [countersSortBy, isDeskOnline, isDocOnline, isStaffOnline, getDeskWaitingCount, getDocWaitingCount, getStaffDeptWaitingCount]);
+
+  // Filtered & Sorted Desks
   const searchedDesksList = React.useMemo(() => {
     if (!Array.isArray(desksList)) return [];
     const q = countersSearchQuery.trim().toLowerCase();
 
-    return desksList.filter((desk) => {
-      if (countersFilterType === "doctors") return false;
-      if (countersFilterType === "online" && desk.status !== "AVAILABLE") return false;
+    const filtered = desksList.filter((desk) => {
+      if (countersFilterType === "doctors" || countersFilterType === "staff") return false;
+
+      const online = isDeskOnline(desk);
+      if (countersFilterType === "online" && !online) return false;
+
+      const deskDept = (desk.dept_code || desk.department || "").toLowerCase();
+      if (countersFilterDept !== "all" && deskDept !== countersFilterDept.toLowerCase()) return false;
+
+      if (countersFilterStatus === "online" && !online) return false;
+      if (countersFilterStatus === "offline" && online) return false;
+      if (countersFilterStatus === "busy") {
+        const serving = getDeskServingTicket(desk);
+        if (!serving) return false;
+      }
 
       if (!q) return true;
       const name = (desk.desk_name || "").toLowerCase();
-      const dept = (desk.dept_code || desk.department || "").toLowerCase();
       const deptLabel = getCategoryLabel(desk.dept_code || desk.department, language).toLowerCase();
-      const staff = (desk.assigned_employee_name || "").toLowerCase();
+      const staffName = (desk.assigned_employee_name || "").toLowerCase();
       const num = String(desk.desk_number || desk.counter_number || "");
-      return name.includes(q) || dept.includes(q) || deptLabel.includes(q) || staff.includes(q) || num.includes(q);
+      return name.includes(q) || deskDept.includes(q) || deptLabel.includes(q) || staffName.includes(q) || num.includes(q);
     });
-  }, [desksList, countersSearchQuery, countersFilterType, language]);
 
-  // Filtered doctors based on search and status filter
+    return sortItems(filtered, "desk");
+  }, [desksList, countersSearchQuery, countersFilterType, countersFilterDept, countersFilterStatus, isDeskOnline, getDeskServingTicket, sortItems, language]);
+
+  // Filtered & Sorted Clinicians
   const searchedDoctorsList = React.useMemo(() => {
     const q = countersSearchQuery.trim().toLowerCase();
 
-    return filteredDoctorsList.filter((doc) => {
-      if (countersFilterType === "counters") return false;
-      const isOnline = (doc.status || "").toLowerCase() === "active";
-      if (countersFilterType === "online" && !isOnline) return false;
+    const filtered = allClinicians.filter((doc) => {
+      if (countersFilterType === "counters" || countersFilterType === "staff") return false;
+
+      const online = isDocOnline(doc);
+      if (countersFilterType === "online" && !online) return false;
+
+      const docDept = (doc.department || doc.dept_code || "").toLowerCase();
+      if (countersFilterDept !== "all" && docDept !== countersFilterDept.toLowerCase()) return false;
+
+      if (countersFilterStatus === "online" && !online) return false;
+      if (countersFilterStatus === "offline" && online) return false;
+      if (countersFilterStatus === "busy") {
+        const serving = getDocServingTicket(doc);
+        if (!serving) return false;
+      }
 
       if (!q) return true;
       const name = (doc.name || doc.username || "").toLowerCase();
-      const dept = (doc.department || doc.dept_code || "").toLowerCase();
       const deptLabel = getCategoryLabel(doc.department || doc.dept_code, language).toLowerCase();
       const room = String(doc.room_number || doc.room || "").toLowerCase();
       const empCode = String(doc.employee_code || doc.employee_id || "").toLowerCase();
       const role = String(doc.role || "").toLowerCase();
-      return name.includes(q) || dept.includes(q) || deptLabel.includes(q) || room.includes(q) || empCode.includes(q) || role.includes(q);
+      const spec = String(doc.specialization || "").toLowerCase();
+      return name.includes(q) || docDept.includes(q) || deptLabel.includes(q) || room.includes(q) || empCode.includes(q) || role.includes(q) || spec.includes(q);
     });
-  }, [filteredDoctorsList, countersSearchQuery, countersFilterType, language]);
+
+    return sortItems(filtered, "doctor");
+  }, [allClinicians, countersSearchQuery, countersFilterType, countersFilterDept, countersFilterStatus, isDocOnline, getDocServingTicket, sortItems, language]);
+
+  // Filtered & Sorted Staff Members
+  const searchedStaffList = React.useMemo(() => {
+    const q = countersSearchQuery.trim().toLowerCase();
+
+    const filtered = allStaffMembers.filter((stf) => {
+      if (countersFilterType === "counters" || countersFilterType === "doctors") return false;
+
+      const online = isStaffOnline(stf);
+      if (countersFilterType === "online" && !online) return false;
+
+      const stfDept = (stf.department || stf.dept_code || "").toLowerCase();
+      if (countersFilterDept !== "all" && stfDept !== "all" && stfDept !== countersFilterDept.toLowerCase()) return false;
+
+      if (countersFilterStatus === "online" && !online) return false;
+      if (countersFilterStatus === "offline" && online) return false;
+
+      if (!q) return true;
+      const name = (stf.name || stf.username || "").toLowerCase();
+      const deptLabel = getCategoryLabel(stf.department || stf.dept_code, language).toLowerCase();
+      const empCode = String(stf.employee_code || stf.employee_id || "").toLowerCase();
+      const role = String(stf.role || "").toLowerCase();
+      const assignedDesk = getStaffAssignedDesk(stf);
+      const deskName = assignedDesk ? (assignedDesk.desk_name || "").toLowerCase() : "";
+      return name.includes(q) || stfDept.includes(q) || deptLabel.includes(q) || empCode.includes(q) || role.includes(q) || deskName.includes(q);
+    });
+
+    return sortItems(filtered, "staff");
+  }, [allStaffMembers, countersSearchQuery, countersFilterType, countersFilterDept, countersFilterStatus, isStaffOnline, getStaffAssignedDesk, sortItems, language]);
 
   // Operational Action Handlers
   const handleManualRefreshQueue = async () => {
@@ -1610,10 +1829,27 @@ export default function StaffPortalPage({
   }, [liveAppointments, aptStatusFilter, deptFilter, aptDayFilter, searchFilter]);
 
   return (
-    <div className={`staff-portal-container ${isDark ? "dark-theme" : ""}`} style={{ maxWidth: "1400px", margin: "0 auto", paddingBottom: "40px" }}>
+    <div
+      className={`staff-portal-container ${isDark ? "dark-theme" : ""}`}
+      style={{
+        maxWidth: "100%",
+        width: "100%",
+        margin: "0",
+        padding: "0 4px",
+        paddingBottom: "4px",
+        boxSizing: "border-box"
+      }}
+    >
       <style>{`
         .staff-portal-container * {
           font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+
+        .staff-portal-container .user-dashboard-footer {
+          margin-top: 10px !important;
+          margin-bottom: 0px !important;
+          padding-top: 8px !important;
+          padding-bottom: 2px !important;
         }
 
         /* 1. HERO BANNER CONTAINER MATCHING HERO BANNER AND ADMIN HERO BANNER */
@@ -1919,17 +2155,17 @@ export default function StaffPortalPage({
           <div className="staff-kpi-card">
             <div style={{ fontSize: "11px", fontWeight: 700, textTransform: "uppercase", color: "#94A3B8" }}>{isHi ? "सक्रिय काउंटर डेस्क" : "Online Counters"}</div>
             <div style={{ fontSize: "26px", fontWeight: 900, marginTop: "2px", color: "#38BDF8" }}>
-              {desksList.filter((d) => d.status === "AVAILABLE").length}/{desksList.length || 2}
+              {desksList.filter((d) => isDeskOnline(d)).length}/{desksList.length}
             </div>
             <div style={{ fontSize: "11px", color: "#64748B" }}>{isHi ? "उपलब्ध सेवा डेस्क" : "Operational Bays"}</div>
           </div>
 
           <div className="staff-kpi-card">
-            <div style={{ fontSize: "11px", fontWeight: 700, textTransform: "uppercase", color: "#94A3B8" }}>{isHi ? "सक्रिय डॉक्टर" : "Active Clinicians"}</div>
+            <div style={{ fontSize: "11px", fontWeight: 700, textTransform: "uppercase", color: "#94A3B8" }}>{isHi ? "सक्रिय डॉक्टर व स्टाफ" : "Active Clinicians & Staff"}</div>
             <div style={{ fontSize: "26px", fontWeight: 900, marginTop: "2px", color: "#FFFFFF" }}>
-              {doctorsList.filter((d) => (d.status || "").toLowerCase() === "active").length || 1}
+              {allClinicians.filter((d) => isDocOnline(d)).length + allStaffMembers.filter((s) => isStaffOnline(s)).length}/{allClinicians.length + allStaffMembers.length}
             </div>
-            <div style={{ fontSize: "11px", color: "#64748B" }}>{isHi ? "ड्यूटी पर तैनात" : "Doctors on OPD Duty"}</div>
+            <div style={{ fontSize: "11px", color: "#64748B" }}>{isHi ? "ड्यूटी पर ऑन-लाइन" : "Staff on Active Duty"}</div>
           </div>
         </div>
       </section>
@@ -2131,9 +2367,9 @@ export default function StaffPortalPage({
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "4px" }}>
               <span className="tab-title-text">{isHi ? "ऑपरेशनल सर्विस काउंटर" : "Operational Service Counters"}</span>
-              <span className="tab-count-badge">{(desksList.length + filteredDoctorsList.length) || 0}</span>
+              <span className="tab-count-badge">{(desksList.length + allClinicians.length + allStaffMembers.length) || 0}</span>
             </div>
-            <span className="tab-sub-text">{desksList.length} {isHi ? "डेस्क" : "Desks"} • {filteredDoctorsList.length} {isHi ? "डॉक्टर" : "Clinicians"}</span>
+            <span className="tab-sub-text">{desksList.length} {isHi ? "डेस्क" : "Desks"} • {allClinicians.length} {isHi ? "डॉक्टर" : "Docs"} • {allStaffMembers.length} {isHi ? "स्टाफ" : "Staff"}</span>
           </div>
         </button>
       </div>
@@ -4350,99 +4586,140 @@ export default function StaffPortalPage({
         </div>
       )}
 
-      {/* 4. TAB 4: COUNTERS & DOCTOR AVAILABILITY FLEET */}
+      {/* 4. TAB 4: COUNTERS, CLINICIANS & ACTIVE STAFF FLEET TRACKER */}
       {activeTab === "counters" && (
         <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-          {/* Top Search & Filter Bar for Counters & Clinicians */}
+          {/* Top Search, Filter & Sorting Control Center */}
           <div style={{
             background: isDark ? "#0F172A" : "#FFFFFF",
             borderRadius: "18px",
             border: isDark ? "1px solid #334155" : "1.5px solid #E2E8F0",
-            padding: "18px 22px",
+            padding: "20px 22px",
             boxShadow: "0 4px 20px rgba(0,0,0,0.04)",
             display: "flex",
             flexDirection: "column",
-            gap: "14px",
+            gap: "16px",
           }}>
+            {/* Header: Title, Live Telemetry Indicator & Manual Refresh */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                 <div style={{
-                  width: "38px",
-                  height: "38px",
-                  borderRadius: "10px",
+                  width: "42px",
+                  height: "42px",
+                  borderRadius: "12px",
                   background: isDark ? "rgba(2,132,199,0.2)" : "#E0F2FE",
                   color: "#0284C7",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
+                  flexShrink: 0,
                 }}>
-                  <LayoutGrid size={20} />
+                  <LayoutGrid size={22} />
                 </div>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: "17px", fontWeight: 800, color: isDark ? "#F8FAFC" : "#0F172A" }}>
-                    {isHi ? "ऑपरेशनल सर्विस काउंटर एवं चिकित्सक ट्रैकर" : "Operational Service Counters & Clinicians Tracker"}
+                  <h3 style={{ margin: 0, fontSize: "17.5px", fontWeight: 800, color: isDark ? "#F8FAFC" : "#0F172A", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                    <span>{isHi ? "ऑपरेशनल सर्विस काउंटर, चिकित्सक एवं स्टाफ ट्रैकर" : "Operational Service Counters & Staff Tracker"}</span>
+                    <span style={{ fontSize: "11px", fontWeight: 800, padding: "2px 8px", borderRadius: "9999px", background: isDark ? "#1E293B" : "#F1F5F9", color: "#0284C7", border: isDark ? "1px solid #334155" : "1px solid #E2E8F0" }}>
+                      {searchedDesksList.length + searchedDoctorsList.length + searchedStaffList.length} {isHi ? "सक्रिय इकाइयाँ" : "Total Active Units"}
+                    </span>
                   </h3>
-                  <p style={{ margin: "2px 0 0 0", fontSize: "12px", color: "#64748B" }}>
+                  <p style={{ margin: "3px 0 0 0", fontSize: "12.5px", color: "#64748B" }}>
                     {isHi
-                      ? "लाइव काउंटर स्थिति, वर्तमान सेवा टोकन, प्रतीक्षा कतार और डॉक्टरों की ऑन-ड्यूटी उपलब्धता।"
-                      : "Live counter status, currently served tokens, active waiting queues, and clinician duty availability."}
+                      ? "रीयल-टाइम काउंटर स्थिति, वर्तमान सेवा टोकन, डॉक्टर परामर्श कक्ष व कार्यरत अस्पताल स्टाफ उपलब्धता।"
+                      : "Real-time service counter bays, current serving tokens, clinician consultation status, and active hospital staff roster."}
                   </p>
                 </div>
               </div>
 
-              <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "5px 12px", borderRadius: "9999px", background: isDark ? "rgba(16, 185, 129, 0.15)" : "#ECFDF5", border: `1px solid ${isDark ? "rgba(16, 185, 129, 0.3)" : "#A7F3D0"}`, fontSize: "11.5px", fontWeight: 700, color: isDark ? "#34D399" : "#059669" }}>
-                <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#10B981" }} />
-                <span>{isHi ? "लाइव डेटा सिंक्रोनाइज़्ड" : "Live Telemetry Connected"}</span>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <div style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "6px 12px",
+                  borderRadius: "9999px",
+                  background: isDark ? "rgba(16, 185, 129, 0.15)" : "#ECFDF5",
+                  border: `1px solid ${isDark ? "rgba(16, 185, 129, 0.3)" : "#A7F3D0"}`,
+                  fontSize: "11.5px",
+                  fontWeight: 700,
+                  color: isDark ? "#34D399" : "#059669"
+                }}>
+                  <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#10B981" }} />
+                  <span>{isHi ? "लाइव डेटा सिंक्रोनाइज़्ड" : "Live Telemetry Connected"}</span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleManualRefreshQueue}
+                  disabled={isRefreshingQueue}
+                  title={isHi ? "लाइव डेटा रीफ्रेश करें" : "Refresh live data"}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    padding: "6px 12px",
+                    borderRadius: "10px",
+                    border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
+                    background: isDark ? "#1E293B" : "#FFFFFF",
+                    color: isDark ? "#F8FAFC" : "#334155",
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  <RefreshCw size={14} className={isRefreshingQueue ? "spin" : ""} />
+                  <span>{isHi ? "रीफ्रेश" : "Sync"}</span>
+                </button>
               </div>
             </div>
 
-            {/* Search Input and Filter Pills */}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px" }}>
-              {/* Search input */}
-              <div style={{ position: "relative", flex: 1, minWidth: "260px", maxWidth: "480px" }}>
-                <Search size={16} color="#94A3B8" style={{ position: "absolute", left: "14px", top: "50%", transform: "translateY(-50%)" }} />
-                <input
-                  type="text"
-                  value={countersSearchQuery}
-                  onChange={(e) => setCountersSearchQuery(e.target.value)}
-                  placeholder={isHi ? "काउंटर, डॉक्टर, कमरा नंबर या विभाग खोजें..." : "Search counters, clinicians, rooms, or departments..."}
+            {/* Row 1: Search Input */}
+            <div style={{ position: "relative", width: "100%" }}>
+              <Search size={16} color="#94A3B8" style={{ position: "absolute", left: "14px", top: "50%", transform: "translateY(-50%)" }} />
+              <input
+                type="text"
+                value={countersSearchQuery}
+                onChange={(e) => setCountersSearchQuery(e.target.value)}
+                placeholder={isHi ? "काउंटर, डॉक्टर, स्टाफ, कमरा नंबर, पद या विभाग खोजें..." : "Search counters, clinicians, active staff, room numbers, roles, or departments..."}
+                style={{
+                  width: "100%",
+                  padding: "10px 40px 10px 40px",
+                  borderRadius: "12px",
+                  border: isDark ? "1px solid #334155" : "1.5px solid #E2E8F0",
+                  background: isDark ? "#1E293B" : "#F8FAFC",
+                  color: isDark ? "#F8FAFC" : "#0F172A",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  outline: "none",
+                  boxSizing: "border-box",
+                }}
+              />
+              {countersSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setCountersSearchQuery("")}
                   style={{
-                    width: "100%",
-                    padding: "10px 38px 10px 38px",
-                    borderRadius: "12px",
-                    border: isDark ? "1px solid #334155" : "1.5px solid #E2E8F0",
-                    background: isDark ? "#1E293B" : "#F8FAFC",
-                    color: isDark ? "#F8FAFC" : "#0F172A",
-                    fontSize: "13px",
-                    fontWeight: 600,
-                    outline: "none",
-                    boxSizing: "border-box",
+                    position: "absolute",
+                    right: "12px",
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    background: "transparent",
+                    border: "none",
+                    color: "#94A3B8",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    padding: "2px",
                   }}
-                />
-                {countersSearchQuery && (
-                  <button
-                    type="button"
-                    onClick={() => setCountersSearchQuery("")}
-                    style={{
-                      position: "absolute",
-                      right: "12px",
-                      top: "50%",
-                      transform: "translateY(-50%)",
-                      background: "transparent",
-                      border: "none",
-                      color: "#94A3B8",
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      padding: "2px",
-                    }}
-                  >
-                    <X size={15} />
-                  </button>
-                )}
-              </div>
+                >
+                  <X size={15} />
+                </button>
+              )}
+            </div>
 
-              {/* Filter Type Pills */}
+            {/* Row 2: Entity Filter Pills */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                 <button
                   type="button"
@@ -4454,12 +4731,12 @@ export default function StaffPortalPage({
                     fontWeight: 700,
                     border: "none",
                     cursor: "pointer",
-                    background: countersFilterType === "all" ? (isDark ? "#0284C7" : "#0284C7") : (isDark ? "#1E293B" : "#F1F5F9"),
+                    background: countersFilterType === "all" ? "#0284C7" : (isDark ? "#1E293B" : "#F1F5F9"),
                     color: countersFilterType === "all" ? "#FFFFFF" : (isDark ? "#94A3B8" : "#64748B"),
                     transition: "all 0.15s ease",
                   }}
                 >
-                  {isHi ? "सभी" : "All"} ({searchedDesksList.length + searchedDoctorsList.length})
+                  {isHi ? "सभी" : "All"} ({searchedDesksList.length + searchedDoctorsList.length + searchedStaffList.length})
                 </button>
 
                 <button
@@ -4472,12 +4749,12 @@ export default function StaffPortalPage({
                     fontWeight: 700,
                     border: "none",
                     cursor: "pointer",
-                    background: countersFilterType === "counters" ? (isDark ? "#0284C7" : "#0284C7") : (isDark ? "#1E293B" : "#F1F5F9"),
+                    background: countersFilterType === "counters" ? "#0284C7" : (isDark ? "#1E293B" : "#F1F5F9"),
                     color: countersFilterType === "counters" ? "#FFFFFF" : (isDark ? "#94A3B8" : "#64748B"),
                     transition: "all 0.15s ease",
                   }}
                 >
-                  {isHi ? "केवल काउंटर" : "Counters Only"} ({searchedDesksList.length})
+                  🖥️ {isHi ? "केवल काउंटर" : "Counters"} ({searchedDesksList.length})
                 </button>
 
                 <button
@@ -4490,12 +4767,30 @@ export default function StaffPortalPage({
                     fontWeight: 700,
                     border: "none",
                     cursor: "pointer",
-                    background: countersFilterType === "doctors" ? (isDark ? "#0284C7" : "#0284C7") : (isDark ? "#1E293B" : "#F1F5F9"),
+                    background: countersFilterType === "doctors" ? "#0284C7" : (isDark ? "#1E293B" : "#F1F5F9"),
                     color: countersFilterType === "doctors" ? "#FFFFFF" : (isDark ? "#94A3B8" : "#64748B"),
                     transition: "all 0.15s ease",
                   }}
                 >
-                  {isHi ? "केवल चिकित्सक" : "Clinicians Only"} ({searchedDoctorsList.length})
+                  🩺 {isHi ? "केवल चिकित्सक" : "Clinicians"} ({searchedDoctorsList.length})
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setCountersFilterType("staff")}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: "8px",
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    border: "none",
+                    cursor: "pointer",
+                    background: countersFilterType === "staff" ? "#0284C7" : (isDark ? "#1E293B" : "#F1F5F9"),
+                    color: countersFilterType === "staff" ? "#FFFFFF" : (isDark ? "#94A3B8" : "#64748B"),
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  👥 {isHi ? "कार्यरत स्टाफ" : "Active Staff"} ({searchedStaffList.length})
                 </button>
 
                 <button
@@ -4516,30 +4811,172 @@ export default function StaffPortalPage({
                   ● {isHi ? "सक्रिय / ऑन-ड्यूटी" : "Active / Online"}
                 </button>
               </div>
+
+              {/* Reset Filters button if any filters active */}
+              {(countersSearchQuery || countersFilterType !== "all" || countersFilterDept !== "all" || countersFilterStatus !== "all" || countersSortBy !== "default") && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCountersSearchQuery("");
+                    setCountersFilterType("all");
+                    setCountersFilterDept("all");
+                    setCountersFilterStatus("all");
+                    setCountersSortBy("default");
+                  }}
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    color: "#EF4444",
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "4px",
+                    padding: "4px 8px",
+                  }}
+                >
+                  <X size={14} />
+                  <span>{isHi ? "फ़िल्टर रीसेट करें" : "Reset Filters"}</span>
+                </button>
+              )}
+            </div>
+
+            {/* Row 3: Dropdown Controls: Department, Status & Sort By */}
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+              gap: "12px",
+              paddingTop: "12px",
+              borderTop: isDark ? "1px solid #1E293B" : "1px solid #F1F5F9",
+            }}>
+              {/* Department Dropdown */}
+              <div>
+                <label style={{ display: "block", fontSize: "11px", fontWeight: 700, color: "#64748B", marginBottom: "4px", textTransform: "uppercase" }}>
+                  {isHi ? "विभाग अनुसार फ़िल्टर" : "Filter by Department"}
+                </label>
+                <select
+                  value={countersFilterDept}
+                  onChange={(e) => setCountersFilterDept(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    borderRadius: "10px",
+                    border: isDark ? "1px solid #334155" : "1.5px solid #E2E8F0",
+                    background: isDark ? "#1E293B" : "#F8FAFC",
+                    color: isDark ? "#F8FAFC" : "#0F172A",
+                    fontSize: "12.5px",
+                    fontWeight: 600,
+                    outline: "none",
+                    cursor: "pointer",
+                  }}
+                >
+                  <option value="all">{isHi ? "सभी विभाग (All Departments)" : "All Departments"}</option>
+                  {(departments || []).map((d) => (
+                    <option key={d.dept_code || d.id} value={d.dept_code}>
+                      {d.name || getCategoryLabel(d.dept_code, language)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Status Dropdown */}
+              <div>
+                <label style={{ display: "block", fontSize: "11px", fontWeight: 700, color: "#64748B", marginBottom: "4px", textTransform: "uppercase" }}>
+                  {isHi ? "स्थिति अनुसार फ़िल्टर" : "Filter by Duty Status"}
+                </label>
+                <select
+                  value={countersFilterStatus}
+                  onChange={(e) => setCountersFilterStatus(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    borderRadius: "10px",
+                    border: isDark ? "1px solid #334155" : "1.5px solid #E2E8F0",
+                    background: isDark ? "#1E293B" : "#F8FAFC",
+                    color: isDark ? "#F8FAFC" : "#0F172A",
+                    fontSize: "12.5px",
+                    fontWeight: 600,
+                    outline: "none",
+                    cursor: "pointer",
+                  }}
+                >
+                  <option value="all">{isHi ? "सभी स्थितियां (All Statuses)" : "All Statuses"}</option>
+                  <option value="online">● {isHi ? "सक्रिय / उपलब्ध (Active / Online)" : "Active / Online"}</option>
+                  <option value="busy">⏳ {isHi ? "सेवा में / परामर्श जारी (Serving / Busy)" : "Currently Serving / Busy"}</option>
+                  <option value="offline">○ {isHi ? "ऑफलाइन / ड्यूटी समाप्त (Offline / Off-Duty)" : "Offline / Off-Duty"}</option>
+                </select>
+              </div>
+
+              {/* Sort By Dropdown */}
+              <div>
+                <label style={{ display: "block", fontSize: "11px", fontWeight: 700, color: "#64748B", marginBottom: "4px", textTransform: "uppercase" }}>
+                  {isHi ? "क्रमबद्ध करें (Sort By)" : "Sort Telemetry By"}
+                </label>
+                <select
+                  value={countersSortBy}
+                  onChange={(e) => setCountersSortBy(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    borderRadius: "10px",
+                    border: isDark ? "1px solid #334155" : "1.5px solid #E2E8F0",
+                    background: isDark ? "#1E293B" : "#F8FAFC",
+                    color: isDark ? "#F8FAFC" : "#0F172A",
+                    fontSize: "12.5px",
+                    fontWeight: 600,
+                    outline: "none",
+                    cursor: "pointer",
+                  }}
+                >
+                  <option value="default">{isHi ? "डिफ़ॉल्ट (सक्रिय पहले • स्मार्ट क्रम)" : "Default (Online First • Smart)"}</option>
+                  <option value="name_asc">{isHi ? "नाम / काउंटर (A → Z)" : "Name / Desk (A → Z)"}</option>
+                  <option value="name_desc">{isHi ? "नाम / काउंटर (Z → A)" : "Name / Desk (Z → A)"}</option>
+                  <option value="status">{isHi ? "स्थिति (सक्रिय पहले)" : "Status (Online First)"}</option>
+                  <option value="queue">{isHi ? "प्रतीक्षा कतार (उच्चतम पहले)" : "Queue Length (Highest First)"}</option>
+                  <option value="dept">{isHi ? "विभाग (A → Z)" : "Department (A → Z)"}</option>
+                </select>
+              </div>
             </div>
           </div>
 
-          {/* Grid of Desks and Clinicians */}
-          <div style={{ display: "grid", gridTemplateColumns: countersFilterType === "counters" ? "1fr" : countersFilterType === "doctors" ? "1fr" : "1fr 1fr", gap: "24px" }}>
+          {/* Grid of Desks, Clinicians & Active Staff */}
+          <div style={{
+            display: "grid",
+            gridTemplateColumns:
+              countersFilterType === "counters"
+                ? "1fr"
+                : countersFilterType === "doctors"
+                ? "1fr"
+                : countersFilterType === "staff"
+                ? "1fr"
+                : "repeat(auto-fit, minmax(360px, 1fr))",
+            gap: "20px",
+          }}>
             {/* 1. Counter Desks Section */}
-            {countersFilterType !== "doctors" && (
+            {countersFilterType !== "doctors" && countersFilterType !== "staff" && (
               <div style={{
                 background: isDark ? "#0F172A" : "#FFFFFF",
                 borderRadius: "18px",
                 border: isDark ? "1px solid #334155" : "1.5px solid #E2E8F0",
-                padding: "24px",
+                padding: "22px",
                 boxShadow: "0 4px 20px rgba(0,0,0,0.04)",
                 display: "flex",
                 flexDirection: "column",
               }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "14px" }}>
-                  <div>
-                    <h3 style={{ margin: "0 0 2px 0", fontSize: "17px", fontWeight: 800, color: isDark ? "#F8FAFC" : "#0F172A" }}>
-                      {isHi ? "ऑपरेशनल सर्विस काउंटर" : "Operational Service Counters"}
-                    </h3>
-                    <p style={{ margin: 0, fontSize: "12px", color: "#64748B" }}>
-                      {isHi ? "काउंटर चालू/बंद करें और लाइव टोकन स्थिति देखें" : "Open/close desks & monitor real-time ticket intake."}
-                    </p>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <div style={{ width: "32px", height: "32px", borderRadius: "8px", background: "#E0F2FE", color: "#0284C7", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <LayoutGrid size={17} />
+                    </div>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: "16.5px", fontWeight: 800, color: isDark ? "#F8FAFC" : "#0F172A" }}>
+                        {isHi ? "ऑपरेशनल सर्विस काउंटर" : "Operational Service Counters"}
+                      </h3>
+                      <p style={{ margin: 0, fontSize: "11.5px", color: "#64748B" }}>
+                        {isHi ? "काउंटर स्थिति चालू/बंद करें और लाइव टोकन देखें" : "Open/close counters & live ticket intake."}
+                      </p>
+                    </div>
                   </div>
                   <span style={{
                     fontSize: "11px",
@@ -4553,7 +4990,7 @@ export default function StaffPortalPage({
                   </span>
                 </div>
 
-                <div style={{ display: "flex", flexDirection: "column", gap: "12px", maxHeight: "580px", overflowY: "auto", paddingRight: "4px" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: "12px", maxHeight: "640px", overflowY: "auto", paddingRight: "4px" }}>
                   {searchedDesksList.length === 0 ? (
                     <div style={{
                       padding: "36px 20px",
@@ -4564,31 +5001,16 @@ export default function StaffPortalPage({
                     }}>
                       <LayoutGrid size={28} color="#94A3B8" style={{ margin: "0 auto 8px auto", display: "block" }} />
                       <div style={{ fontSize: "13px", fontWeight: 700, color: isDark ? "#94A3B8" : "#64748B" }}>
-                        {countersSearchQuery
-                          ? (isHi ? `"${countersSearchQuery}" से कोई काउंटर नहीं मिला` : `No counters match "${countersSearchQuery}"`)
+                        {countersSearchQuery || countersFilterDept !== "all" || countersFilterStatus !== "all"
+                          ? (isHi ? "फ़िल्टर के अनुसार कोई काउंटर नहीं मिला" : "No counters match the current filters")
                           : (isHi ? "कोई ऑपरेशनल काउंटर पंजीकृत नहीं है" : "No operational counters available")}
                       </div>
                     </div>
                   ) : (
                     searchedDesksList.map((desk) => {
-                      const isOnline = desk.status === "AVAILABLE";
-                      const deskDept = (desk.dept_code || desk.department || "").toLowerCase();
-
-                      // Live telemetry: waiting queue count for this desk's department
-                      const waitingForDesk = effectiveWaitingTickets.filter((t) => {
-                        const tDept = (t.service_category || t.department || t.dept_code || t.category || "").toLowerCase();
-                        return tDept && tDept === deskDept;
-                      });
-                      const waitingCount = waitingForDesk.length;
-
-                      // Live telemetry: currently serving ticket at this desk
-                      const servingTicketForDesk = effectiveServingTickets.find((t) => {
-                        if (t.desk_id && String(t.desk_id) === String(desk.id)) return true;
-                        if (t.assigned_desk && desk.desk_name && t.assigned_desk.toLowerCase() === desk.desk_name.toLowerCase()) return true;
-                        if (t.counter_number && (String(t.counter_number) === String(desk.desk_number) || String(t.counter_number) === String(desk.counter_number))) return true;
-                        const tDept = (t.service_category || t.department || t.dept_code || t.category || "").toLowerCase();
-                        return tDept && tDept === deskDept;
-                      });
+                      const isOnline = isDeskOnline(desk);
+                      const servingTicketForDesk = getDeskServingTicket(desk);
+                      const waitingCount = getDeskWaitingCount(desk);
 
                       return (
                         <div
@@ -4621,7 +5043,7 @@ export default function StaffPortalPage({
                                 </div>
                                 <div style={{ fontSize: "11px", color: "#64748B", marginTop: "1px" }}>
                                   <span style={{ fontWeight: 600, color: "#0284C7" }}>{getCategoryLabel(desk.dept_code || desk.department, language)}</span>
-                                  <span> • {desk.assigned_employee_name || "Auto-Assigned Operator"}</span>
+                                  <span> • {desk.assigned_employee_name || (isHi ? "ऑटो-असाइन ऑपरेटर" : "Auto-Assigned Operator")}</span>
                                 </div>
                               </div>
                             </div>
@@ -4704,25 +5126,30 @@ export default function StaffPortalPage({
               </div>
             )}
 
-            {/* 2. Clinician Duty Status & Availability Monitor Section */}
-            {countersFilterType !== "counters" && (
+            {/* 2. Clinician Duty Status & Availability Section */}
+            {countersFilterType !== "counters" && countersFilterType !== "staff" && (
               <div style={{
                 background: isDark ? "#0F172A" : "#FFFFFF",
                 borderRadius: "18px",
                 border: isDark ? "1px solid #334155" : "1.5px solid #E2E8F0",
-                padding: "24px",
+                padding: "22px",
                 boxShadow: "0 4px 20px rgba(0,0,0,0.04)",
                 display: "flex",
                 flexDirection: "column",
               }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "14px" }}>
-                  <div>
-                    <h3 style={{ margin: "0 0 2px 0", fontSize: "17px", fontWeight: 800, color: isDark ? "#F8FAFC" : "#0F172A" }}>
-                      {isHi ? "डॉक्टर ड्यूटी रोस्टर व उपलब्धता" : "Doctor Roster & Availability Tracker"}
-                    </h3>
-                    <p style={{ margin: 0, fontSize: "12px", color: "#64748B" }}>
-                      {isHi ? "परामर्श कक्ष उपलब्धता एवं लाइव परामर्श स्थिति" : "Real-time consultation room & clinician telemetry."}
-                    </p>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <div style={{ width: "32px", height: "32px", borderRadius: "8px", background: "#E0F2FE", color: "#0284C7", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <Stethoscope size={17} />
+                    </div>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: "16.5px", fontWeight: 800, color: isDark ? "#F8FAFC" : "#0F172A" }}>
+                        {isHi ? "डॉक्टर रोस्टर व उपलब्धता" : "Clinicians & Doctor Roster"}
+                      </h3>
+                      <p style={{ margin: 0, fontSize: "11.5px", color: "#64748B" }}>
+                        {isHi ? "परामर्श कक्ष उपलब्धता एवं लाइव परामर्श स्थिति" : "Consultation room & clinician duty availability."}
+                      </p>
+                    </div>
                   </div>
                   <span style={{
                     fontSize: "11px",
@@ -4736,7 +5163,7 @@ export default function StaffPortalPage({
                   </span>
                 </div>
 
-                <div style={{ display: "flex", flexDirection: "column", gap: "12px", maxHeight: "580px", overflowY: "auto", paddingRight: "4px" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: "12px", maxHeight: "640px", overflowY: "auto", paddingRight: "4px" }}>
                   {searchedDoctorsList.length === 0 ? (
                     <div style={{
                       padding: "36px 20px",
@@ -4747,32 +5174,20 @@ export default function StaffPortalPage({
                     }}>
                       <Stethoscope size={28} color="#94A3B8" style={{ margin: "0 auto 8px auto", display: "block" }} />
                       <div style={{ fontSize: "13px", fontWeight: 700, color: isDark ? "#94A3B8" : "#64748B" }}>
-                        {countersSearchQuery
-                          ? (isHi ? `"${countersSearchQuery}" से कोई डॉक्टर नहीं मिला` : `No clinicians match "${countersSearchQuery}"`)
-                          : (isHi ? "कोई अन्य डॉक्टर पंजीकृत नहीं है" : "No other clinicians found")}
+                        {countersSearchQuery || countersFilterDept !== "all" || countersFilterStatus !== "all"
+                          ? (isHi ? "फ़िल्टर के अनुसार कोई डॉक्टर नहीं मिला" : "No clinicians match the current filters")
+                          : (isHi ? "कोई डॉक्टर पंजीकृत नहीं है" : "No clinicians found")}
                       </div>
                     </div>
                   ) : (
                     searchedDoctorsList.map((doc) => {
-                      const isOnline = (doc.status || "").toLowerCase() === "active";
-                      const docDept = (doc.department || doc.dept_code || "").toLowerCase();
-
-                      // Live telemetry: waiting queue count for doctor's department
-                      const waitingForDoc = effectiveWaitingTickets.filter((t) => {
-                        if (t.doctor_id && (String(t.doctor_id) === String(doc.id) || String(t.doctor_id) === String(doc.employee_id) || String(t.doctor_id) === String(doc.employee_code))) return true;
-                        const tDept = (t.service_category || t.department || t.dept_code || t.category || "").toLowerCase();
-                        return tDept && tDept === docDept;
-                      });
-                      const docWaitingCount = waitingForDoc.length;
-
-                      // Live telemetry: currently serving ticket by this doctor
-                      const docServingTicket = effectiveServingTickets.find((t) => {
-                        if (t.doctor_id && (String(t.doctor_id) === String(doc.id) || String(t.doctor_id) === String(doc.employee_id) || String(t.doctor_id) === String(doc.employee_code))) return true;
-                        if (t.doctor_name && doc.name && t.doctor_name.toLowerCase().includes(doc.name.toLowerCase())) return true;
-                        if (t.served_by_doctor_name && doc.name && t.served_by_doctor_name.toLowerCase().includes(doc.name.toLowerCase())) return true;
-                        const tDept = (t.service_category || t.department || t.dept_code || t.category || "").toLowerCase();
-                        return tDept && tDept === docDept;
-                      });
+                      const isOnline = isDocOnline(doc);
+                      const docServingTicket = getDocServingTicket(doc);
+                      const docWaitingCount = getDocWaitingCount(doc);
+                      const dutyStatus = String(doc.duty_status || "OFF_DUTY").toUpperCase();
+                      const isOnBreak = dutyStatus === "ON_BREAK";
+                      const isEmergency = dutyStatus === "EMERGENCY_ROUND";
+                      const isConsulting = docServingTicket || dutyStatus === "PROCESSING";
 
                       return (
                         <div
@@ -4826,11 +5241,29 @@ export default function StaffPortalPage({
                               borderRadius: "9999px",
                               fontSize: "11px",
                               fontWeight: 800,
-                              background: isOnline ? "#DCFCE7" : "#F1F5F9",
-                              color: isOnline ? "#15803D" : "#64748B",
+                              background: isEmergency
+                                ? "#FEE2E2"
+                                : isOnBreak
+                                ? "#FEF3C7"
+                                : isOnline
+                                ? "#DCFCE7"
+                                : "#F1F5F9",
+                              color: isEmergency
+                                ? "#DC2626"
+                                : isOnBreak
+                                ? "#D97706"
+                                : isOnline
+                                ? "#15803D"
+                                : "#64748B",
                               flexShrink: 0,
                             }}>
-                              {isOnline ? "● ON DUTY" : "○ OFF DUTY"}
+                              {isEmergency
+                                ? (isHi ? "🚨 इमरजेंसी राउंड" : "🚨 EMERGENCY")
+                                : isOnBreak
+                                ? (isHi ? "☕ ब्रेक पर" : "☕ ON BREAK")
+                                : isOnline
+                                ? (isHi ? "● ऑन-ड्यूटी" : "● ON DUTY")
+                                : (isHi ? "○ ड्यूटी समाप्त" : "○ OFF DUTY")}
                             </span>
                           </div>
 
@@ -4883,6 +5316,215 @@ export default function StaffPortalPage({
                                 {docWaitingCount} {isHi ? "विभाग में प्रतीक्षारत" : "waiting in dept"}
                               </span>
                             </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* 3. Active Hospital Staff & Desk Operators Section */}
+            {countersFilterType !== "counters" && countersFilterType !== "doctors" && (
+              <div style={{
+                background: isDark ? "#0F172A" : "#FFFFFF",
+                borderRadius: "18px",
+                border: isDark ? "1px solid #334155" : "1.5px solid #E2E8F0",
+                padding: "22px",
+                boxShadow: "0 4px 20px rgba(0,0,0,0.04)",
+                display: "flex",
+                flexDirection: "column",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "14px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <div style={{ width: "32px", height: "32px", borderRadius: "8px", background: "#E0F2FE", color: "#0284C7", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <UserCheck size={17} />
+                    </div>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: "16.5px", fontWeight: 800, color: isDark ? "#F8FAFC" : "#0F172A" }}>
+                        {isHi ? "कार्यरत अस्पताल स्टाफ व ऑपरेटर" : "Active Staff & Operators"}
+                      </h3>
+                      <p style={{ margin: 0, fontSize: "11.5px", color: "#64748B" }}>
+                        {isHi ? "रिसेप्शन, बिलिंग, नर्सिंग एवं वितरण स्टाफ की लाइव स्थिति" : "Reception, cashier, nursing & dispensing duty."}
+                      </p>
+                    </div>
+                  </div>
+                  <span style={{
+                    fontSize: "11px",
+                    fontWeight: 800,
+                    padding: "3px 10px",
+                    borderRadius: "9999px",
+                    background: isDark ? "#1E293B" : "#E0F2FE",
+                    color: "#0284C7",
+                  }}>
+                    {searchedStaffList.length} {isHi ? "स्टाफ" : "Staff"}
+                  </span>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: "12px", maxHeight: "640px", overflowY: "auto", paddingRight: "4px" }}>
+                  {searchedStaffList.length === 0 ? (
+                    <div style={{
+                      padding: "36px 20px",
+                      textAlign: "center",
+                      borderRadius: "12px",
+                      background: isDark ? "#1E293B" : "#F8FAFC",
+                      border: isDark ? "1px dashed #334155" : "1px dashed #E2E8F0",
+                    }}>
+                      <Users size={28} color="#94A3B8" style={{ margin: "0 auto 8px auto", display: "block" }} />
+                      <div style={{ fontSize: "13px", fontWeight: 700, color: isDark ? "#94A3B8" : "#64748B" }}>
+                        {countersSearchQuery || countersFilterDept !== "all" || countersFilterStatus !== "all"
+                          ? (isHi ? "फ़िल्टर के अनुसार कोई स्टाफ सदस्य नहीं मिला" : "No staff members match the current filters")
+                          : (isHi ? "कोई अन्य स्टाफ पंजीकृत नहीं है" : "No staff personnel registered")}
+                      </div>
+                    </div>
+                  ) : (
+                    searchedStaffList.map((stf) => {
+                      const isOnline = isStaffOnline(stf);
+                      const assignedDesk = getStaffAssignedDesk(stf);
+                      const waitingCount = getStaffDeptWaitingCount(stf);
+                      const roleName = String(stf.role || "staff").toUpperCase();
+                      const isCurrentUser = currentUser && (
+                        (currentUser.id && String(currentUser.id) === String(stf.user_id || stf.id)) ||
+                        (currentUser.email && stf.email && currentUser.email.toLowerCase() === stf.email.toLowerCase())
+                      );
+
+                      return (
+                        <div
+                          key={stf.id || stf.employee_id || stf.user_id}
+                          style={{
+                            padding: "14px 16px",
+                            borderRadius: "14px",
+                            background: isDark ? "#1E293B" : "#F8FAFC",
+                            border: isCurrentUser
+                              ? (isDark ? "1.5px solid #0284C7" : "1.5px solid #38BDF8")
+                              : isOnline
+                              ? (isDark ? "1px solid rgba(16,185,129,0.3)" : "1.5px solid #BBF7D0")
+                              : (isDark ? "1px solid #334155" : "1.5px solid #E2E8F0"),
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: "10px",
+                            transition: "all 0.18s ease",
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                              <div style={{
+                                width: "36px",
+                                height: "36px",
+                                borderRadius: "10px",
+                                background: isOnline ? (isCurrentUser ? "#0284C7" : "#E0F2FE") : "#F1F5F9",
+                                color: isOnline ? (isCurrentUser ? "#FFFFFF" : "#0284C7") : "#94A3B8",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                flexShrink: 0,
+                                fontWeight: 800,
+                                fontSize: "14px",
+                              }}>
+                                {stf.name ? stf.name.charAt(0).toUpperCase() : "S"}
+                              </div>
+                              <div>
+                                <div style={{ fontWeight: 800, fontSize: "14px", color: isDark ? "#F8FAFC" : "#0F172A", display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                                  <span>{stf.name || stf.username}</span>
+                                  {isCurrentUser && (
+                                    <span style={{ fontSize: "10px", fontWeight: 800, padding: "1px 6px", borderRadius: "4px", background: "#0284C7", color: "#FFFFFF" }}>
+                                      {isHi ? "आप (You)" : "YOU"}
+                                    </span>
+                                  )}
+                                  {stf.employee_id && (
+                                    <span style={{ fontSize: "10px", fontWeight: 700, padding: "1px 5px", borderRadius: "4px", background: isDark ? "#334155" : "#E2E8F0", color: isDark ? "#94A3B8" : "#64748B" }}>
+                                      {stf.employee_id}
+                                    </span>
+                                  )}
+                                </div>
+                                <div style={{ fontSize: "11px", color: "#64748B", marginTop: "1px", display: "flex", alignItems: "center", gap: "6px" }}>
+                                  <span style={{ fontWeight: 700, color: "#0284C7" }}>{roleName}</span>
+                                  <span>•</span>
+                                  <span>{getCategoryLabel(stf.department || stf.dept_code, language)}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <span style={{
+                              padding: "4px 10px",
+                              borderRadius: "9999px",
+                              fontSize: "11px",
+                              fontWeight: 800,
+                              background: isOnline ? "#DCFCE7" : "#F1F5F9",
+                              color: isOnline ? "#15803D" : "#64748B",
+                              flexShrink: 0,
+                            }}>
+                              {isOnline ? "● ACTIVE" : "○ OFFLINE"}
+                            </span>
+                          </div>
+
+                          {/* Live Telemetry Badges */}
+                          <div style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            flexWrap: "wrap",
+                            paddingTop: "6px",
+                            borderTop: isDark ? "1px solid #334155" : "1px solid #E2E8F0",
+                            fontSize: "11.5px",
+                          }}>
+                            {/* Assigned Desk */}
+                            <div style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "5px",
+                              padding: "3px 8px",
+                              borderRadius: "6px",
+                              background: assignedDesk
+                                ? (isDark ? "rgba(2,132,199,0.2)" : "#E0F2FE")
+                                : (isDark ? "rgba(100,116,139,0.15)" : "#F1F5F9"),
+                              color: assignedDesk ? "#0284C7" : "#64748B",
+                              fontWeight: 700,
+                            }}>
+                              <Building2 size={12} />
+                              <span>
+                                {assignedDesk
+                                  ? `${isHi ? "तैनात काउंटर:" : "Operating Desk:"} ${assignedDesk.desk_name}`
+                                  : (isHi ? "सामान्य ऑपरेशंस ड्यूटी" : "General Operations Duty")}
+                              </span>
+                            </div>
+
+                            {/* Waiting Queue in Department */}
+                            <div style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "5px",
+                              padding: "3px 8px",
+                              borderRadius: "6px",
+                              background: waitingCount > 0
+                                ? (isDark ? "rgba(245,158,11,0.15)" : "#FEF3C7")
+                                : (isDark ? "rgba(100,116,139,0.15)" : "#F1F5F9"),
+                              color: waitingCount > 0 ? "#D97706" : "#64748B",
+                              fontWeight: 700,
+                            }}>
+                              <Users size={12} />
+                              <span>
+                                {waitingCount} {isHi ? "विभाग में कतार" : "in dept queue"}
+                              </span>
+                            </div>
+
+                            {/* Contact Phone */}
+                            {stf.phone && (
+                              <div style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                padding: "3px 8px",
+                                borderRadius: "6px",
+                                background: isDark ? "#1E293B" : "#F8FAFC",
+                                color: "#64748B",
+                                fontWeight: 600,
+                              }}>
+                                <Phone size={11} />
+                                <span>{stf.phone}</span>
+                              </div>
+                            )}
                           </div>
                         </div>
                       );

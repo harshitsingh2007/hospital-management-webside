@@ -1,11 +1,3 @@
-/**
- * HistorySummary.jsx
- * ------------------
- * Compact 3-stat summary row for patient history:
- * Total visits | Last visit (date + doctor) | Last diagnosis
- * With collapsible past diagnoses link.
- */
-
 import React, { useState } from "react";
 import { t, formatCleanText } from "../../utils/i18n";
 

@@ -1901,7 +1901,7 @@ export default function App() {
 
   return (
     <div
-      className={`app-main-layout-wrapper ${(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "doctor" || activePage === "pharmacy" || activePage === "pathology" || activePage === "radiology" || activePage === "billing" || activePage === "admin") && theme === "dark" ? "dark-theme" : ""} ${activePage === "superadmin" ? "superadmin-page-layout" : ""} ${activePage === "pathology" || activePage === "pharmacy" || activePage === "radiology" || activePage === "billing" ? "portal-wide-layout" : ""}`}
+      className={`app-main-layout-wrapper ${(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "doctor" || activePage === "pharmacy" || activePage === "pathology" || activePage === "radiology" || activePage === "billing" || activePage === "admin") && theme === "dark" ? "dark-theme" : ""} ${activePage === "superadmin" ? "superadmin-page-layout" : ""} ${activePage === "staff" ? "reception-page-layout" : ""} ${activePage === "pathology" || activePage === "pharmacy" || activePage === "radiology" || activePage === "billing" || activePage === "staff" ? "portal-wide-layout" : ""}`}
       style={(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "doctor" || activePage === "pharmacy" || activePage === "pathology" || activePage === "radiology" || activePage === "billing" || activePage === "admin") && theme === "dark" ? darkAppBgStyle : appBgStyle}
     >
       {inactivityNotice && (
@@ -1968,6 +1968,33 @@ export default function App() {
             padding-right: 20px;
           }
         }
+        .app-main-layout-wrapper.reception-page-layout {
+          padding-left: 10px;
+          padding-right: 10px;
+          padding-top: 12px;
+          padding-bottom: 2px;
+        }
+        @media (min-width: 1025px) {
+          .app-main-layout-wrapper.reception-page-layout {
+            padding-left: 12px;
+            padding-right: 12px;
+            padding-top: 14px;
+            padding-bottom: 2px;
+          }
+          .app-main-layout-wrapper.reception-page-layout .app-main-layout-inner {
+            max-width: 100%;
+            width: 100%;
+            margin: 0;
+          }
+        }
+        @media (max-width: 640px) {
+          .app-main-layout-wrapper.reception-page-layout {
+            padding-left: 6px;
+            padding-right: 6px;
+            padding-top: 10px;
+            padding-bottom: 2px;
+          }
+        }
         @media (max-width: 1024px) {
           .app-main-layout-wrapper {
             padding: 14px 16px 8px 16px;
@@ -1992,7 +2019,7 @@ export default function App() {
           width: 100%;
         }
       `}</style>
-      <div className={`app-main-layout-inner ${activePage === "superadmin" ? "superadmin-wide" : activePage === "pathology" || activePage === "pharmacy" || activePage === "radiology" || activePage === "billing" ? "portal-wide" : ""}`}>
+      <div className={`app-main-layout-inner ${activePage === "superadmin" ? "superadmin-wide" : activePage === "pathology" || activePage === "pharmacy" || activePage === "radiology" || activePage === "billing" || activePage === "staff" ? "portal-wide" : ""}`}>
         {/* Real-Time Animated Emergency Marquee & Broadcast Ribbon */}
         <EmergencyBroadcastBanner
           broadcasts={activeBroadcasts}
@@ -2027,7 +2054,7 @@ export default function App() {
         />
 
         {/* Main Content View with Access Control Guard */}
-        <main style={mainContentStyle}>
+        <main style={activePage === "staff" ? { minHeight: "auto" } : mainContentStyle}>
           <>
             {activePage === "patient" && (
               !isPatientOrGuest ? (

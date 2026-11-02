@@ -148,7 +148,7 @@ router.get(
 router.get(
   "/superadmin/hospitals/:hospital_code/employees",
   authenticate,
-  requireAdmin,
+  requireDeskOperator,
   hospitalIsolation("hospital_code"),
   getHospitalEmployeesEndpoint
 );

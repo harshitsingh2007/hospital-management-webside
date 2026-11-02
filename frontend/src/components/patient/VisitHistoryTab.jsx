@@ -8,16 +8,6 @@ import VisitFilters from "./VisitFilters";
 import VisitRecordRow from "./VisitRecordRow";
 import VisitRecordDetails from "./VisitRecordDetails";
 
-/**
- * VisitHistoryTab
- * ---------------
- * Simplified, calm, and professional Visit History for the Patient Portal:
- * - Clean header with total records & compact profile selector.
- * - Compact 3-stat summary row (Total Visits, Last Visit, Last Diagnosis).
- * - Segmented filter tabs with search and cancelled visibility toggle.
- * - Single unified timeline list (walk-ins + appointments) sorted newest-first and grouped by month.
- * - Collapsed by default cards (~70-72px high), with smooth accordion expansion.
- */
 export default function VisitHistoryTab({
   language = "en",
   hospitalBranding = null,
@@ -94,17 +84,17 @@ export default function VisitHistoryTab({
       const dateStr = rawDate ? String(rawDate).slice(0, 10) : "";
       const formattedDate = dateObj && !isNaN(dateObj.getTime())
         ? dateObj.toLocaleDateString(language === "hi" ? "hi-IN" : "en-GB", {
-            day: "numeric",
-            month: "short",
-            year: "numeric",
-          })
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+        })
         : dateStr;
 
       const monthYear = dateObj && !isNaN(dateObj.getTime())
         ? dateObj.toLocaleDateString(language === "hi" ? "hi-IN" : "en-US", {
-            month: "long",
-            year: "numeric",
-          })
+          month: "long",
+          year: "numeric",
+        })
         : "";
 
       const deptName = tk.department_name || getCategoryLabel(tk.service_category, language);
@@ -138,17 +128,17 @@ export default function VisitHistoryTab({
 
       const formattedDate = dateObj && !isNaN(dateObj.getTime())
         ? dateObj.toLocaleDateString(language === "hi" ? "hi-IN" : "en-GB", {
-            day: "numeric",
-            month: "short",
-            year: "numeric",
-          })
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+        })
         : String(rawDate);
 
       const monthYear = dateObj && !isNaN(dateObj.getTime())
         ? dateObj.toLocaleDateString(language === "hi" ? "hi-IN" : "en-US", {
-            month: "long",
-            year: "numeric",
-          })
+          month: "long",
+          year: "numeric",
+        })
         : "";
 
       const deptName = getDeptDisplayName(apt);

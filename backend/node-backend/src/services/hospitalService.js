@@ -1,10 +1,3 @@
-/**
- * hospitalService.js
- * -------------------
- * SuperAdmin & Multi-Hospital Operations Engine.
- * Manages Hospitals, Employees, Departments, Desks, Kiosks, and Database Overview.
- */
-
 const prisma = require("../config/prisma");
 const { hashPassword } = require("../utils/password");
 const { getCurrentQueueDate, queueDateToPrismaDate } = require("../utils/timezone");
@@ -1446,7 +1439,7 @@ async function getHospitalEmployees(hospitalCode) {
     let dutyInfo = null;
     try {
       dutyInfo = getDoctorDutyStatus(e.user_id, e.email, e.employee_code, e.name);
-    } catch (_) {}
+    } catch (_) { }
 
     // Check last login timestamp
     const lastLogin = e.users?.last_login_at ? new Date(e.users.last_login_at).getTime() : null;
@@ -1708,7 +1701,7 @@ async function updateHospitalEmployee(userId, updateData = {}) {
           employeeId: emp?.id,
         });
       }
-    } catch (_) {}
+    } catch (_) { }
   } else if (targetStatus === "active" || effectiveDutyStatus === "ACTIVE") {
     userData.last_login_at = new Date();
     try {
@@ -1723,7 +1716,7 @@ async function updateHospitalEmployee(userId, updateData = {}) {
           employeeId: emp?.id,
         });
       }
-    } catch (_) {}
+    } catch (_) { }
   }
 
   if (user) {
@@ -1779,7 +1772,7 @@ async function updateHospitalEmployee(userId, updateData = {}) {
     let profileObj = {};
     try {
       profileObj = typeof emp.profile_json === "string" ? JSON.parse(emp.profile_json) : (emp.profile_json || {});
-    } catch (_) {}
+    } catch (_) { }
     profileObj.role = targetRole;
     empData.profile_json = profileObj;
 

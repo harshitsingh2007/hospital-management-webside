@@ -910,11 +910,12 @@ export default function Header({
 
         {/* 2. Center: Quick Hospital Support & Emergency Hotline or Staff Desk Switcher */}
         <nav className="header-center-nav">
-          {/* Clinical & Staff Desk Switcher Bar (Pharmacy Station, Reception Desk) - Hidden on Super Admin & Doctor Portals */}
-          {!isPatientOrGuest && activePage !== "superadmin" && (
+          {/* Clinical & Staff Desk Switcher Bar (Pharmacy Station, Pathology, Radiology) - Hidden on Super Admin & Doctor Portals */}
+          {!isPatientOrGuest && activePage !== "superadmin" && activePage !== "doctor" && !["doctor", "physician"].includes(userRole) && (
             Boolean(
-              ((isPharmacistAccess || isSuperAdmin) && activePage !== "doctor" && !["doctor", "physician"].includes(userRole)) ||
-              ((isStaffAccess || isSuperAdmin) && !isPharmacist)
+              (isPharmacistAccess || isSuperAdmin) ||
+              (isPathologistAccess || isSuperAdmin) ||
+              (isRadiologistAccess || isSuperAdmin)
             ) && (
               <div
                 className="header-desk-switcher-bar"
@@ -1004,58 +1005,6 @@ export default function Header({
                   >
                     <span style={{ fontSize: "14px" }}>🩻</span>
                     <span>{language === "hi" ? "रेडियोलॉजी / एक्स-रे" : "Radiology & X-Ray"}</span>
-                  </button>
-                )}
-
-                {/* Central Billing & Cashier Workstation */}
-                {(isBillingAccess || isSuperAdmin) && activePage !== "doctor" && activePage !== "superadmin" && !["doctor", "physician"].includes(userRole) && (
-                  <button
-                    type="button"
-                    onClick={() => navigateTo("billing")}
-                    className={`header-nav-btn ${activePage === "billing" ? "active" : ""}`}
-                    style={{
-                      padding: "6px 14px",
-                      borderRadius: "10px",
-                      fontSize: "12px",
-                      fontWeight: activePage === "billing" ? 800 : 700,
-                      cursor: "pointer",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "6px",
-                      border: activePage === "billing" ? "1.5px solid #0284C7" : undefined,
-                      background: activePage === "billing" ? (isDarkHeader ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE") : undefined,
-                      color: activePage === "billing" ? (isDarkHeader ? "#38BDF8" : "#0284C7") : undefined,
-                    }}
-                    title={language === "hi" ? "कैशियर एवं सेंट्रल बिलिंग पोर्टल" : "Central Billing & Cashier Desk"}
-                  >
-                    <span style={{ fontSize: "14px" }}>💳</span>
-                    <span>{language === "hi" ? "बिलिंग / कैशियर" : "Billing & Cashier"}</span>
-                  </button>
-                )}
-
-                {/* Reception Desk (Hidden for Pharmacy Staff & SuperAdmin Portal) */}
-                {(isStaffAccess || isSuperAdmin) && !isPharmacist && activePage !== "superadmin" && (
-                  <button
-                    type="button"
-                    onClick={() => navigateTo("staff")}
-                    className={`header-nav-btn ${activePage === "staff" ? "active" : ""}`}
-                    style={{
-                      padding: "6px 14px",
-                      borderRadius: "10px",
-                      fontSize: "12px",
-                      fontWeight: activePage === "staff" ? 800 : 700,
-                      cursor: "pointer",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "6px",
-                      border: activePage === "staff" ? "1.5px solid #6366F1" : undefined,
-                      background: activePage === "staff" ? (isDarkHeader ? "rgba(99, 102, 241, 0.25)" : "#EEF2FF") : undefined,
-                      color: activePage === "staff" ? (isDarkHeader ? "#A5B4FC" : "#4F46E5") : undefined,
-                    }}
-                    title={language === "hi" ? "मरीज़ पंजीकरण एवं फ्रंट डेस्क" : "Patient Registration & Front Desk Reception"}
-                  >
-                    <span style={{ fontSize: "14px" }}>📋</span>
-                    <span>{language === "hi" ? "रिसेप्शन डेस्क" : "Reception Desk"}</span>
                   </button>
                 )}
               </div>
@@ -1423,45 +1372,6 @@ export default function Header({
                     >
                       <span style={{ fontSize: "14px" }}>🩻</span>
                       <span>{language === "hi" ? "रेडियोलॉजी एवं इमेजिंग पोर्टल" : "Radiology & Imaging Portal"}</span>
-                    </button>
-                  )}
-                  {isCashier && (
-                    <button
-                      type="button"
-                      className={`header-dropdown-item ${activePage === "billing" ? "active" : ""}`}
-                      onClick={() => {
-                        setProfileDropdownOpen(false);
-                        navigateTo("billing");
-                      }}
-                    >
-                      <span style={{ fontSize: "14px" }}>💳</span>
-                      <span>{language === "hi" ? "सेंट्रल बिलिंग एवं कैशियर डेस्क" : "Central Billing & Cashier Desk"}</span>
-                    </button>
-                  )}
-                  {!isSuperAdmin && activePage !== "superadmin" && ["doctor", "physician"].includes(userRole) && !isPharmacist && !isPathologist && !isRadiologist && !isCashier && (
-                    <button
-                      type="button"
-                      className={`header-dropdown-item ${activePage === "doctor" ? "active" : ""}`}
-                      onClick={() => {
-                        setProfileDropdownOpen(false);
-                        navigateTo("doctor");
-                      }}
-                    >
-                      <span style={{ fontSize: "14px" }}>🩺</span>
-                      <span>{language === "hi" ? "डॉक्टर परामर्श डेस्क" : "Doctor Consultation Desk"}</span>
-                    </button>
-                  )}
-                  {!isSuperAdmin && activePage !== "superadmin" && activePage !== "billing" && !isCashier && isStaffAccess && (
-                    <button
-                      type="button"
-                      className={`header-dropdown-item ${activePage === "staff" ? "active" : ""}`}
-                      onClick={() => {
-                        setProfileDropdownOpen(false);
-                        navigateTo("staff");
-                      }}
-                    >
-                      <span style={{ fontSize: "14px" }}>📋</span>
-                      <span>{language === "hi" ? "रिसेप्शन एवं टोकन डेस्क" : "OPD Reception Desk"}</span>
                     </button>
                   )}
 
