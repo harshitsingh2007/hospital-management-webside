@@ -1559,7 +1559,7 @@ export default function StaffPortalPage({
         fetchDesksAndDoctors(),
         refreshData ? refreshData() : Promise.resolve(),
       ]);
-      showFeedback(isHi ? "✓ लाइव कतार डेटा रीफ्रेश हुआ!" : "✓ Live queue telemetry synchronized!");
+      showFeedback(isHi ? "✓ लाइव कतार डेटा रीफ्रेश हुआ!" : "✓ Live queue data refreshed!");
     } catch (e) {
       console.error("Refresh error:", e);
     } finally {
@@ -1852,72 +1852,61 @@ export default function StaffPortalPage({
           padding-bottom: 2px !important;
         }
 
-        /* 1. HERO BANNER CONTAINER MATCHING HERO BANNER AND ADMIN HERO BANNER */
+        /* 1. EXECUTIVE DARK-NAVY CLINICAL HERO CONTAINER (MATCHING PATHOLOGY & RADIOLOGY) */
         .staff-hero-banner-container {
-          border-radius: 24px;
-          overflow: hidden;
-          background: radial-gradient(circle at 10% 15%, rgba(2, 132, 199, 0.25) 0%, transparent 45%), radial-gradient(circle at 90% 85%, rgba(56, 189, 248, 0.18) 0%, transparent 50%), linear-gradient(135deg, #090F1E 0%, #0F172A 60%, #162447 100%);
-          box-shadow: 0 20px 45px -12px rgba(15, 23, 42, 0.2), 0 0 0 1px rgba(56, 189, 248, 0.18);
+          background: radial-gradient(circle at 10% 15%, rgba(2, 132, 199, 0.28) 0%, transparent 45%),
+                      radial-gradient(circle at 90% 85%, rgba(56, 189, 248, 0.18) 0%, transparent 50%),
+                      linear-gradient(135deg, #090F1E 0%, #0F172A 60%, #162447 100%);
           border: 1px solid rgba(56, 189, 248, 0.25);
-          margin-bottom: 22px;
+          border-radius: 20px;
+          padding: 20px 24px;
+          color: #FFFFFF;
+          box-shadow: 0 16px 36px -12px rgba(15, 23, 42, 0.35), 0 0 0 1px rgba(56, 189, 248, 0.18);
+          margin-bottom: 16px;
           position: relative;
-          padding: 26px 30px;
+          overflow: hidden;
           width: 100%;
           box-sizing: border-box;
-          color: #FFFFFF;
         }
 
         .staff-hero-kpi-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-          gap: 14px;
-          margin-top: 24px;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 12px;
+          margin-top: 14px;
+          border-top: 1px solid rgba(255, 255, 255, 0.12);
+          padding-top: 12px;
+        }
+
+        @media (max-width: 960px) {
+          .staff-hero-kpi-grid {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+          }
+        }
+
+        @media (max-width: 540px) {
+          .staff-hero-kpi-grid {
+            grid-template-columns: 1fr;
+            gap: 10px;
+          }
         }
 
         .staff-kpi-card {
-          background: rgba(15, 23, 42, 0.65);
+          background: rgba(255, 255, 255, 0.08);
           backdrop-filter: blur(12px);
           -webkit-backdrop-filter: blur(12px);
-          padding: 14px 18px;
+          border: 1px solid rgba(255, 255, 255, 0.14);
           border-radius: 14px;
-          border: 1px solid rgba(56, 189, 248, 0.2);
-          transition: transform 0.2s ease, border-color 0.2s ease;
+          padding: 10px 14px;
         }
 
-        .staff-kpi-card:hover {
-          transform: translateY(-2px);
-          border-color: rgba(56, 189, 248, 0.4);
-        }
-
-        /* 2. STAFF IDENTITY TOOLBAR */
-        .staff-identity-toolbar {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 16px;
-          margin-bottom: 18px;
-          padding: 8px 14px;
-          border-radius: 14px;
-          background: var(--staff-card-bg, #FFFFFF);
-          border: 1px solid var(--staff-card-border, #E2E8F0);
-          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02);
-          flex-wrap: wrap;
-        }
-
-        body.theme-dark .staff-identity-toolbar,
-        [data-theme="dark"] .staff-identity-toolbar,
-        .dark-theme .staff-identity-toolbar {
-          background: #0F172A !important;
-          border-color: #334155 !important;
-          color: #F8FAFC !important;
-        }
-
-        /* 3. MODERN RECEPTION NAVIGATION TABS (MATCHING STAFFPAGE) */
+        /* 2. RECEPTION NAVIGATION TABS GRID */
         .staff-tabs-grid {
           display: grid;
           grid-template-columns: repeat(4, 1fr);
-          gap: 14px;
-          margin-bottom: 24px;
+          gap: 12px;
+          margin-bottom: 16px;
           width: 100%;
           box-sizing: border-box;
         }
@@ -1925,45 +1914,40 @@ export default function StaffPortalPage({
         @media (max-width: 1100px) {
           .staff-tabs-grid {
             grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
           }
         }
 
         @media (max-width: 600px) {
           .staff-tabs-grid {
             grid-template-columns: 1fr;
+            gap: 10px;
           }
         }
 
         .tab-button-modern {
           display: flex;
           align-items: center;
-          gap: 12px;
-          padding: 14px 18px;
-          border-radius: 16px;
+          gap: 10px;
+          padding: 10px 14px;
+          min-height: 58px;
+          box-sizing: border-box;
+          border-radius: 14px;
           border: 1px solid var(--staff-card-border, #E2E8F0);
           background: var(--staff-card-bg, #FFFFFF);
           color: var(--staff-card-text, #0F172A);
           cursor: pointer;
-          transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
           text-align: left;
           user-select: none;
           box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02);
           outline: none;
         }
 
-        .tab-button-modern:hover {
-          border-color: #BAE6FD;
-          background: #F0F9FF;
-          transform: translateY(-2px);
-          box-shadow: 0 6px 16px rgba(2, 132, 199, 0.08);
-        }
-
         .tab-button-modern.active {
           background: linear-gradient(135deg, #0284C7 0%, #0369A1 100%);
-          border-color: #0284C7;
+          border: 1px solid #0284C7;
           color: #FFFFFF !important;
-          box-shadow: 0 8px 20px rgba(2, 132, 199, 0.25);
-          transform: translateY(-2px);
+          box-shadow: 0 6px 16px rgba(2, 132, 199, 0.28);
         }
 
         .tab-button-modern.active .tab-icon-wrapper {
@@ -1984,41 +1968,47 @@ export default function StaffPortalPage({
           color: #0F172A !important;
         }
 
+        .tab-button-modern.inactive {
+          background: var(--staff-card-bg, #FFFFFF);
+          border: 1px solid var(--staff-card-border, #E2E8F0);
+          color: var(--staff-card-text, #0F172A);
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02);
+        }
+
         .tab-button-modern.inactive .tab-icon-wrapper {
           background: #F0F9FF;
           color: #0284C7;
         }
 
         .tab-icon-wrapper {
-          width: 40px;
-          height: 40px;
-          border-radius: 12px;
+          width: 36px;
+          height: 36px;
+          border-radius: 10px;
           display: flex;
           align-items: center;
           justify-content: center;
           flex-shrink: 0;
-          transition: all 0.2s ease;
         }
 
         .tab-title-text {
-          font-size: 13.5px;
+          font-size: 13px;
           font-weight: 800;
           letter-spacing: -0.2px;
           line-height: 1.25;
         }
 
         .tab-sub-text {
-          font-size: 11px;
+          font-size: 10.5px;
           font-weight: 600;
           display: block;
-          margin-top: 2px;
+          margin-top: 1px;
           color: #64748B;
         }
 
         .tab-count-badge {
-          font-size: 11px;
+          font-size: 10.5px;
           font-weight: 800;
-          padding: 2px 8px;
+          padding: 2px 7px;
           border-radius: 9999px;
           display: inline-flex;
           align-items: center;
@@ -2027,7 +2017,7 @@ export default function StaffPortalPage({
           color: #0284C7;
         }
 
-        /* 4. DARK MODE OVERRIDES */
+        /* 3. DARK MODE OVERRIDES */
         body.theme-dark .staff-portal-container,
         [data-theme="dark"] .staff-portal-container,
         .dark-theme .staff-portal-container {
@@ -2043,12 +2033,10 @@ export default function StaffPortalPage({
           box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
         }
 
-        body.theme-dark .tab-button-modern.inactive:hover,
-        [data-theme="dark"] .tab-button-modern.inactive:hover,
-        .dark-theme .tab-button-modern.inactive:hover {
-          background: #1E293B !important;
-          border-color: #38BDF8 !important;
-          box-shadow: 0 6px 18px rgba(56, 189, 248, 0.15) !important;
+        .staff-portal-container .tab-button-modern:hover,
+        .staff-portal-container .staff-kpi-card:hover,
+        .staff-portal-container button:hover {
+          transform: none !important;
         }
 
         body.theme-dark .tab-button-modern.inactive .tab-icon-wrapper,
@@ -2090,25 +2078,182 @@ export default function StaffPortalPage({
         }
       `}</style>
 
-      {/* 1. CLINICAL DARK-NAVY HERO BANNER */}
-      <section className="staff-hero-banner-container">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "16px", position: "relative", zIndex: 2 }}>
+      {/* 1. EXECUTIVE CLINICAL HERO CONTAINER (MATCHING PATHOLOGY & RADIOLOGY) */}
+      <div className="staff-hero-banner-container">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "12px" }}>
           <div>
-            <div style={{ display: "inline-flex", alignItems: "center", gap: "8px", background: "rgba(255,255,255,0.12)", border: "1px solid rgba(56, 189, 248, 0.35)", padding: "5px 14px", borderRadius: "9999px", fontSize: "12px", fontWeight: 700, marginBottom: "12px", backdropFilter: "blur(8px)", color: "#38BDF8" }}>
-              <Building2 size={14} color="#38BDF8" />
-              <span>{hospitalBranding?.hospital_name || HOSPITAL_CONFIG.name} • {isHi ? "ओपीडी रिसेप्शन डेस्क" : "OPD Reception & Front Desk"}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px", flexWrap: "wrap" }}>
+              <span style={{ background: "rgba(255,255,255,0.14)", padding: "3px 8px", borderRadius: "6px", fontSize: "10.5px", fontWeight: 800, letterSpacing: "0.5px", display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                <Building2 size={12} />
+                <span>{(hospitalBranding?.hospital_name || HOSPITAL_CONFIG.name).toUpperCase()}</span>
+              </span>
+              <span style={{ background: "rgba(56, 189, 248, 0.2)", border: "1px solid rgba(56, 189, 248, 0.4)", color: "#BAE6FD", padding: "3px 8px", borderRadius: "6px", fontSize: "10.5px", fontWeight: 800 }}>
+                {isHi ? "NABH मान्यता प्राप्त केंद्रीय ओपीडी रिसेप्शन व फ्रंट डेस्क" : "NABH ACCREDITED CENTRAL OPD INTAKE & FRONT DESK"}
+              </span>
             </div>
-            <h1 style={{ margin: "0 0 6px 0", fontSize: "28px", fontWeight: 800, letterSpacing: "-0.5px", color: "#FFFFFF" }}>
-              {isHi ? "रिसेप्शन पोर्टल एवं कतार प्रबंधन" : "Reception Portal & Queue Orchestration"}
+
+            <h1 style={{ margin: 0, fontSize: "24px", fontWeight: 900, letterSpacing: "-0.4px", lineHeight: "1.2", color: "#FFFFFF" }}>
+              {isHi ? "रिसेप्शन पोर्टल एवं कतार समन्वय" : "Reception Portal & Queue Orchestration"}
             </h1>
-            <p style={{ margin: 0, color: "#94A3B8", fontSize: "14px", maxWidth: "620px", lineHeight: 1.55 }}>
-              {isHi
-                ? "मरीजों का तत्काल वॉक-इन पंजीकरण, अपॉइंटमेंट चेक-इन, लाउडस्पीकर उद्घोषणा एवं काउंटर डेस्क नियंत्रण।"
-                : "Manage patient intake, verify scheduled appointments, trigger public loudspeaker announcements, and monitor clinician desks."}
-            </p>
+
+            {/* Highlighted Staff & Department One-Liner Glass Capsule */}
+            <div
+              style={{
+                marginTop: "8px",
+                display: "inline-flex",
+                alignItems: "center",
+                flexWrap: "nowrap",
+                gap: "8px",
+                background: "linear-gradient(135deg, rgba(15, 23, 42, 0.75) 0%, rgba(30, 41, 59, 0.6) 100%)",
+                border: "1px solid rgba(56, 189, 248, 0.45)",
+                borderRadius: "30px",
+                padding: "3px 10px 3px 5px",
+                backdropFilter: "blur(12px)",
+                boxShadow: "0 2px 10px rgba(0, 0, 0, 0.25)",
+                maxWidth: "100%",
+              }}
+            >
+              {/* Avatar Icon */}
+              <div
+                style={{
+                  width: "22px",
+                  height: "22px",
+                  borderRadius: "50%",
+                  background: "linear-gradient(135deg, #38BDF8 0%, #0284C7 100%)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#FFFFFF",
+                  boxShadow: "0 2px 6px rgba(2, 132, 199, 0.4)",
+                  flexShrink: 0,
+                }}
+              >
+                <Users size={12} />
+              </div>
+
+              {/* Staff Name */}
+              <div style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                <span style={{ fontSize: "10.5px", fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  {isHi ? "स्टाफ:" : "Staff:"}
+                </span>
+                <span style={{ fontSize: "12.5px", fontWeight: 900, color: "#FFFFFF", letterSpacing: "0.2px" }}>
+                  {currentUser?.name || currentUser?.username || (isHi ? "रिसेप्शनिस्ट" : "Reception Officer")}
+                </span>
+              </div>
+
+              {/* Subtle Divider */}
+              <span style={{ width: "1px", height: "12px", background: "rgba(255, 255, 255, 0.2)", margin: "0 1px" }} />
+
+              {/* Department */}
+              <div style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                <span
+                  style={{
+                    width: "6px",
+                    height: "6px",
+                    borderRadius: "50%",
+                    background: "#34D399",
+                    boxShadow: "0 0 6px #10B981",
+                    display: "inline-block",
+                    flexShrink: 0,
+                  }}
+                />
+                <span style={{ fontSize: "10.5px", fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  {isHi ? "विभाग:" : "Dept:"}
+                </span>
+                <span style={{ fontSize: "12px", fontWeight: 800, color: "#34D399", letterSpacing: "0.3px" }}>
+                  {isHi ? "ओपीडी रिसेप्शन" : "OPD RECEPTION & TRIAGE"}
+                </span>
+              </div>
+
+              {/* Staff ID Pill */}
+              {(currentUser?.employee_code || currentUser?.employee_id || currentUser?.id) && (
+                <>
+                  <span style={{ width: "1px", height: "12px", background: "rgba(255, 255, 255, 0.2)", margin: "0 1px" }} />
+                  <span
+                    style={{
+                      fontSize: "10px",
+                      fontWeight: 700,
+                      color: "rgba(255, 255, 255, 0.75)",
+                      fontFamily: "monospace",
+                      background: "rgba(255, 255, 255, 0.08)",
+                      padding: "1px 5px",
+                      borderRadius: "4px",
+                    }}
+                  >
+                    ID: {currentUser?.employee_code || currentUser?.employee_id || currentUser?.id}
+                  </span>
+                </>
+              )}
+            </div>
           </div>
 
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+          {/* Assigned Counter & Duty Status Controls */}
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+            {/* Assigned Desk Display */}
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                background: "rgba(255, 255, 255, 0.12)",
+                border: "1px solid rgba(255, 255, 255, 0.25)",
+                borderRadius: "10px",
+                padding: "6px 12px",
+                backdropFilter: "blur(8px)",
+                color: "#FFFFFF",
+                userSelect: "none",
+              }}
+              title={isHi ? "वर्तमान रिसेप्शन काउंटर" : "Current Reception Desk"}
+            >
+              <span
+                style={{
+                  fontSize: "10px",
+                  fontWeight: 800,
+                  color: "#38BDF8",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.5px",
+                }}
+              >
+                <Building2 size={11} />
+                {isHi ? "डेस्क:" : "DESK:"}
+              </span>
+              <span
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 900,
+                  color: "#FFFFFF",
+                  letterSpacing: "0.3px",
+                }}
+              >
+                {currentUser?.assigned_desk_name || currentUser?.desk_name || currentUser?.employee_code || "RECEPTION-BAY-1"}
+              </span>
+            </div>
+
+            {/* Ready for Intake Status Badge */}
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                background: "linear-gradient(135deg, #10B981 0%, #059669 100%)",
+                border: "none",
+                borderRadius: "10px",
+                padding: "6px 12px",
+                fontSize: "11.5px",
+                fontWeight: 800,
+                color: "#FFFFFF",
+                boxShadow: "0 4px 14px rgba(16, 185, 129, 0.35)",
+              }}
+              title={isHi ? "डेस्क सक्रिय • इनटेक हेतु तैयार" : "Desk Active • Ready for Intake"}
+            >
+              <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#FFFFFF", display: "inline-block" }} />
+              <span>{isHi ? "इनटेक सक्रिय" : "Ready for Intake"}</span>
+            </div>
+
+            {/* Lost Token Lookup Action Button */}
             <button
               type="button"
               onClick={() => {
@@ -2119,62 +2264,95 @@ export default function StaffPortalPage({
               style={{
                 display: "inline-flex",
                 alignItems: "center",
-                gap: "8px",
-                background: "rgba(255,255,255,0.12)",
-                border: "1px solid rgba(255,255,255,0.25)",
+                gap: "6px",
+                background: "rgba(255, 255, 255, 0.12)",
+                border: "1px solid rgba(255, 255, 255, 0.25)",
                 color: "#FFFFFF",
-                padding: "10px 18px",
-                borderRadius: "12px",
+                padding: "6px 12px",
+                borderRadius: "10px",
                 fontWeight: 700,
-                fontSize: "13px",
+                fontSize: "11.5px",
                 cursor: "pointer",
                 backdropFilter: "blur(8px)",
-                transition: "all 0.18s ease",
+                outline: "none",
               }}
+              title={isHi ? "खोया टोकन खोजें" : "Lookup lost token"}
             >
-              <Search size={16} />
+              <Search size={13} />
               <span>{isHi ? "खोया टोकन खोजें" : "Lost Token Lookup"}</span>
             </button>
           </div>
         </div>
 
-        {/* Real-time KPI Metric Badges */}
+        {/* Live Metrics Grid (Glassmorphic Telemetry Cards matching Pathology & Radiology) */}
         <div className="staff-hero-kpi-grid">
           <div className="staff-kpi-card">
-            <div style={{ fontSize: "11px", fontWeight: 700, textTransform: "uppercase", color: "#94A3B8" }}>{isHi ? "हॉल में प्रतीक्षारत" : "Waiting in Hall"}</div>
-            <div style={{ fontSize: "26px", fontWeight: 900, marginTop: "2px", color: "#38BDF8" }}>{effectiveWaitingTickets.length}</div>
-            <div style={{ fontSize: "11px", color: "#64748B" }}>{isHi ? "लाइव मरीज कतार" : "Patients in OPD Queue"}</div>
-          </div>
-
-          <div className="staff-kpi-card">
-            <div style={{ fontSize: "11px", fontWeight: 700, textTransform: "uppercase", color: "#94A3B8" }}>{isHi ? "आज के लाइव अपॉइंटमेंट्स" : "Live Booked Today"}</div>
-            <div style={{ fontSize: "26px", fontWeight: 900, marginTop: "2px", color: "#FFFFFF" }}>{liveAppointments.length}</div>
-            <div style={{ fontSize: "11px", color: "#64748B" }}>{isHi ? "सक्रिय पूर्व-आरक्षित स्लॉट" : "Active Scheduled Bookings"}</div>
-          </div>
-
-          <div className="staff-kpi-card">
-            <div style={{ fontSize: "11px", fontWeight: 700, textTransform: "uppercase", color: "#94A3B8" }}>{isHi ? "सक्रिय काउंटर डेस्क" : "Online Counters"}</div>
-            <div style={{ fontSize: "26px", fontWeight: 900, marginTop: "2px", color: "#38BDF8" }}>
-              {desksList.filter((d) => isDeskOnline(d)).length}/{desksList.length}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontSize: "10.5px", fontWeight: 700, opacity: 0.85, textTransform: "uppercase", color: "#BAE6FD" }}>
+                {isHi ? "हॉल में प्रतीक्षारत" : "Waiting in Hall"}
+              </div>
+              <Clock size={15} color="#38BDF8" />
             </div>
-            <div style={{ fontSize: "11px", color: "#64748B" }}>{isHi ? "उपलब्ध सेवा डेस्क" : "Operational Bays"}</div>
+            <div style={{ fontSize: "22px", fontWeight: 900, marginTop: "2px", lineHeight: "1.2" }}>
+              {effectiveWaitingTickets.length}
+            </div>
+            <div style={{ fontSize: "10.5px", opacity: 0.8, marginTop: "1px" }}>
+              {isHi ? "ओपीडी कतार में मरीज" : "Patients in OPD Queue"}
+            </div>
           </div>
 
           <div className="staff-kpi-card">
-            <div style={{ fontSize: "11px", fontWeight: 700, textTransform: "uppercase", color: "#94A3B8" }}>{isHi ? "सक्रिय डॉक्टर व स्टाफ" : "Active Clinicians & Staff"}</div>
-            <div style={{ fontSize: "26px", fontWeight: 900, marginTop: "2px", color: "#FFFFFF" }}>
-              {allClinicians.filter((d) => isDocOnline(d)).length + allStaffMembers.filter((s) => isStaffOnline(s)).length}/{allClinicians.length + allStaffMembers.length}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontSize: "10.5px", fontWeight: 700, opacity: 0.85, textTransform: "uppercase", color: "#BAE6FD" }}>
+                {isHi ? "आज के लाइव अपॉइंटमेंट्स" : "Live Booked Today"}
+              </div>
+              <CalendarCheck size={15} color="#38BDF8" />
             </div>
-            <div style={{ fontSize: "11px", color: "#64748B" }}>{isHi ? "ड्यूटी पर ऑन-लाइन" : "Staff on Active Duty"}</div>
+            <div style={{ fontSize: "22px", fontWeight: 900, marginTop: "2px", lineHeight: "1.2" }}>
+              {liveAppointments.length}
+            </div>
+            <div style={{ fontSize: "10.5px", opacity: 0.8, marginTop: "1px" }}>
+              {isHi ? "सक्रिय पूर्व-आरक्षित स्लॉट" : "Active Scheduled Bookings"}
+            </div>
+          </div>
+
+          <div className="staff-kpi-card">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontSize: "10.5px", fontWeight: 700, opacity: 0.85, textTransform: "uppercase", color: "#BAE6FD" }}>
+                {isHi ? "सक्रिय सर्विस काउंटर" : "Online Counters"}
+              </div>
+              <LayoutGrid size={15} color="#34D399" />
+            </div>
+            <div style={{ fontSize: "22px", fontWeight: 900, marginTop: "2px", lineHeight: "1.2" }}>
+              {desksList.filter((d) => isDeskOnline(d)).length}/{desksList.length || 5}
+            </div>
+            <div style={{ fontSize: "10.5px", opacity: 0.8, marginTop: "1px" }}>
+              {isHi ? "उपलब्ध सेवा काउंटर" : "Operational Service Bays"}
+            </div>
+          </div>
+
+          <div className="staff-kpi-card">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontSize: "10.5px", fontWeight: 700, opacity: 0.85, textTransform: "uppercase", color: "#BAE6FD" }}>
+                {isHi ? "सक्रिय डॉक्टर व स्टाफ" : "Active Clinicians & Staff"}
+              </div>
+              <Users size={15} color="#FBBF24" />
+            </div>
+            <div style={{ fontSize: "22px", fontWeight: 900, marginTop: "2px", lineHeight: "1.2" }}>
+              {allClinicians.filter((d) => isDocOnline(d)).length + allStaffMembers.filter((s) => isStaffOnline(s)).length}/{allClinicians.length + allStaffMembers.length || 6}
+            </div>
+            <div style={{ fontSize: "10.5px", opacity: 0.8, marginTop: "1px" }}>
+              {isHi ? "ड्यूटी पर कार्यरत स्टाफ" : "Staff on Active Duty"}
+            </div>
           </div>
         </div>
-      </section>
+      </div>
 
       {/* IN-LINE FEEDBACK & PA ANNOUNCEMENT BANNER */}
       {(feedbackMsg || announcementMsg) && (
         <div style={{
-          padding: "12px 20px",
-          borderRadius: "14px",
+          padding: "10px 16px",
+          borderRadius: "12px",
           background: announcementMsg
             ? (isDark ? "rgba(120, 53, 15, 0.3)" : "#FEF3C7")
             : inAppToast?.type === "error"
@@ -2203,8 +2381,8 @@ export default function StaffPortalPage({
                   ? (isDark ? "#BAE6FD" : "#075985")
                   : (isDark ? "#A7F3D0" : "#166534"),
           fontWeight: 800,
-          fontSize: "13.5px",
-          marginBottom: "20px",
+          fontSize: "13px",
+          marginBottom: "16px",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
@@ -2213,15 +2391,15 @@ export default function StaffPortalPage({
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             {announcementMsg ? (
-              <Volume2 size={18} />
+              <Volume2 size={16} />
             ) : inAppToast?.type === "error" ? (
-              <AlertCircle size={18} />
+              <AlertCircle size={16} />
             ) : inAppToast?.type === "warn" ? (
-              <AlertTriangle size={18} />
+              <AlertTriangle size={16} />
             ) : inAppToast?.type === "info" ? (
-              <Info size={18} />
+              <Info size={16} />
             ) : (
-              <CheckCircle2 size={18} />
+              <CheckCircle2 size={16} />
             )}
             <span>{announcementMsg || feedbackMsg}</span>
           </div>
@@ -2243,62 +2421,12 @@ export default function StaffPortalPage({
               padding: "4px",
             }}
           >
-            <X size={16} />
+            <X size={15} />
           </button>
         </div>
       )}
 
-      {/* 2. STAFF IDENTITY & STATUS TOOLBAR */}
-      <div className="staff-identity-toolbar">
-        <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
-          <div style={{
-            width: "36px",
-            height: "36px",
-            borderRadius: "10px",
-            background: isDark ? "rgba(2,132,199,0.2)" : "#E0F2FE",
-            color: "#0284C7",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            flexShrink: 0,
-          }}>
-            <Users size={18} color="#0284C7" />
-          </div>
-          <div>
-            <div style={{ fontSize: "13.5px", fontWeight: 800, color: isDark ? "#F8FAFC" : "#0F172A", display: "flex", alignItems: "center", gap: "6px" }}>
-              <span>{currentUser?.name || currentUser?.username || (isHi ? "रिसेप्शन डेस्क" : "Reception Desk")}</span>
-              <span style={{ fontSize: "10px", fontWeight: 700, padding: "1px 6px", borderRadius: "4px", background: isDark ? "#334155" : "#E2E8F0", color: isDark ? "#94A3B8" : "#64748B" }}>
-                {currentUser?.employee_code || "RECEPTION-BAY-1"}
-              </span>
-            </div>
-            <div style={{ fontSize: "11px", fontWeight: 600, color: "#0284C7", display: "flex", alignItems: "center", gap: "6px", marginTop: "1px" }}>
-              <span>🏥 {hospitalBranding?.hospital_name || HOSPITAL_CONFIG.name}</span>
-              <span>•</span>
-              <span style={{ color: isDark ? "#94A3B8" : "#64748B" }}>{isHi ? "ओपीडी रिसेप्शन एवं रोगी ट्राइएज" : "OPD Intake & Patient Triage"}</span>
-            </div>
-          </div>
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-          <div style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "6px",
-            padding: "5px 12px",
-            borderRadius: "9999px",
-            background: isDark ? "rgba(16, 185, 129, 0.15)" : "#ECFDF5",
-            border: `1px solid ${isDark ? "rgba(16, 185, 129, 0.3)" : "#A7F3D0"}`,
-            fontSize: "11.5px",
-            fontWeight: 700,
-            color: isDark ? "#34D399" : "#059669",
-          }}>
-            <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#10B981" }} />
-            <span>{isHi ? "डेस्क सक्रिय • इनटेक हेतु तैयार" : "Desk Active • Ready for Intake"}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* 3. RECEPTION NAVIGATION TABS (MATCHING STAFFPAGE) */}
+      {/* 2. RECEPTION NAVIGATION TABS */}
       <div className="staff-tabs-grid">
         {/* Tab 1: Fast Walk-In Intake */}
         <button
@@ -3644,11 +3772,6 @@ export default function StaffPortalPage({
                 {allActiveLiveTickets.length} {isHi ? "कुल सक्रिय टोकन" : "Total Active Tokens"}
               </span>
             </div>
-            <p style={{ margin: "4px 0 0 0", fontSize: "13px", color: "#64748B" }}>
-              {isHi
-                ? "सभी ओपीडी विभागों की लाइव कतार का वास्तविक समय में नियंत्रण: टिकट रद्द करें, विभाग बदलें (स्थानांतरित), ओपीडी को आपातकालीन (Emergency) में अपग्रेड करें, लाउडस्पीकर उद्घोषणा और होल्ड प्रबंधन।"
-                : "Central multi-department queue control: cancel tickets, transfer across departments, elevate OPD to Emergency (P1), hold/recall, and trigger loudspeaker announcements."}
-            </p>
           </div>
 
           {/* Quick KPI Stats Summary Bar */}
@@ -3699,13 +3822,34 @@ export default function StaffPortalPage({
             </div>
           </div>
 
-          {/* Department Filter Tabs (Horizontal Pill Selector) */}
-          <div style={{ marginBottom: "16px" }}>
-            <div style={{ fontSize: "11.5px", fontWeight: 800, color: "#64748B", textTransform: "uppercase", marginBottom: "8px", display: "flex", alignItems: "center", gap: "6px" }}>
+          {/* Department Filter Tabs (Single-Line Horizontal Pill Selector) */}
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            marginBottom: "16px",
+            overflowX: "auto",
+            paddingBottom: "6px",
+            scrollbarWidth: "none",
+            msOverflowStyle: "none",
+            flexWrap: "nowrap",
+          }}>
+            <div style={{
+              fontSize: "11.5px",
+              fontWeight: 800,
+              color: "#64748B",
+              textTransform: "uppercase",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+            }}>
               <Building2 size={13} />
-              <span>{isHi ? "विभाग अनुसार फ़िल्टर करें:" : "Filter By Department:"}</span>
+              <span>{isHi ? "विभाग अनुसार फ़िल्टर:" : "Filter By Department:"}</span>
             </div>
-            <div style={{ display: "flex", gap: "8px", overflowX: "auto", paddingBottom: "6px", flexWrap: "wrap" }}>
+
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "nowrap", flexShrink: 0 }}>
               <button
                 type="button"
                 onClick={() => setAllQueuesFilterDept("all")}
@@ -3722,6 +3866,7 @@ export default function StaffPortalPage({
                   alignItems: "center",
                   gap: "6px",
                   whiteSpace: "nowrap",
+                  flexShrink: 0,
                 }}
               >
                 <span>{isHi ? "सभी विभाग" : "All Departments"}</span>
@@ -3758,6 +3903,7 @@ export default function StaffPortalPage({
                       alignItems: "center",
                       gap: "6px",
                       whiteSpace: "nowrap",
+                      flexShrink: 0,
                     }}
                   >
                     <span>{d.name}</span>
@@ -4632,22 +4778,6 @@ export default function StaffPortalPage({
               </div>
 
               <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <div style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  padding: "6px 12px",
-                  borderRadius: "9999px",
-                  background: isDark ? "rgba(16, 185, 129, 0.15)" : "#ECFDF5",
-                  border: `1px solid ${isDark ? "rgba(16, 185, 129, 0.3)" : "#A7F3D0"}`,
-                  fontSize: "11.5px",
-                  fontWeight: 700,
-                  color: isDark ? "#34D399" : "#059669"
-                }}>
-                  <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#10B981" }} />
-                  <span>{isHi ? "लाइव डेटा सिंक्रोनाइज़्ड" : "Live Telemetry Connected"}</span>
-                </div>
-
                 <button
                   type="button"
                   onClick={handleManualRefreshQueue}
@@ -4669,7 +4799,7 @@ export default function StaffPortalPage({
                   }}
                 >
                   <RefreshCw size={14} className={isRefreshingQueue ? "spin" : ""} />
-                  <span>{isHi ? "रीफ्रेश" : "Sync"}</span>
+                  <span>{isHi ? "रीफ्रेश" : "Refresh"}</span>
                 </button>
               </div>
             </div>

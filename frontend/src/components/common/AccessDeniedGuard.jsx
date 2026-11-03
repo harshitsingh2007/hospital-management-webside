@@ -1,9 +1,3 @@
-/**
- * AccessDeniedGuard.jsx
- * ---------------------
- * Access Protection Shield for Restricted Role Pages.
- * Theme: Medical Ocean Blue & Slate (Clean Professional Palette)
- */
 
 import React, { useState } from "react";
 import { API_BASE } from "../../config/hospitalConfig";

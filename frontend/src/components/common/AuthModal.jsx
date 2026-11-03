@@ -1,17 +1,3 @@
-/**
- * AuthModal.jsx
- * -------------
- * Modern Healthcare UI/UX Authentication Component.
- * Theme: Unified Medical Blue & Clean White (Clinical Healthcare System)
- *
- * Rules:
- * - Admin, Doctor & Staff accounts are created exclusively by Super Admin (they can ONLY sign in with assigned ID & password).
- * - Public Registration is strictly restricted to:
- *     1. Super Admin (hospital owner provisioning dedicated tenant)
- *     2. Patient (self-service queue & appointment access)
- * - All input fields start completely empty with zero pre-written text.
- */
-
 import React, { useState, useEffect } from "react";
 import { API_BASE } from "../../config/hospitalConfig";
 
@@ -85,7 +71,7 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
       try {
         const saved = localStorage.getItem("ai_queue_current_hospital");
         if (saved) return saved;
-      } catch (e) {}
+      } catch (e) { }
     }
     return "city-hospital-01";
   });
@@ -131,7 +117,7 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
     };
     loadHospitals();
     return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const selectedHospitalObj = hospitalsList.find(
@@ -246,12 +232,12 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
         if (data.token) {
           try {
             localStorage.setItem("ai_queue_token", data.token);
-          } catch (e) {}
+          } catch (e) { }
         }
         if (data.user?.hospital_code || selectedHospitalCode) {
           try {
             localStorage.setItem("ai_queue_current_hospital", data.user?.hospital_code || selectedHospitalCode || "city-hospital-01");
-          } catch (e) {}
+          } catch (e) { }
         }
         onLoginSuccess({ ...data.user, token: data.token || data.user?.token });
       } else {
@@ -381,12 +367,12 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
         if (data.token) {
           try {
             localStorage.setItem("ai_queue_token", data.token);
-          } catch (e) {}
+          } catch (e) { }
         }
         if (data.user?.hospital_code) {
           try {
             localStorage.setItem("ai_queue_current_hospital", data.user.hospital_code);
-          } catch (e) {}
+          } catch (e) { }
         }
         onLoginSuccess({ ...data.user, token: data.token || data.user?.token });
       } else {
@@ -452,12 +438,12 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
         if (data.token) {
           try {
             localStorage.setItem("ai_queue_token", data.token);
-          } catch (e) {}
+          } catch (e) { }
         }
         if (payload.hospital_code) {
           try {
             localStorage.setItem("ai_queue_current_hospital", payload.hospital_code);
-          } catch (e) {}
+          } catch (e) { }
         }
       } else {
         if (data.code === "PHONE_ALREADY_EXISTS" || data.message?.includes("already exists") || data.message?.includes("already registered")) {
@@ -508,7 +494,7 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <div style={authIconShieldStyle}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
             </svg>
           </div>
           <div>
@@ -516,22 +502,22 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
               {currentMode === "login" || currentMode === "login-mobile"
                 ? "Sign In"
                 : currentMode === "signup-superadmin"
-                ? "Register as Super Admin"
-                : "Register as Patient"}
+                  ? "Register as Super Admin"
+                  : "Register as Patient"}
             </h2>
             <span style={{ fontSize: "12px", color: "#64748B", fontWeight: 500 }}>
               {currentMode === "login" || currentMode === "login-mobile"
                 ? (loginMethod === "mobile" ? "Sign in with Mobile OTP & retrospective walk-in sync" : "Sign in with your Email or Assigned ID")
                 : currentMode === "signup-superadmin"
-                ? "Hospital Owner & Network Administrator Account"
-                : "Patient Self-Service Account"}
+                  ? "Hospital Owner & Network Administrator Account"
+                  : "Patient Self-Service Account"}
             </span>
           </div>
         </div>
 
         {!isInline && onClose && (
           <button onClick={onClose} style={modalCloseBtnStyle} title="Close">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
           </button>
         )}
       </div>
@@ -696,8 +682,8 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
                     {mobileOtpLoading
                       ? "Sending..."
                       : mobileOtpSent
-                      ? (otpCountdown > 0 ? `Resend (${otpCountdown}s)` : "Resend OTP")
-                      : "Send OTP"}
+                        ? (otpCountdown > 0 ? `Resend (${otpCountdown}s)` : "Resend OTP")
+                        : "Send OTP"}
                   </button>
                 </div>
               </div>
@@ -947,7 +933,7 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
                     setSelectedHospitalCode(e.target.value);
                     try {
                       localStorage.setItem("ai_queue_current_hospital", e.target.value);
-                    } catch (err) {}
+                    } catch (err) { }
                   }}
                   required
                   style={{
@@ -1090,8 +1076,8 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
                     {signupOtpLoading
                       ? "Sending..."
                       : signupOtpSent
-                      ? (signupOtpCountdown > 0 ? `Resend (${signupOtpCountdown}s)` : "Resend OTP")
-                      : "Send OTP"}
+                        ? (signupOtpCountdown > 0 ? `Resend (${signupOtpCountdown}s)` : "Resend OTP")
+                        : "Send OTP"}
                   </button>
                 </div>
 

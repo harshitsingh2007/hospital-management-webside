@@ -1,16 +1,3 @@
-/**
- * Header.jsx
- * ----------
- * User Dashboard Header matching IMAGE 2.
- * Features:
- * - Hospital shield/logo with white medical cross
- * - City General Hospital & "Care you can trust"
- * - Navigation links: Home, My Appointments, History, About Us, Contact
- * - Language selector pill dropdown (EN / हिंदी)
- * - Patient profile dropdown (Patient: user / rahul, role badge, navigation, logout)
- * - Interactive About Us and Contact modals
- */
-
 import React, { useState, useRef, useEffect } from "react";
 import { Globe } from "lucide-react";
 import { API_BASE, HOSPITAL_CONFIG } from "../../config/hospitalConfig";
@@ -59,7 +46,7 @@ export default function Header({
         try {
           const act = JSON.parse(activeSaved);
           if (act && act.ticket_id) parsed["self"] = act;
-        } catch (e) {}
+        } catch (e) { }
       }
       return parsed;
     } catch (e) {
@@ -80,7 +67,7 @@ export default function Header({
       const ticketStorageKey = `family_tickets_${currentUser ? (currentUser.username || currentUser.email) : "guest"}`;
       const saved = localStorage.getItem(ticketStorageKey);
       if (saved) setFamilyTickets(JSON.parse(saved));
-    } catch (e) {}
+    } catch (e) { }
   }, [currentUser]);
 
   // Theme state synchronized with props and localStorage
@@ -92,7 +79,7 @@ export default function Header({
       if (typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
         return "dark";
       }
-    } catch (e) {}
+    } catch (e) { }
     return "light";
   });
 
@@ -125,7 +112,7 @@ export default function Header({
         document.body.classList.remove("theme-dark");
       }
       window.dispatchEvent(new CustomEvent("theme_changed", { detail: nextTheme }));
-    } catch (e) {}
+    } catch (e) { }
     if (setThemeProp) setThemeProp(nextTheme);
     if (onToggleTheme) onToggleTheme(nextTheme);
   };
@@ -232,16 +219,16 @@ export default function Header({
   const displayHelpdeskHours =
     (hospitalBranding?.opd_start_time && hospitalBranding?.opd_end_time)
       ? generateOperatingHoursText(
-          hospitalBranding.operating_days,
-          hospitalBranding.opd_start_time,
-          hospitalBranding.opd_end_time,
-          language === "hi"
-        )
+        hospitalBranding.operating_days,
+        hospitalBranding.opd_start_time,
+        hospitalBranding.opd_end_time,
+        language === "hi"
+      )
       : (
-          (language === "hi" ? hospitalBranding?.opd_helpdesk_hours_hi : null) ||
-          hospitalBranding?.opd_helpdesk_hours ||
-          (language === "hi" ? "सोम – शनि: सुबह 8:00 – रात 8:00" : "Mon – Sat: 8:00 AM – 8:00 PM")
-        );
+        (language === "hi" ? hospitalBranding?.opd_helpdesk_hours_hi : null) ||
+        hospitalBranding?.opd_helpdesk_hours ||
+        (language === "hi" ? "सोम – शनि: सुबह 8:00 – रात 8:00" : "Mon – Sat: 8:00 AM – 8:00 PM")
+      );
 
   const displayEmail =
     hospitalBranding?.support_email ||
@@ -1561,9 +1548,9 @@ export default function Header({
                 {(hospitalBranding?.about_tech_highlights
                   ? hospitalBranding.about_tech_highlights.split(",").map((s) => s.trim()).filter(Boolean)
                   : [
-                      "AI Queue Orchestration", "Real-Time Socket Sync", "Digital Prescriptions",
-                      "QR Check-In", "Priority Escalation", "Multi-Language", "Family Profiles", "Live Analytics",
-                    ]
+                    "AI Queue Orchestration", "Real-Time Socket Sync", "Digital Prescriptions",
+                    "QR Check-In", "Priority Escalation", "Multi-Language", "Family Profiles", "Live Analytics",
+                  ]
                 ).map((tech, i) => (
                   <span key={i} style={{
                     background: isDarkHeader ? "rgba(2,132,199,0.15)" : "#EFF6FF",
@@ -1621,18 +1608,18 @@ export default function Header({
                 {(((language === "hi" && hospitalBranding?.about_why_choose_hi) || hospitalBranding?.about_why_choose)
                   ? ((language === "hi" && hospitalBranding?.about_why_choose_hi) || hospitalBranding?.about_why_choose).split("\n").map((s) => s.trim()).filter(Boolean)
                   : (language === "hi" ? [
-                      "टोकन सिस्टम से लाइन में खड़े होने की ज़रूरत नहीं",
-                      "AI द्वारा गंभीर मरीज़ों को स्वचालित प्राथमिकता",
-                      "परिवार के सभी सदस्यों के लिए एक ही खाते से बुकिंग",
-                      "मोबाइल पर लाइव कतार स्थिति, SMS अलर्ट",
-                      "डिजिटल ई-पर्ची — कागज़ की ज़रूरत नहीं",
-                    ] : [
-                      "No physical queue — get your token digitally from anywhere",
-                      "AI auto-escalates critical/emergency cases instantly",
-                      "Book for all family members from a single account",
-                      "Live queue status on mobile + real-time alerts",
-                      "Digital e-prescriptions — zero paperwork needed",
-                    ])
+                    "टोकन सिस्टम से लाइन में खड़े होने की ज़रूरत नहीं",
+                    "AI द्वारा गंभीर मरीज़ों को स्वचालित प्राथमिकता",
+                    "परिवार के सभी सदस्यों के लिए एक ही खाते से बुकिंग",
+                    "मोबाइल पर लाइव कतार स्थिति, SMS अलर्ट",
+                    "डिजिटल ई-पर्ची — कागज़ की ज़रूरत नहीं",
+                  ] : [
+                    "No physical queue — get your token digitally from anywhere",
+                    "AI auto-escalates critical/emergency cases instantly",
+                    "Book for all family members from a single account",
+                    "Live queue status on mobile + real-time alerts",
+                    "Digital e-prescriptions — zero paperwork needed",
+                  ])
                 ).map((reason, i) => (
                   <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: "8px", fontSize: "12.5px", color: isDarkHeader ? "#CBD5E1" : "#334155" }}>
                     <span style={{ color: "#10B981", fontWeight: 800, flexShrink: 0 }}>✓</span>
@@ -1696,7 +1683,7 @@ export default function Header({
         </div>
       )}
 
-            {/* 5. CONTACT US MODAL */}
+      {/* 5. CONTACT US MODAL */}
       {showContactModal && (
         <div className="header-modal-overlay" onClick={() => setShowContactModal(false)}>
           <div
