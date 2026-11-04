@@ -1321,7 +1321,8 @@ export default function PathologyPage({
           box-shadow: 0 16px 36px -12px rgba(15, 23, 42, 0.35), 0 0 0 1px rgba(56, 189, 248, 0.18);
           margin-bottom: 16px;
           position: relative;
-          overflow: hidden;
+          overflow: visible;
+          z-index: 50;
         }
 
         .pathology-hero-kpi-grid {
@@ -1382,7 +1383,6 @@ export default function PathologyPage({
           text-align: left;
           user-select: none;
           outline: none;
-          transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
         }
 
         .tab-button-modern.active {
@@ -1399,10 +1399,10 @@ export default function PathologyPage({
           box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02);
         }
 
-        .tab-button-modern.inactive:hover {
-          border-color: #38BDF8;
-          transform: translateY(-1px);
-          box-shadow: 0 4px 12px rgba(2, 132, 199, 0.1);
+        .pathology-portal-wrapper .tab-button-modern:hover,
+        .pathology-portal-wrapper .pathology-kpi-card:hover,
+        .pathology-portal-wrapper button:hover {
+          transform: none !important;
         }
 
         .tab-icon-wrapper {
@@ -1538,7 +1538,7 @@ export default function PathologyPage({
                 <span>{brandName.toUpperCase()}</span>
               </span>
               <span style={{ background: "rgba(56, 189, 248, 0.2)", border: "1px solid rgba(56, 189, 248, 0.4)", color: "#BAE6FD", padding: "3px 8px", borderRadius: "6px", fontSize: "10.5px", fontWeight: 800 }}>
-                {isHi ? "एनबीएल मान्यता प्राप्त केंद्रीय पैथोलॉजी व डायग्नोस्टिक लैब" : "NABL ACCREDITED CENTRAL PATHOLOGY & DIAGNOSTIC LAB"}
+                {isHi ? "पैथोलॉजी व डायग्नोस्टिक लैब पोर्टल" : "PATHOLOGY & DIAGNOSTIC LAB PORTAL"}
               </span>
             </div>
             <h1 style={{ margin: 0, fontSize: "24px", fontWeight: 900, letterSpacing: "-0.4px", lineHeight: "1.2" }}>

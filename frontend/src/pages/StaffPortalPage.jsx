@@ -1864,7 +1864,8 @@ export default function StaffPortalPage({
           box-shadow: 0 16px 36px -12px rgba(15, 23, 42, 0.35), 0 0 0 1px rgba(56, 189, 248, 0.18);
           margin-bottom: 16px;
           position: relative;
-          overflow: hidden;
+          overflow: visible;
+          z-index: 50;
           width: 100%;
           box-sizing: border-box;
         }

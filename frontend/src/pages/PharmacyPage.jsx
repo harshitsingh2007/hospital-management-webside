@@ -1790,7 +1790,8 @@ export default function PharmacyPage({
           box-shadow: 0 20px 45px -12px rgba(15, 23, 42, 0.35), 0 0 0 1px rgba(56, 189, 248, 0.18);
           margin-bottom: 24px;
           position: relative;
-          overflow: hidden;
+          overflow: visible;
+          z-index: 50;
         }
 
         .pharmacy-hero-kpi-grid {
