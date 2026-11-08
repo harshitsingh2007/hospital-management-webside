@@ -54,6 +54,8 @@ import {
   RotateCw,
   ZoomIn,
   ZoomOut,
+  Play,
+  UserX,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -161,6 +163,8 @@ export default function RadiologyPage({
   servingTickets = [],
   heldTickets = [],
   handleServeNext = null,
+  handleRecallTicket = null,
+  handleMarkNoShow = null,
   refreshData,
   language = "en",
   setLanguage = null,
@@ -417,9 +421,22 @@ export default function RadiologyPage({
   );
 
   // Filter Radiology & Diagnostic Imaging Queue
+  // Live timer for 10-minute hold grace window countdown
+  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
+  useEffect(() => {
+    const timer = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Filter Radiology & Diagnostic Imaging Queue (Waiting Patients)
   const radiologyQueue = useMemo(() => {
     if (!Array.isArray(queueSnapshot)) return [];
     return queueSnapshot.filter((t) => {
+      const s = (t.status || "").toLowerCase();
+      if (s === "on_hold" || s === "hold" || s === "serving" || s === "completed" || s === "cancelled" || s === "no_show") {
+        return false;
+      }
+
       const dept = (t.department || t.department_name || "").toLowerCase();
       const cat = (t.service_category || "").toLowerCase();
       const med = (t.medical_condition || "").toLowerCase();
@@ -457,6 +474,70 @@ export default function RadiologyPage({
       );
     });
   }, [queueSnapshot]);
+
+  // Combined Held Tickets List (from props and queue snapshot)
+  const combinedHeldList = useMemo(() => {
+    const list = Array.isArray(heldTickets) ? [...heldTickets] : [];
+    if (Array.isArray(queueSnapshot)) {
+      queueSnapshot.forEach((t) => {
+        const s = (t.status || "").toLowerCase();
+        if ((s === "on_hold" || s === "hold") && !list.some((h) => h.ticket_id === t.ticket_id)) {
+          list.push(t);
+        }
+      });
+    }
+    return list;
+  }, [heldTickets, queueSnapshot]);
+
+  // Filter Radiology Held Tickets (10-minute grace period window)
+  const radiologyHeldTickets = useMemo(() => {
+    return combinedHeldList.filter((t) => {
+      const dept = (t.department || t.department_name || "").toLowerCase();
+      const cat = (t.service_category || "").toLowerCase();
+      const med = (t.medical_condition || "").toLowerCase();
+      const transFrom = (t.transferred_from_dept || "").toLowerCase();
+
+      const isRad = (
+        dept.includes("rad") ||
+        dept.includes("xray") ||
+        dept.includes("x-ray") ||
+        dept.includes("imag") ||
+        dept.includes("scan") ||
+        dept.includes("mri") ||
+        dept.includes("ct") ||
+        dept.includes("usg") ||
+        dept.includes("ultrasound") ||
+        cat.includes("rad") ||
+        cat.includes("xray") ||
+        cat.includes("imag") ||
+        cat.includes("scan") ||
+        med.includes("rad") ||
+        med.includes("xray") ||
+        med.includes("scan") ||
+        med.includes("mri") ||
+        med.includes("ct") ||
+        med.includes("usg") ||
+        med.includes("ultrasound") ||
+        transFrom.includes("rad") ||
+        transFrom.includes("xray") ||
+        transFrom.includes("imag") ||
+        (t.prescription_notes &&
+          typeof t.prescription_notes === "string" &&
+          (t.prescription_notes.includes("radiology_report") ||
+            t.prescription_notes.includes("xray") ||
+            t.prescription_notes.includes("imaging")))
+      );
+
+      const isMyDesk = Boolean(
+        (t.served_by_doctor_id && currentUser?.id && String(t.served_by_doctor_id) === String(currentUser?.id)) ||
+        (t.previous_doctor_id && currentUser?.id && String(t.previous_doctor_id) === String(currentUser?.id)) ||
+        (t.desk_id && (t.desk_id === selectedDesk?.id || t.desk_id === assignedDesk?.id)) ||
+        (t.previous_desk_id && (t.previous_desk_id === selectedDesk?.id || t.previous_desk_id === assignedDesk?.id))
+      );
+
+      return isRad || isMyDesk;
+    });
+  }, [combinedHeldList, currentUser, selectedDesk, assignedDesk]);
 
   // Selected serving ticket
   const [selectedServingTicket, setSelectedServingTicket] = useState(null);
@@ -531,6 +612,30 @@ export default function RadiologyPage({
   const [images, setImages] = useState([]); // [{ name, url, type, size }]
   const [isUploading, setIsUploading] = useState(false);
   const [radiologyAccessionNo, setRadiologyAccessionNo] = useState(() => `RAD-${Date.now().toString().slice(-6)}`);
+  const [appliedTemplate, setAppliedTemplate] = useState(null); // tracks which quick template is applied
+
+  // Route-to-Doctor department picker modal state
+  const [showRouteDeptModal, setShowRouteDeptModal] = useState(false);
+  const [routeTargetDept, setRouteTargetDept] = useState("");
+
+  const ROUTE_DEPARTMENTS = [
+    { id: "general", label: "General Consultation (OPD)", labelHi: "सामान्य परामर्श (OPD)" },
+    { id: "medicine", label: "General Medicine", labelHi: "जनरल मेडिसिन" },
+    { id: "surgery", label: "General Surgery", labelHi: "जनरल सर्जरी" },
+    { id: "ortho", label: "Orthopaedics", labelHi: "ऑर्थोपेडिक्स" },
+    { id: "neuro", label: "Neurology / Neurosurgery", labelHi: "न्यूरोलॉजी / न्यूरोसर्जरी" },
+    { id: "pulmonary", label: "Pulmonology / Chest Medicine", labelHi: "पल्मोनोलॉजी / चेस्ट मेडिसिन" },
+    { id: "cardiology", label: "Cardiology", labelHi: "कार्डियोलॉजी" },
+    { id: "gastro", label: "Gastroenterology", labelHi: "गैस्ट्रोएंटरोलॉजी" },
+    { id: "uro", label: "Urology", labelHi: "यूरोलॉजी" },
+    { id: "gynae", label: "Obstetrics & Gynaecology", labelHi: "प्रसूति एवं स्त्री रोग" },
+    { id: "paediatrics", label: "Paediatrics", labelHi: "बाल रोग" },
+    { id: "ent", label: "ENT (Ear, Nose & Throat)", labelHi: "ईएनटी (कान, नाक, गला)" },
+    { id: "ophthalmology", label: "Ophthalmology", labelHi: "नेत्र रोग" },
+    { id: "dermatology", label: "Dermatology", labelHi: "त्वचा रोग" },
+    { id: "oncology", label: "Oncology", labelHi: "ऑन्कोलॉजी" },
+    { id: "emergency", label: "Emergency / Trauma", labelHi: "आपातकालीन / ट्रॉमा" },
+  ];
 
   // Pregnancy Safety Protocol for females 12-55 undergoing X-Ray / CT
   const [pregnancyConfirmed, setPregnancyConfirmed] = useState(false);
@@ -603,6 +708,7 @@ export default function RadiologyPage({
   const applyNormalTemplate = (key) => {
     const t = NORMAL_TEMPLATES[key];
     if (!t) return;
+    setAppliedTemplate(key);
     setModality(t.modality);
     setBodyPart(t.body_part);
     setViewProjection(t.view);
@@ -910,6 +1016,7 @@ export default function RadiologyPage({
   };
 
   // Hold Ticket
+  // Hold Ticket (10-minute Grace Window)
   const handleHold = async () => {
     if (!activeServingTicket) return;
     try {
@@ -931,8 +1038,91 @@ export default function RadiologyPage({
       }
       setSelectedServingTicket(null);
       showToast(isHi ? `टोकन #${activeServingTicket.ticket_id} को होल्ड पर रखा गया` : `Token #${activeServingTicket.ticket_id} placed on 10-minute hold`, "warn");
+      showToast(isHi ? `टोकन #${activeServingTicket.ticket_id} को होल्ड पर रखा गया (10 मिनट ग्रेस)` : `Token #${activeServingTicket.ticket_id} placed on 10-minute hold`, "warn");
       if (refreshData) refreshData();
     } catch (_) { }
+  };
+
+  // Recall Held Patient back into active station or queue
+  const handleRecallHeld = async (ticket) => {
+    if (!ticket) return;
+    try {
+      const mode = activeServingTicket ? "queue" : "serving";
+      if (handleRecallTicket) {
+        await handleRecallTicket(ticket.ticket_id, mode);
+      } else {
+        await fetch(`${API_BASE}/api/v1/plugin/recall-ticket`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tenant_id: effectiveHospitalCode,
+            ticket_id: ticket.ticket_id,
+            doctor_id: currentUser?.id,
+            doctor_name: currentUser?.name || currentUser?.username || radiologistName,
+            doctor_email: currentUser?.email,
+            target_mode: mode,
+          }),
+        });
+      }
+      if (socketRef && socketRef.current) {
+        socketRef.current.emit("recall_ticket", {
+          tenant_id: effectiveHospitalCode,
+          ticket_id: ticket.ticket_id,
+          doctor_id: currentUser?.id,
+          user_name: currentUser?.name || currentUser?.username || radiologistName,
+          target_mode: mode,
+        });
+      }
+      if (!activeServingTicket) {
+        setSelectedServingTicket(ticket);
+      }
+      const radTicket = {
+        ...ticket,
+        counter_name: assignedDesk?.desk_name || activeDesk || "Imaging Workstation",
+        room_number: assignedDesk?.desk_name || "Radiology Scan Room",
+      };
+      announceTicketVoice(radTicket, language);
+      const msg = isHi
+        ? `टोकन #${ticket.ticket_id} (${ticket.name}) को पुनः सक्रिय किया गया!`
+        : `Recalled #${ticket.ticket_id} (${ticket.name}) back to active station!`;
+      showToast(msg, "success");
+      if (refreshData) refreshData();
+    } catch (e) {
+      showToast(isHi ? `त्रुटि: ${e.message}` : `Error recalling ticket: ${e.message}`, "error");
+    }
+  };
+
+  // Finalize No-Show for Held Patient
+  const handleFinalizeNoShow = async (ticket) => {
+    if (!ticket) return;
+    try {
+      if (handleMarkNoShow) {
+        await handleMarkNoShow(ticket.ticket_id, "Patient absent after 10-min grace period");
+      } else {
+        await fetch(`${API_BASE}/api/v1/plugin/no-show`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tenant_id: effectiveHospitalCode,
+            ticket_id: ticket.ticket_id,
+            reason: "Patient absent after 10-min grace period",
+          }),
+        });
+      }
+      if (socketRef && socketRef.current) {
+        socketRef.current.emit("no_show", {
+          tenant_id: effectiveHospitalCode,
+          ticket_id: ticket.ticket_id,
+        });
+      }
+      const msg = isHi
+        ? `टोकन #${ticket.ticket_id} (${ticket.name}) को अनुपस्थित (No-Show) चिह्नित किया गया।`
+        : `Token #${ticket.ticket_id} (${ticket.name}) marked as No-Show.`;
+      showToast(msg, "warn");
+      if (refreshData) refreshData();
+    } catch (e) {
+      showToast(isHi ? `त्रुटि: ${e.message}` : `Error: ${e.message}`, "error");
+    }
   };
 
   // Mark No-Show
@@ -1035,7 +1225,7 @@ export default function RadiologyPage({
   };
 
   // Complete & Route Back to Referring Doctor
-  const handleCompleteAndRouteToDoctor = async () => {
+  const handleCompleteAndRouteToDoctor = async (overrideDept) => {
     if (!activeServingTicket) return;
     if (!findings.trim() || !impression.trim()) {
       showToast(isHi ? "कृपया पहले निष्कर्ष (Findings) और इंप्रेशन दर्ज करें" : "Please provide diagnostic findings and impression first", "warn");
@@ -1061,7 +1251,7 @@ export default function RadiologyPage({
         }),
       });
 
-      const targetDept = parsedDoctorRx?.doctor_department || activeServingTicket.transferred_from_dept || "general";
+      const targetDept = overrideDept || parsedDoctorRx?.doctor_department || activeServingTicket.transferred_from_dept || "general";
       const targetDoctorId = parsedDoctorRx?.doctor_id || activeServingTicket.transferred_from_doctor_id || null;
 
       const res = await fetch(`${API_BASE}/api/v1/plugin/transfer-ticket`, {
@@ -2100,6 +2290,31 @@ export default function RadiologyPage({
           >
             {radiologyQueue.length}
           </span>
+          <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+            <span
+              className="tab-count-badge"
+              style={{
+                background: activeTab === "workstation" ? "rgba(255,255,255,0.25)" : (isDark ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE"),
+                color: activeTab === "workstation" ? "#FFFFFF" : "#0284C7",
+              }}
+            >
+              {radiologyQueue.length}
+            </span>
+            {radiologyHeldTickets.length > 0 && (
+              <span
+                className="tab-count-badge"
+                style={{
+                  background: activeTab === "workstation" ? "#FEF3C7" : (isDark ? "rgba(245, 158, 11, 0.25)" : "#FEF3C7"),
+                  color: "#92400E",
+                  border: "1px solid #FDE68A",
+                  fontWeight: 900,
+                }}
+                title={`${radiologyHeldTickets.length} ${isHi ? "मरीज़ होल्ड पर" : "Patients on Hold / Grace Window"}`}
+              >
+                {radiologyHeldTickets.length} {isHi ? "होल्ड" : "Held"}
+              </span>
+            )}
+          </div>
         </button>
 
         <button
@@ -2415,7 +2630,9 @@ export default function RadiologyPage({
                     <span>{isHi ? "त्वरित सामान्य टेम्पलेट्स (Quick Normal Templates):" : "Quick Normal Templates:"}</span>
                   </div>
                   <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                    {Object.keys(NORMAL_TEMPLATES).map((key) => (
+                    {Object.keys(NORMAL_TEMPLATES).map((key) => {
+                      const isApplied = appliedTemplate === key;
+                      return (
                       <button
                         key={key}
                         type="button"
@@ -2425,20 +2642,27 @@ export default function RadiologyPage({
                           borderRadius: "8px",
                           fontSize: "11px",
                           fontWeight: 700,
-                          background: isDark ? "#1E293B" : "#F8FAFC",
-                          border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
-                          color: textColor,
+                          background: isApplied
+                            ? "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)"
+                            : isDark ? "#1E293B" : "#F8FAFC",
+                          border: isApplied
+                            ? "1.5px solid #0EA5E9"
+                            : isDark ? "1px solid #334155" : "1px solid #CBD5E1",
+                          color: isApplied ? "#FFFFFF" : textColor,
                           cursor: "pointer",
                           display: "inline-flex",
                           alignItems: "center",
                           gap: "4px",
-                          transition: "all 0.15s ease",
+                          transition: "all 0.2s ease",
+                          boxShadow: isApplied ? "0 3px 10px rgba(2, 132, 199, 0.35)" : "none",
+                          transform: isApplied ? "scale(1.03)" : "scale(1)",
                         }}
                       >
-                        <span>⚡</span>
+                        <span>{isApplied ? "✅" : "⚡"}</span>
                         <span>{NORMAL_TEMPLATES[key].title}</span>
                       </button>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -2870,7 +3094,17 @@ export default function RadiologyPage({
                   <div style={{ display: "flex", gap: "8px" }}>
                     <button
                       type="button"
-                      onClick={handleCompleteAndRouteToDoctor}
+                      onClick={() => {
+                        if (!activeServingTicket) return;
+                        if (!findings.trim() || !impression.trim()) {
+                          showToast(isHi ? "कृपया पहले निष्कर्ष (Findings) और इंप्रेशन दर्ज करें" : "Please provide diagnostic findings and impression first", "warn");
+                          return;
+                        }
+                        // Pre-select referring doctor's department if available
+                        const preDept = parsedDoctorRx?.doctor_department || activeServingTicket.transferred_from_dept || "";
+                        setRouteTargetDept(preDept);
+                        setShowRouteDeptModal(true);
+                      }}
                       style={{
                         background: "linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)",
                         color: "#FFFFFF",
@@ -2917,6 +3151,219 @@ export default function RadiologyPage({
                 </div>
               </div>
             )}
+
+            {/* 3. PATIENTS ON HOLD / 10-MIN GRACE WINDOW SECTION (Matching General OPD Doctor Portal) */}
+            <div
+              style={{
+                padding: "16px 20px",
+                background: isDark ? "#0F172A" : "var(--rad-card-bg, #FFFFFF)",
+                borderRadius: "16px",
+                border: isDark ? "1px solid #1E293B" : "1.5px solid var(--rad-card-border, #E2E8F0)",
+                boxShadow: isDark ? "0 4px 16px rgba(0,0,0,0.3)" : "0 2px 10px rgba(0,0,0,0.03)",
+                width: "100%",
+                boxSizing: "border-box",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px", flexWrap: "wrap", gap: "8px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", padding: "7px", borderRadius: "10px", background: isDark ? "rgba(245, 158, 11, 0.2)" : "#FEF3C7", color: "#D97706" }}>
+                    <Clock size={16} />
+                  </span>
+                  <div>
+                    <strong style={{ fontSize: "14px", color: textColor, display: "block", letterSpacing: "-0.2px" }}>
+                      {isHi ? "होल्ड पर मरीज़ (10 मिनट ग्रेस विंडो)" : "Patients on Hold (10-Min Grace Window)"}
+                    </strong>
+                    <span style={{ fontSize: "11px", color: mutedText }}>
+                      {isHi
+                        ? "अनुपस्थित मरीज़ों को 10 मिनट की छूट। आगमन पर पुनः बुलाएं (Recall) अथवा No-Show चिह्नित करें।"
+                        : "Patients absent when called are held for 10-min grace window. Recall on arrival or finalize No-Show."}
+                    </span>
+                  </div>
+                </div>
+                <span
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 800,
+                    padding: "3px 10px",
+                    borderRadius: "9999px",
+                    background: radiologyHeldTickets.length > 0 ? (isDark ? "rgba(245, 158, 11, 0.25)" : "#FEF3C7") : (isDark ? "#1E293B" : "#F1F5F9"),
+                    color: radiologyHeldTickets.length > 0 ? "#D97706" : mutedText,
+                    border: `1px solid ${radiologyHeldTickets.length > 0 ? "rgba(245, 158, 11, 0.4)" : (isDark ? "#334155" : "#CBD5E1")}`,
+                  }}
+                >
+                  {radiologyHeldTickets.length} {isHi ? "होल्ड पर" : "On Hold"}
+                </span>
+              </div>
+
+              {radiologyHeldTickets.length === 0 ? (
+                <div
+                  style={{
+                    padding: "16px 18px",
+                    background: isDark ? "#131D31" : "#F8FAFC",
+                    borderRadius: "12px",
+                    border: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    color: mutedText,
+                    fontSize: "12.5px",
+                  }}
+                >
+                  <CheckCircle2 size={16} color="#10B981" />
+                  <span>
+                    {isHi
+                      ? "वर्तमान में कोई मरीज़ होल्ड पर नहीं है। सभी इमेजिंग जांच सुचारु रूप से चल रही हैं।"
+                      : "No patients currently on hold. All imaging examinations running on schedule."}
+                  </span>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                  {radiologyHeldTickets.map((ht) => {
+                    const holdStart = ht.hold_start_time || ht.join_timestamp || nowSec;
+                    const holdUntil = ht.hold_until || (holdStart + 600);
+                    const remainingSecs = Math.max(0, Math.floor(holdUntil - nowSec));
+                    const mins = Math.floor(remainingSecs / 60);
+                    const secs = remainingSecs % 60;
+                    const timerStr = `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+                    const isExpired = remainingSecs <= 0;
+
+                    return (
+                      <div
+                        key={ht.ticket_id}
+                        style={{
+                          background: isExpired
+                            ? (isDark ? "rgba(239, 68, 68, 0.12)" : "#FFF5F5")
+                            : (isDark ? "rgba(245, 158, 11, 0.1)" : "#FFFDF5"),
+                          borderRadius: "14px",
+                          border: isExpired
+                            ? (isDark ? "1.5px solid rgba(239, 68, 68, 0.4)" : "1.5px solid #FECACA")
+                            : (isDark ? "1.5px solid rgba(245, 158, 11, 0.45)" : "1.5px solid #FDE68A"),
+                          padding: "12px 16px",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          flexWrap: "wrap",
+                          gap: "12px",
+                          boxShadow: "0 2px 8px rgba(0, 0, 0, 0.03)",
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                          <div
+                            style={{
+                              padding: "4px 10px",
+                              minWidth: "54px",
+                              height: "36px",
+                              borderRadius: "10px",
+                              background: isExpired ? "#DC2626" : "#D97706",
+                              color: "#FFFFFF",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontSize: "14px",
+                              fontWeight: 900,
+                              whiteSpace: "nowrap",
+                              letterSpacing: "0.5px",
+                              flexShrink: 0,
+                            }}
+                          >
+                            {String(ht.ticket_id).startsWith("#") ? ht.ticket_id : `#${ht.ticket_id}`}
+                          </div>
+                          <div>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                              <strong style={{ fontSize: "14.5px", color: textColor }}>{ht.name}</strong>
+                              <span style={{ padding: "1px 7px", borderRadius: "5px", background: isDark ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE", color: "#0284C7", fontSize: "10.5px", fontWeight: 700 }}>
+                                {ht.service_category || ht.medical_condition || "Radiology"}
+                              </span>
+                              <span style={{ fontSize: "11px", color: mutedText }}>
+                                {ht.age || 30} {isHi ? "वर्ष" : "yrs"} • {String(ht.gender || "M").toUpperCase()}
+                              </span>
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "4px" }}>
+                              <span
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "4px",
+                                  padding: "2px 8px",
+                                  borderRadius: "6px",
+                                  fontSize: "11px",
+                                  fontWeight: 800,
+                                  background: isExpired
+                                    ? (isDark ? "rgba(239, 68, 68, 0.25)" : "#FEE2E2")
+                                    : (isDark ? "rgba(245, 158, 11, 0.25)" : "#FEF3C7"),
+                                  color: isExpired ? "#DC2626" : "#D97706",
+                                }}
+                              >
+                                {isExpired ? <AlertTriangle size={12} /> : <Clock size={12} />}
+                                <span>
+                                  {isExpired
+                                    ? (isHi ? "10 मिनट ग्रेस समाप्त (No-Show)" : "10-Min Grace Expired")
+                                    : (isHi ? `ग्रेस समय शेष: ${timerStr}` : `Grace Remaining: ${timerStr}`)}
+                                </span>
+                              </span>
+                              {ht.transferred_from_dept && (
+                                <span style={{ fontSize: "10.5px", color: mutedText }}>
+                                  Ref: {ht.transferred_from_dept}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                          {/* Recall / Resume Button */}
+                          <button
+                            type="button"
+                            onClick={() => handleRecallHeld(ht)}
+                            style={{
+                              padding: "7px 14px",
+                              borderRadius: "10px",
+                              border: "none",
+                              background: "linear-gradient(135deg, #059669 0%, #047857 100%)",
+                              color: "#FFFFFF",
+                              fontSize: "12px",
+                              fontWeight: 800,
+                              cursor: "pointer",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "6px",
+                              boxShadow: "0 2px 6px rgba(5, 150, 105, 0.25)",
+                            }}
+                            title={isHi ? "मरीज़ आ गया है: स्टेशन पर पुनः बुलाएं और जांच शुरू करें" : "Patient has arrived: Recall to station and begin examination"}
+                          >
+                            <Play size={12} fill="#FFFFFF" color="#FFFFFF" />
+                            <span>{isHi ? "मरीज़ पुनः बुलाएं (Recall)" : "Recall Patient"}</span>
+                          </button>
+
+                          {/* Mark No-Show Finalize Button */}
+                          <button
+                            type="button"
+                            onClick={() => handleFinalizeNoShow(ht)}
+                            style={{
+                              padding: "7px 12px",
+                              borderRadius: "10px",
+                              border: isDark ? "1px solid rgba(239, 68, 68, 0.4)" : "1px solid #FECACA",
+                              background: isDark ? "rgba(239, 68, 68, 0.15)" : "#FEF2F2",
+                              color: "#DC2626",
+                              fontSize: "12px",
+                              fontWeight: 700,
+                              cursor: "pointer",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "5px",
+                            }}
+                            title={isHi ? "मरीज़ नहीं आया: अनुपस्थित (No-Show) दर्ज करें" : "Finalize as No-Show if patient did not appear"}
+                          >
+                            <UserX size={12} />
+                            <span>{isHi ? "अनुपस्थित (No-Show)" : "Mark No-Show"}</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Right Column: Live Imaging Queue */}
@@ -3059,6 +3506,69 @@ export default function RadiologyPage({
                       </div>
                     );
                   })}
+                </div>
+              )}
+
+              {/* Sidebar Quick Held Section if held tickets exist */}
+              {radiologyHeldTickets.length > 0 && (
+                <div style={{ marginTop: "14px", paddingTop: "12px", borderTop: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                    <span style={{ fontSize: "11.5px", fontWeight: 800, color: "#D97706", display: "flex", alignItems: "center", gap: "5px" }}>
+                      <Clock size={12} />
+                      <span>{isHi ? "होल्ड पर मरीज़" : "Patients on Hold"}</span>
+                    </span>
+                    <span style={{ fontSize: "10px", fontWeight: 800, padding: "1px 6px", borderRadius: "999px", background: isDark ? "rgba(245, 158, 11, 0.25)" : "#FEF3C7", color: "#B45309" }}>
+                      {radiologyHeldTickets.length}
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                    {radiologyHeldTickets.map((ht) => (
+                      <div
+                        key={ht.ticket_id}
+                        style={{
+                          background: isDark ? "rgba(245, 158, 11, 0.1)" : "#FFFDF5",
+                          border: isDark ? "1px solid rgba(245, 158, 11, 0.3)" : "1px solid #FDE68A",
+                          borderRadius: "8px",
+                          padding: "6px 8px",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          gap: "6px",
+                        }}
+                      >
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ fontSize: "11.5px", fontWeight: 800, color: textColor, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            #{ht.ticket_id} {ht.name}
+                          </div>
+                          <div style={{ fontSize: "10px", color: "#D97706", fontWeight: 700 }}>
+                            {ht.service_category || "Radiology"}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleRecallHeld(ht)}
+                          style={{
+                            padding: "4px 8px",
+                            borderRadius: "6px",
+                            border: "none",
+                            background: "#059669",
+                            color: "#FFFFFF",
+                            fontSize: "10.5px",
+                            fontWeight: 800,
+                            cursor: "pointer",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "3px",
+                            flexShrink: 0,
+                          }}
+                          title={isHi ? "पुनः बुलाएं" : "Recall"}
+                        >
+                          <Play size={10} fill="#FFF" color="#FFF" />
+                          <span>{isHi ? "बुलाएं" : "Recall"}</span>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -3505,6 +4015,171 @@ export default function RadiologyPage({
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Route to Doctor — Department Picker Modal */}
+      {showRouteDeptModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15, 23, 42, 0.75)",
+            backdropFilter: "blur(6px)",
+            WebkitBackdropFilter: "blur(6px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000000,
+            padding: "20px",
+          }}
+          onClick={() => setShowRouteDeptModal(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: isDark ? "#0F172A" : "#FFFFFF",
+              borderRadius: "20px",
+              border: isDark ? "1px solid #334155" : "1.5px solid #E2E8F0",
+              padding: "24px",
+              maxWidth: "520px",
+              width: "100%",
+              maxHeight: "80vh",
+              overflow: "auto",
+              boxShadow: "0 25px 60px -12px rgba(0,0,0,0.4)",
+            }}
+          >
+            {/* Modal Header */}
+            <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "18px" }}>
+              <div
+                style={{
+                  width: "42px",
+                  height: "42px",
+                  borderRadius: "12px",
+                  background: isDark ? "rgba(99,102,241,0.2)" : "#EEF2FF",
+                  color: "#6366F1",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <Send size={22} />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: "17px", fontWeight: 800, color: isDark ? "#F8FAFC" : "#0F172A" }}>
+                  {isHi ? "विभाग चुनें — रिपोर्ट भेजें" : "Select Department — Route Report"}
+                </h3>
+                <p style={{ margin: "2px 0 0 0", fontSize: "12px", color: "#64748B" }}>
+                  {isHi
+                    ? `टोकन #${activeServingTicket?.ticket_id || ""} को किस विभाग / डॉक्टर के पास भेजना है?`
+                    : `Where should Token #${activeServingTicket?.ticket_id || ""} be routed after this study?`}
+                </p>
+              </div>
+            </div>
+
+            {/* Referring Doctor Info (if available) */}
+            {(parsedDoctorRx?.doctor_name || activeServingTicket?.transferred_from_dept) && (
+              <div style={{
+                padding: "10px 14px",
+                borderRadius: "10px",
+                background: isDark ? "rgba(99,102,241,0.1)" : "#EEF2FF",
+                border: isDark ? "1px solid rgba(99,102,241,0.3)" : "1px solid #C7D2FE",
+                marginBottom: "14px",
+                fontSize: "12px",
+                color: isDark ? "#A5B4FC" : "#4F46E5",
+                fontWeight: 700,
+              }}>
+                {isHi ? "📌 संदर्भ चिकित्सक: " : "📌 Referring Doctor: "}
+                {parsedDoctorRx?.doctor_name || "—"} ({parsedDoctorRx?.doctor_department || activeServingTicket?.transferred_from_dept || "General"})
+              </div>
+            )}
+
+            {/* Department Grid */}
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(2, 1fr)",
+              gap: "8px",
+              marginBottom: "18px",
+            }}>
+              {ROUTE_DEPARTMENTS.map((dept) => {
+                const isSelected = routeTargetDept === dept.id;
+                return (
+                  <button
+                    key={dept.id}
+                    type="button"
+                    onClick={() => setRouteTargetDept(dept.id)}
+                    style={{
+                      padding: "10px 12px",
+                      borderRadius: "10px",
+                      fontSize: "12px",
+                      fontWeight: isSelected ? 800 : 600,
+                      background: isSelected
+                        ? "linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)"
+                        : isDark ? "#1E293B" : "#F8FAFC",
+                      border: isSelected
+                        ? "1.5px solid #818CF8"
+                        : isDark ? "1px solid #334155" : "1px solid #E2E8F0",
+                      color: isSelected ? "#FFFFFF" : isDark ? "#CBD5E1" : "#334155",
+                      cursor: "pointer",
+                      textAlign: "left",
+                      transition: "all 0.15s ease",
+                      boxShadow: isSelected ? "0 3px 10px rgba(99,102,241,0.3)" : "none",
+                    }}
+                  >
+                    {isSelected ? "✓ " : ""}{isHi ? dept.labelHi : dept.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Action Buttons */}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
+              <button
+                type="button"
+                onClick={() => setShowRouteDeptModal(false)}
+                style={{
+                  padding: "10px 18px",
+                  borderRadius: "10px",
+                  border: isDark ? "1px solid #475569" : "1px solid #CBD5E1",
+                  background: "transparent",
+                  color: isDark ? "#CBD5E1" : "#64748B",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                {isHi ? "वापस जाएं" : "Cancel"}
+              </button>
+              <button
+                type="button"
+                disabled={!routeTargetDept}
+                onClick={async () => {
+                  setShowRouteDeptModal(false);
+                  await handleCompleteAndRouteToDoctor(routeTargetDept);
+                }}
+                style={{
+                  padding: "10px 20px",
+                  borderRadius: "10px",
+                  border: "none",
+                  background: routeTargetDept
+                    ? "linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)"
+                    : isDark ? "#334155" : "#E2E8F0",
+                  color: routeTargetDept ? "#FFFFFF" : "#94A3B8",
+                  fontSize: "13px",
+                  fontWeight: 800,
+                  cursor: routeTargetDept ? "pointer" : "not-allowed",
+                  boxShadow: routeTargetDept ? "0 4px 14px rgba(99, 102, 241, 0.35)" : "none",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                }}
+              >
+                <Send size={14} />
+                {isHi ? "पूर्ण करें एवं भेजें" : "Complete & Route"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

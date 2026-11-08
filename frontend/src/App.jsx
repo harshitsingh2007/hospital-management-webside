@@ -2243,6 +2243,8 @@ export default function App() {
                     servingTickets={servingTickets}
                     heldTickets={heldTickets}
                     handleServeNext={handleServeNext}
+                    handleRecallTicket={handleRecallTicket}
+                    handleMarkNoShow={handleMarkNoShow}
                     refreshData={refreshData}
                     language={language}
                     setLanguage={setLanguage}
@@ -2276,6 +2278,8 @@ export default function App() {
                     servingTickets={servingTickets}
                     heldTickets={heldTickets}
                     handleServeNext={handleServeNext}
+                    handleRecallTicket={handleRecallTicket}
+                    handleMarkNoShow={handleMarkNoShow}
                     refreshData={refreshData}
                     language={language}
                     setLanguage={setLanguage}
@@ -2309,6 +2313,8 @@ export default function App() {
                     servingTickets={servingTickets}
                     heldTickets={heldTickets}
                     handleServeNext={handleServeNext}
+                    handleRecallTicket={handleRecallTicket}
+                    handleMarkNoShow={handleMarkNoShow}
                     refreshData={refreshData}
                     language={language}
                     setLanguage={setLanguage}

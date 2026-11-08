@@ -52,7 +52,9 @@ import {
   Send,
   AlertCircle,
   Pill,
-  Volume2
+  Volume2,
+  Play,
+  UserX,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -163,6 +165,8 @@ export default function PathologyPage({
   servingTickets = [],
   heldTickets = [],
   handleServeNext = null,
+  handleRecallTicket = null,
+  handleMarkNoShow = null,
   refreshData,
   language = "en",
   setLanguage = null,
@@ -217,13 +221,13 @@ export default function PathologyPage({
   const [activeDesk, setActiveDesk] = useState(() => {
     try {
       const saved = localStorage.getItem("ai_queue_pathology_desk");
-      return saved || "";
+      return (saved || "").replace(/pathogoly/gi, "PATHOLOGY");
     } catch (_) {
       return "";
     }
   });
 
-  const activeCounter = assignedDesk?.desk_name || activeDesk || (currentUser?.name || "Pathology Station");
+  const activeCounter = (assignedDesk?.desk_name || activeDesk || currentUser?.name || "Pathology Station").replace(/pathogoly/gi, "PATHOLOGY");
 
   // Fetch Desks from SuperAdmin management API
   const fetchHospitalDesks = useCallback(async () => {
@@ -266,11 +270,15 @@ export default function PathologyPage({
         });
 
         if (myDesk) {
-          setAssignedDesk(myDesk);
-          setSelectedDesk(myDesk);
-          setActiveDesk(myDesk.desk_name);
+          const sanitizedDesk = {
+            ...myDesk,
+            desk_name: (myDesk.desk_name || "").replace(/pathogoly/gi, "PATHOLOGY"),
+          };
+          setAssignedDesk(sanitizedDesk);
+          setSelectedDesk(sanitizedDesk);
+          setActiveDesk(sanitizedDesk.desk_name);
           try {
-            localStorage.setItem("ai_queue_pathology_desk", myDesk.desk_name);
+            localStorage.setItem("ai_queue_pathology_desk", sanitizedDesk.desk_name);
           } catch (_) { }
         } else {
           setAssignedDesk(null);
@@ -514,9 +522,22 @@ export default function PathologyPage({
   }, [socketRef, currentUser]);
 
   // Filter Pathology & Diagnostic Lab Queue
+  // Live timer for 10-minute hold grace window countdown
+  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
+  useEffect(() => {
+    const timer = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Filter Pathology & Diagnostic Lab Queue (Waiting Patients)
   const pathologyQueue = useMemo(() => {
     if (!Array.isArray(queueSnapshot)) return [];
     return queueSnapshot.filter((t) => {
+      const s = (t.status || "").toLowerCase();
+      if (s === "on_hold" || s === "hold" || s === "serving" || s === "completed" || s === "cancelled" || s === "no_show") {
+        return false;
+      }
+
       const dept = (t.department || t.department_name || "").toLowerCase();
       const cat = (t.service_category || "").toLowerCase();
       const med = (t.medical_condition || "").toLowerCase();
@@ -536,6 +557,52 @@ export default function PathologyPage({
       );
     });
   }, [queueSnapshot]);
+
+  // Combined Held Tickets List (from props and queue snapshot)
+  const combinedHeldList = useMemo(() => {
+    const list = Array.isArray(heldTickets) ? [...heldTickets] : [];
+    if (Array.isArray(queueSnapshot)) {
+      queueSnapshot.forEach((t) => {
+        const s = (t.status || "").toLowerCase();
+        if ((s === "on_hold" || s === "hold") && !list.some((h) => h.ticket_id === t.ticket_id)) {
+          list.push(t);
+        }
+      });
+    }
+    return list;
+  }, [heldTickets, queueSnapshot]);
+
+  // Filter Pathology Held Tickets (10-minute grace period window)
+  const pathologyHeldTickets = useMemo(() => {
+    return combinedHeldList.filter((t) => {
+      const dept = (t.department || t.department_name || "").toLowerCase();
+      const cat = (t.service_category || "").toLowerCase();
+      const med = (t.medical_condition || "").toLowerCase();
+      const transFrom = (t.transferred_from_dept || "").toLowerCase();
+
+      const isPath = (
+        dept.includes("path") ||
+        dept.includes("lab") ||
+        cat.includes("path") ||
+        cat.includes("lab") ||
+        cat.includes("diagnos") ||
+        med.includes("path") ||
+        med.includes("lab") ||
+        transFrom.includes("path") ||
+        transFrom.includes("lab") ||
+        (t.prescription_notes && typeof t.prescription_notes === "string" && t.prescription_notes.includes("lab_tests"))
+      );
+
+      const isMyDesk = Boolean(
+        (t.served_by_doctor_id && currentUser?.id && String(t.served_by_doctor_id) === String(currentUser?.id)) ||
+        (t.previous_doctor_id && currentUser?.id && String(t.previous_doctor_id) === String(currentUser?.id)) ||
+        (t.desk_id && (t.desk_id === selectedDesk?.id || t.desk_id === assignedDesk?.id)) ||
+        (t.previous_desk_id && (t.previous_desk_id === selectedDesk?.id || t.previous_desk_id === assignedDesk?.id))
+      );
+
+      return isPath || isMyDesk;
+    });
+  }, [combinedHeldList, currentUser, selectedDesk, assignedDesk]);
 
   // Selected ticket being actively tested at the station
   const [selectedServingTicket, setSelectedServingTicket] = useState(null);
@@ -997,14 +1064,82 @@ export default function PathologyPage({
   };
 
   // Hold Ticket (10-min Grace Period)
-  const handleHold = () => {
+  const handleHold = async () => {
     if (!activeServingTicket) return;
-    if (socketRef && socketRef.current && socketRef.current.connected) {
-      socketRef.current.emit("hold_ticket", {
-        tenant_id: effectiveHospitalCode,
-        ticket_id: activeServingTicket.ticket_id,
-        grace_minutes: 10,
+    try {
+      await fetch(`${API_BASE}/api/v1/plugin/hold-ticket`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenant_id: effectiveHospitalCode,
+          ticket_id: activeServingTicket.ticket_id,
+          grace_minutes: 10,
+        }),
       });
+      if (socketRef && socketRef.current) {
+        socketRef.current.emit("hold_ticket", {
+          tenant_id: effectiveHospitalCode,
+          ticket_id: activeServingTicket.ticket_id,
+          grace_minutes: 10,
+        });
+      }
+      setSelectedServingTicket(null);
+      showToast(
+        isHi
+          ? `टोकन #${activeServingTicket.ticket_id} को 10 मिनट होल्ड पर रखा गया।`
+          : `Token #${activeServingTicket.ticket_id} placed on 10-minute hold.`,
+        "warn"
+      );
+      if (refreshData) refreshData();
+    } catch (_) { }
+  };
+
+  // Recall Held Patient back into active station or queue
+  const handleRecallHeld = async (ticket) => {
+    if (!ticket) return;
+    try {
+      const mode = activeServingTicket ? "queue" : "serving";
+      if (handleRecallTicket) {
+        await handleRecallTicket(ticket.ticket_id, mode);
+      } else {
+        await fetch(`${API_BASE}/api/v1/plugin/recall-ticket`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tenant_id: effectiveHospitalCode,
+            ticket_id: ticket.ticket_id,
+            doctor_id: currentUser?.id,
+            doctor_name: currentUser?.name || currentUser?.username || pathologistName,
+            doctor_email: currentUser?.email,
+            target_mode: mode,
+          }),
+        });
+      }
+      if (socketRef && socketRef.current) {
+        socketRef.current.emit("recall_ticket", {
+          tenant_id: effectiveHospitalCode,
+          ticket_id: ticket.ticket_id,
+          doctor_id: currentUser?.id,
+          user_name: currentUser?.name || currentUser?.username || pathologistName,
+          target_mode: mode,
+        });
+      }
+      if (!activeServingTicket) {
+        setSelectedServingTicket(ticket);
+      }
+      const labTicket = {
+        ...ticket,
+        counter_name: assignedDesk?.desk_name || activeDesk || "Pathology Workstation",
+        room_number: assignedDesk?.desk_name || "Diagnostic Lab Room",
+      };
+      announceTicketVoice(labTicket, language);
+      const msg = isHi
+        ? `टोकन #${ticket.ticket_id} (${ticket.name}) को पुनः सक्रिय किया गया!`
+        : `Recalled #${ticket.ticket_id} (${ticket.name}) back to active station!`;
+      showToast(msg, "success");
+      if (refreshData) refreshData();
+    } catch (e) {
+      showToast(isHi ? `त्रुटि: ${e.message}` : `Error recalling ticket: ${e.message}`, "error");
     }
     setSelectedServingTicket(null);
     showToast(
@@ -1014,6 +1149,39 @@ export default function PathologyPage({
       "warn"
     );
     if (refreshData) refreshData();
+  };
+
+  // Finalize No-Show for Held Patient
+  const handleFinalizeNoShow = async (ticket) => {
+    if (!ticket) return;
+    try {
+      if (handleMarkNoShow) {
+        await handleMarkNoShow(ticket.ticket_id, "Patient absent after 10-min grace period");
+      } else {
+        await fetch(`${API_BASE}/api/v1/plugin/no-show`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tenant_id: effectiveHospitalCode,
+            ticket_id: ticket.ticket_id,
+            reason: "Patient absent after 10-min grace period",
+          }),
+        });
+      }
+      if (socketRef && socketRef.current) {
+        socketRef.current.emit("no_show", {
+          tenant_id: effectiveHospitalCode,
+          ticket_id: ticket.ticket_id,
+        });
+      }
+      const msg = isHi
+        ? `टोकन #${ticket.ticket_id} (${ticket.name}) को अनुपस्थित (No-Show) चिह्नित किया गया।`
+        : `Token #${ticket.ticket_id} (${ticket.name}) marked as No-Show.`;
+      showToast(msg, "warn");
+      if (refreshData) refreshData();
+    } catch (e) {
+      showToast(isHi ? `त्रुटि: ${e.message}` : `Error: ${e.message}`, "error");
+    }
   };
 
   // Mark No-Show
@@ -1685,7 +1853,7 @@ export default function PathologyPage({
                   letterSpacing: "0.3px",
                 }}
               >
-                {assignedDesk?.desk_name || (isHi ? "अनअसाइंड" : "Unassigned")}
+                {(assignedDesk?.desk_name || (isHi ? "अनअसाइंड" : "Unassigned")).replace(/pathogoly/gi, "PATHOLOGY")}
               </span>
             </div>
 
@@ -1846,7 +2014,7 @@ export default function PathologyPage({
                   : dutyStatus === "BREAK"
                     ? (isHi ? "अवकाश पर (कॉलिंग रुकी है)" : "Testing paused")
                     : assignedDesk?.desk_name
-                      ? (isHi ? `${assignedDesk.desk_name} उपलब्ध` : `${assignedDesk.desk_name} ready`)
+                      ? (isHi ? `${assignedDesk.desk_name.replace(/pathogoly/gi, "PATHOLOGY")} उपलब्ध` : `${assignedDesk.desk_name.replace(/pathogoly/gi, "PATHOLOGY")} ready`)
                       : (isHi ? "अनअसाइंड" : "Unassigned")}
             </div>
           </div>
@@ -1976,6 +2144,31 @@ export default function PathologyPage({
           >
             {pathologyQueue.length}
           </span>
+          <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+            <span
+              className="tab-count-badge"
+              style={{
+                background: activeTab === "workstation" ? "rgba(255,255,255,0.25)" : (isDark ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE"),
+                color: activeTab === "workstation" ? "#FFFFFF" : "#0284C7",
+              }}
+            >
+              {pathologyQueue.length}
+            </span>
+            {pathologyHeldTickets.length > 0 && (
+              <span
+                className="tab-count-badge"
+                style={{
+                  background: activeTab === "workstation" ? "#FEF3C7" : (isDark ? "rgba(245, 158, 11, 0.25)" : "#FEF3C7"),
+                  color: "#92400E",
+                  border: "1px solid #FDE68A",
+                  fontWeight: 900,
+                }}
+                title={`${pathologyHeldTickets.length} ${isHi ? "मरीज़ होल्ड पर" : "Patients on Hold / Grace Window"}`}
+              >
+                {pathologyHeldTickets.length} {isHi ? "होल्ड" : "Held"}
+              </span>
+            )}
+          </div>
         </button>
 
         <button
@@ -2729,6 +2922,220 @@ export default function PathologyPage({
                 </div>
               </div>
             </div>
+
+            {/* 3. PATIENTS ON HOLD / 10-MIN GRACE WINDOW SECTION (Matching General OPD Doctor Portal) */}
+            <div
+              style={{
+                marginTop: "16px",
+                padding: "16px 20px",
+                background: isDark ? "#0F172A" : "var(--path-card-bg, #FFFFFF)",
+                borderRadius: "16px",
+                border: isDark ? "1px solid #1E293B" : "1.5px solid var(--path-card-border, #E2E8F0)",
+                boxShadow: isDark ? "0 4px 16px rgba(0,0,0,0.3)" : "0 2px 10px rgba(0,0,0,0.03)",
+                width: "100%",
+                boxSizing: "border-box",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px", flexWrap: "wrap", gap: "8px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", padding: "7px", borderRadius: "10px", background: isDark ? "rgba(245, 158, 11, 0.2)" : "#FEF3C7", color: "#D97706" }}>
+                    <Clock size={16} />
+                  </span>
+                  <div>
+                    <strong style={{ fontSize: "14px", color: textColor, display: "block", letterSpacing: "-0.2px" }}>
+                      {isHi ? "होल्ड पर मरीज़ (10 मिनट ग्रेस विंडो)" : "Patients on Hold (10-Min Grace Window)"}
+                    </strong>
+                    <span style={{ fontSize: "11px", color: mutedText }}>
+                      {isHi
+                        ? "अनुपस्थित मरीज़ों को 10 मिनट की छूट। आगमन पर पुनः बुलाएं (Recall) अथवा No-Show चिह्नित करें।"
+                        : "Patients absent when called are held for 10-min grace window. Recall on arrival or finalize No-Show."}
+                    </span>
+                  </div>
+                </div>
+                <span
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 800,
+                    padding: "3px 10px",
+                    borderRadius: "9999px",
+                    background: pathologyHeldTickets.length > 0 ? (isDark ? "rgba(245, 158, 11, 0.25)" : "#FEF3C7") : (isDark ? "#1E293B" : "#F1F5F9"),
+                    color: pathologyHeldTickets.length > 0 ? "#D97706" : mutedText,
+                    border: `1px solid ${pathologyHeldTickets.length > 0 ? "rgba(245, 158, 11, 0.4)" : (isDark ? "#334155" : "#CBD5E1")}`,
+                  }}
+                >
+                  {pathologyHeldTickets.length} {isHi ? "होल्ड पर" : "On Hold"}
+                </span>
+              </div>
+
+              {pathologyHeldTickets.length === 0 ? (
+                <div
+                  style={{
+                    padding: "16px 18px",
+                    background: isDark ? "#131D31" : "#F8FAFC",
+                    borderRadius: "12px",
+                    border: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    color: mutedText,
+                    fontSize: "12.5px",
+                  }}
+                >
+                  <CheckCircle2 size={16} color="#10B981" />
+                  <span>
+                    {isHi
+                      ? "वर्तमान में कोई मरीज़ होल्ड पर नहीं है। सभी पैथोलॉजी जांच सुचारु रूप से चल रही हैं।"
+                      : "No patients currently on hold. All laboratory testing running on schedule."}
+                  </span>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                  {pathologyHeldTickets.map((ht) => {
+                    const holdStart = ht.hold_start_time || ht.join_timestamp || nowSec;
+                    const holdUntil = ht.hold_until || (holdStart + 600);
+                    const remainingSecs = Math.max(0, Math.floor(holdUntil - nowSec));
+                    const mins = Math.floor(remainingSecs / 60);
+                    const secs = remainingSecs % 60;
+                    const timerStr = `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+                    const isExpired = remainingSecs <= 0;
+
+                    return (
+                      <div
+                        key={ht.ticket_id}
+                        style={{
+                          background: isExpired
+                            ? (isDark ? "rgba(239, 68, 68, 0.12)" : "#FFF5F5")
+                            : (isDark ? "rgba(245, 158, 11, 0.1)" : "#FFFDF5"),
+                          borderRadius: "14px",
+                          border: isExpired
+                            ? (isDark ? "1.5px solid rgba(239, 68, 68, 0.4)" : "1.5px solid #FECACA")
+                            : (isDark ? "1.5px solid rgba(245, 158, 11, 0.45)" : "1.5px solid #FDE68A"),
+                          padding: "12px 16px",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          flexWrap: "wrap",
+                          gap: "12px",
+                          boxShadow: "0 2px 8px rgba(0, 0, 0, 0.03)",
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                          <div
+                            style={{
+                              padding: "4px 10px",
+                              minWidth: "54px",
+                              height: "36px",
+                              borderRadius: "10px",
+                              background: isExpired ? "#DC2626" : "#D97706",
+                              color: "#FFFFFF",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontSize: "14px",
+                              fontWeight: 900,
+                              whiteSpace: "nowrap",
+                              letterSpacing: "0.5px",
+                              flexShrink: 0,
+                            }}
+                          >
+                            {String(ht.ticket_id).startsWith("#") ? ht.ticket_id : `#${ht.ticket_id}`}
+                          </div>
+                          <div>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                              <strong style={{ fontSize: "14.5px", color: textColor }}>{ht.name}</strong>
+                              <span style={{ padding: "1px 7px", borderRadius: "5px", background: isDark ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE", color: "#0284C7", fontSize: "10.5px", fontWeight: 700 }}>
+                                {ht.service_category || ht.medical_condition || "Pathology"}
+                              </span>
+                              <span style={{ fontSize: "11px", color: mutedText }}>
+                                {ht.age || 30} {isHi ? "वर्ष" : "yrs"} • {String(ht.gender || "M").toUpperCase()}
+                              </span>
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "4px" }}>
+                              <span
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "4px",
+                                  padding: "2px 8px",
+                                  borderRadius: "6px",
+                                  fontSize: "11px",
+                                  fontWeight: 800,
+                                  background: isExpired
+                                    ? (isDark ? "rgba(239, 68, 68, 0.25)" : "#FEE2E2")
+                                    : (isDark ? "rgba(245, 158, 11, 0.25)" : "#FEF3C7"),
+                                  color: isExpired ? "#DC2626" : "#D97706",
+                                }}
+                              >
+                                {isExpired ? <AlertTriangle size={12} /> : <Clock size={12} />}
+                                <span>
+                                  {isExpired
+                                    ? (isHi ? "10 मिनट ग्रेस समाप्त (No-Show)" : "10-Min Grace Expired")
+                                    : (isHi ? `ग्रेस समय शेष: ${timerStr}` : `Grace Remaining: ${timerStr}`)}
+                                </span>
+                              </span>
+                              {ht.transferred_from_dept && (
+                                <span style={{ fontSize: "10.5px", color: mutedText }}>
+                                  Ref: {ht.transferred_from_dept}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                          {/* Recall / Resume Button */}
+                          <button
+                            type="button"
+                            onClick={() => handleRecallHeld(ht)}
+                            style={{
+                              padding: "7px 14px",
+                              borderRadius: "10px",
+                              border: "none",
+                              background: "linear-gradient(135deg, #059669 0%, #047857 100%)",
+                              color: "#FFFFFF",
+                              fontSize: "12px",
+                              fontWeight: 800,
+                              cursor: "pointer",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "6px",
+                              boxShadow: "0 2px 6px rgba(5, 150, 105, 0.25)",
+                            }}
+                            title={isHi ? "मरीज़ आ गया है: स्टेशन पर पुनः बुलाएं और जांच शुरू करें" : "Patient has arrived: Recall to station and begin assay"}
+                          >
+                            <Play size={12} fill="#FFFFFF" color="#FFFFFF" />
+                            <span>{isHi ? "मरीज़ पुनः बुलाएं (Recall)" : "Recall Patient"}</span>
+                          </button>
+
+                          {/* Mark No-Show Finalize Button */}
+                          <button
+                            type="button"
+                            onClick={() => handleFinalizeNoShow(ht)}
+                            style={{
+                              padding: "7px 12px",
+                              borderRadius: "10px",
+                              border: isDark ? "1px solid rgba(239, 68, 68, 0.4)" : "1px solid #FECACA",
+                              background: isDark ? "rgba(239, 68, 68, 0.15)" : "#FEF2F2",
+                              color: "#DC2626",
+                              fontSize: "12px",
+                              fontWeight: 700,
+                              cursor: "pointer",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "5px",
+                            }}
+                            title={isHi ? "मरीज़ नहीं आया: अनुपस्थित (No-Show) दर्ज करें" : "Finalize as No-Show if patient did not appear"}
+                          >
+                            <UserX size={12} />
+                            <span>{isHi ? "अनुपस्थित (No-Show)" : "Mark No-Show"}</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Right Column: Live Laboratory Waiting Stream */}
@@ -2896,6 +3303,69 @@ export default function PathologyPage({
                       </div>
                     );
                   })}
+                </div>
+              )}
+
+              {/* Sidebar Quick Held Section if held tickets exist */}
+              {pathologyHeldTickets.length > 0 && (
+                <div style={{ marginTop: "14px", paddingTop: "12px", borderTop: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                    <span style={{ fontSize: "11.5px", fontWeight: 800, color: "#D97706", display: "flex", alignItems: "center", gap: "5px" }}>
+                      <Clock size={12} />
+                      <span>{isHi ? "होल्ड पर मरीज़" : "Patients on Hold"}</span>
+                    </span>
+                    <span style={{ fontSize: "10px", fontWeight: 800, padding: "1px 6px", borderRadius: "999px", background: isDark ? "rgba(245, 158, 11, 0.25)" : "#FEF3C7", color: "#B45309" }}>
+                      {pathologyHeldTickets.length}
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                    {pathologyHeldTickets.map((ht) => (
+                      <div
+                        key={ht.ticket_id}
+                        style={{
+                          background: isDark ? "rgba(245, 158, 11, 0.1)" : "#FFFDF5",
+                          border: isDark ? "1px solid rgba(245, 158, 11, 0.3)" : "1px solid #FDE68A",
+                          borderRadius: "8px",
+                          padding: "6px 8px",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          gap: "6px",
+                        }}
+                      >
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ fontSize: "11.5px", fontWeight: 800, color: textColor, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            #{ht.ticket_id} {ht.name}
+                          </div>
+                          <div style={{ fontSize: "10px", color: "#D97706", fontWeight: 700 }}>
+                            {ht.service_category || "Pathology"}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleRecallHeld(ht)}
+                          style={{
+                            padding: "4px 8px",
+                            borderRadius: "6px",
+                            border: "none",
+                            background: "#059669",
+                            color: "#FFFFFF",
+                            fontSize: "10.5px",
+                            fontWeight: 800,
+                            cursor: "pointer",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "3px",
+                            flexShrink: 0,
+                          }}
+                          title={isHi ? "पुनः बुलाएं" : "Recall"}
+                        >
+                          <Play size={10} fill="#FFF" color="#FFF" />
+                          <span>{isHi ? "बुलाएं" : "Recall"}</span>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>

@@ -5078,10 +5078,10 @@ export default function StaffPortalPage({
               countersFilterType === "counters"
                 ? "1fr"
                 : countersFilterType === "doctors"
-                ? "1fr"
-                : countersFilterType === "staff"
-                ? "1fr"
-                : "repeat(auto-fit, minmax(360px, 1fr))",
+                  ? "1fr"
+                  : countersFilterType === "staff"
+                    ? "1fr"
+                    : "repeat(auto-fit, minmax(360px, 1fr))",
             gap: "20px",
           }}>
             {/* 1. Counter Desks Section */}
@@ -5375,26 +5375,26 @@ export default function StaffPortalPage({
                               background: isEmergency
                                 ? "#FEE2E2"
                                 : isOnBreak
-                                ? "#FEF3C7"
-                                : isOnline
-                                ? "#DCFCE7"
-                                : "#F1F5F9",
+                                  ? "#FEF3C7"
+                                  : isOnline
+                                    ? "#DCFCE7"
+                                    : "#F1F5F9",
                               color: isEmergency
                                 ? "#DC2626"
                                 : isOnBreak
-                                ? "#D97706"
-                                : isOnline
-                                ? "#15803D"
-                                : "#64748B",
+                                  ? "#D97706"
+                                  : isOnline
+                                    ? "#15803D"
+                                    : "#64748B",
                               flexShrink: 0,
                             }}>
                               {isEmergency
                                 ? (isHi ? "🚨 इमरजेंसी राउंड" : "🚨 EMERGENCY")
                                 : isOnBreak
-                                ? (isHi ? "☕ ब्रेक पर" : "☕ ON BREAK")
-                                : isOnline
-                                ? (isHi ? "● ऑन-ड्यूटी" : "● ON DUTY")
-                                : (isHi ? "○ ड्यूटी समाप्त" : "○ OFF DUTY")}
+                                  ? (isHi ? "☕ ब्रेक पर" : "☕ ON BREAK")
+                                  : isOnline
+                                    ? (isHi ? "● ऑन-ड्यूटी" : "● ON DUTY")
+                                    : (isHi ? "○ ड्यूटी समाप्त" : "○ OFF DUTY")}
                             </span>
                           </div>
 
@@ -5530,8 +5530,8 @@ export default function StaffPortalPage({
                             border: isCurrentUser
                               ? (isDark ? "1.5px solid #0284C7" : "1.5px solid #38BDF8")
                               : isOnline
-                              ? (isDark ? "1px solid rgba(16,185,129,0.3)" : "1.5px solid #BBF7D0")
-                              : (isDark ? "1px solid #334155" : "1.5px solid #E2E8F0"),
+                                ? (isDark ? "1px solid rgba(16,185,129,0.3)" : "1.5px solid #BBF7D0")
+                                : (isDark ? "1px solid #334155" : "1.5px solid #E2E8F0"),
                             display: "flex",
                             flexDirection: "column",
                             gap: "10px",
