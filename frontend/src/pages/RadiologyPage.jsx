@@ -18,6 +18,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { API_BASE, HOSPITAL_CONFIG } from "../config/hospitalConfig";
 import { announceTicketVoice } from "../utils/voiceSynthesizer";
 import { printRadiologyReportSlip } from "../utils/printPassHelper";
+import { getCategoryLabel } from "../utils/i18n";
 import Footer from "../components/common/Footer";
 import {
   Scan,
@@ -205,9 +206,10 @@ export default function RadiologyPage({
   }, [theme, currentTheme]);
 
   const isDark = currentTheme === "dark";
-  const pageBg = isDark ? "#090D16" : "#F8FAFC";
+  const pageBg = isDark ? "#070B14" : "#F8FAFC";
   const cardBg = isDark ? "#0F172A" : "#FFFFFF";
-  const textColor = isDark ? "#F1F5F9" : "#0F172A";
+  const cardBorder = isDark ? "1px solid #1E293B" : "1px solid #E2E8F0";
+  const textColor = isDark ? "#F8FAFC" : "#0F172A";
   const mutedText = isDark ? "#94A3B8" : "#64748B";
 
   // Tab State: "workstation" | "archive" | "history"
@@ -617,25 +619,58 @@ export default function RadiologyPage({
   // Route-to-Doctor department picker modal state
   const [showRouteDeptModal, setShowRouteDeptModal] = useState(false);
   const [routeTargetDept, setRouteTargetDept] = useState("");
+  const [hospitalDepartments, setHospitalDepartments] = useState([]);
 
-  const ROUTE_DEPARTMENTS = [
-    { id: "general", label: "General Consultation (OPD)", labelHi: "सामान्य परामर्श (OPD)" },
-    { id: "medicine", label: "General Medicine", labelHi: "जनरल मेडिसिन" },
-    { id: "surgery", label: "General Surgery", labelHi: "जनरल सर्जरी" },
-    { id: "ortho", label: "Orthopaedics", labelHi: "ऑर्थोपेडिक्स" },
-    { id: "neuro", label: "Neurology / Neurosurgery", labelHi: "न्यूरोलॉजी / न्यूरोसर्जरी" },
-    { id: "pulmonary", label: "Pulmonology / Chest Medicine", labelHi: "पल्मोनोलॉजी / चेस्ट मेडिसिन" },
-    { id: "cardiology", label: "Cardiology", labelHi: "कार्डियोलॉजी" },
-    { id: "gastro", label: "Gastroenterology", labelHi: "गैस्ट्रोएंटरोलॉजी" },
-    { id: "uro", label: "Urology", labelHi: "यूरोलॉजी" },
-    { id: "gynae", label: "Obstetrics & Gynaecology", labelHi: "प्रसूति एवं स्त्री रोग" },
-    { id: "paediatrics", label: "Paediatrics", labelHi: "बाल रोग" },
-    { id: "ent", label: "ENT (Ear, Nose & Throat)", labelHi: "ईएनटी (कान, नाक, गला)" },
-    { id: "ophthalmology", label: "Ophthalmology", labelHi: "नेत्र रोग" },
-    { id: "dermatology", label: "Dermatology", labelHi: "त्वचा रोग" },
-    { id: "oncology", label: "Oncology", labelHi: "ऑन्कोलॉजी" },
-    { id: "emergency", label: "Emergency / Trauma", labelHi: "आपातकालीन / ट्रॉमा" },
-  ];
+  // Fetch actual departments configured for this hospital
+  const fetchHospitalDepartments = useCallback(async () => {
+    if (!effectiveHospitalCode) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/hospitals/${encodeURIComponent(effectiveHospitalCode)}/departments`);
+      const data = await res.json();
+      if (res.ok && data.status === "success" && Array.isArray(data.departments)) {
+        setHospitalDepartments(data.departments);
+      }
+    } catch (e) {
+      console.error("Failed to load hospital departments in radiology:", e);
+    }
+  }, [effectiveHospitalCode]);
+
+  useEffect(() => {
+    fetchHospitalDepartments();
+  }, [fetchHospitalDepartments]);
+
+  // Actual available departments in the hospital for routing (excluding current Radiology dept)
+  const availableRouteDepartments = useMemo(() => {
+    const list = (hospitalDepartments || []).filter((d) => {
+      const code = (d.dept_code || "").toLowerCase();
+      const name = (d.name || "").toLowerCase();
+      const isActive = d.status ? d.status === "active" : true;
+      if (!isActive) return false;
+      return code !== "radiology" && !name.includes("radiology") && !name.includes("x-ray");
+    });
+
+    if (list.length > 0) {
+      return list.map((d) => {
+        const code = d.dept_code || d.name;
+        const labelEn = d.name || getCategoryLabel(code, "en") || code;
+        const labelHi = getCategoryLabel(code, "hi") || d.name || code;
+        return {
+          id: code,
+          code: code,
+          label: labelEn,
+          labelHi: labelHi,
+        };
+      });
+    }
+
+    return [
+      { id: "consultation", code: "consultation", label: "General Consultation (OPD)", labelHi: "सामान्य परामर्श (OPD)" },
+      { id: "emergency", code: "emergency", label: "Emergency Triage", labelHi: "आपातकालीन ट्राइएज" },
+      { id: "laboratory", code: "laboratory", label: "Pathology & Lab Test", labelHi: "पैथोलॉजी व लैब टेस्ट" },
+      { id: "pharmacy", code: "pharmacy", label: "Pharmacy & Medicine", labelHi: "फार्मेसी एवं दवा वितरण" },
+      { id: "billing", code: "billing", label: "Central Billing & Cashier", labelHi: "सेंट्रल बिलिंग व कैशियर" },
+    ];
+  }, [hospitalDepartments]);
 
   // Pregnancy Safety Protocol for females 12-55 undergoing X-Ray / CT
   const [pregnancyConfirmed, setPregnancyConfirmed] = useState(false);
@@ -1685,7 +1720,7 @@ export default function RadiologyPage({
           <span>{toast.message}</span>
           <button
             onClick={() => setToast(null)}
-            style={{ background: "none", border: "none", color: "#fff", cursor: "pointer", marginLeft: "8px", fontWeight: "bold" }}
+            style={{ background: "none", border: "none", color: "#FFFFFF", cursor: "pointer", marginLeft: "8px", fontWeight: "bold" }}
           >
             ✕
           </button>
@@ -1711,7 +1746,7 @@ export default function RadiologyPage({
             style={{
               width: "100%",
               maxWidth: "1100px",
-              background: "#090D16",
+              background: "#0F172A",
               borderRadius: "14px",
               border: "1px solid rgba(255,255,255,0.15)",
               overflow: "hidden",
@@ -1769,21 +1804,21 @@ export default function RadiologyPage({
               <button
                 type="button"
                 onClick={() => setViewerZoom((z) => Math.min(z + 0.25, 4))}
-                style={{ padding: "4px 10px", borderRadius: "6px", background: "#334155", color: "#fff", border: "none", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                style={{ padding: "4px 10px", borderRadius: "6px", background: "#334155", color: "#FFFFFF", border: "none", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "4px" }}
               >
                 <ZoomIn size={13} /> Zoom In
               </button>
               <button
                 type="button"
                 onClick={() => setViewerZoom((z) => Math.max(z - 0.25, 0.5))}
-                style={{ padding: "4px 10px", borderRadius: "6px", background: "#334155", color: "#fff", border: "none", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                style={{ padding: "4px 10px", borderRadius: "6px", background: "#334155", color: "#FFFFFF", border: "none", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "4px" }}
               >
                 <ZoomOut size={13} /> Zoom Out
               </button>
               <button
                 type="button"
                 onClick={() => setViewerRotation((r) => (r + 90) % 360)}
-                style={{ padding: "4px 10px", borderRadius: "6px", background: "#334155", color: "#fff", border: "none", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                style={{ padding: "4px 10px", borderRadius: "6px", background: "#334155", color: "#FFFFFF", border: "none", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "4px" }}
               >
                 <RotateCw size={13} /> Rotate 90°
               </button>
@@ -1794,7 +1829,7 @@ export default function RadiologyPage({
                   padding: "4px 10px",
                   borderRadius: "6px",
                   background: viewerInvert ? "#0284C7" : "#334155",
-                  color: "#fff",
+                  color: "#FFFFFF",
                   border: "none",
                   cursor: "pointer",
                 }}
@@ -1829,7 +1864,7 @@ export default function RadiologyPage({
               <button
                 type="button"
                 onClick={resetViewerControls}
-                style={{ padding: "4px 10px", borderRadius: "6px", background: "#475569", color: "#fff", border: "none", cursor: "pointer", marginLeft: "auto" }}
+                style={{ padding: "4px 10px", borderRadius: "6px", background: "#475569", color: "#FFFFFF", border: "none", cursor: "pointer", marginLeft: "auto" }}
               >
                 Reset Controls
               </button>
@@ -1843,7 +1878,7 @@ export default function RadiologyPage({
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                background: "#000000",
+                background: "#0F172A",
                 padding: "20px",
               }}
             >
@@ -2304,8 +2339,8 @@ export default function RadiologyPage({
               <span
                 className="tab-count-badge"
                 style={{
-                  background: activeTab === "workstation" ? "#FEF3C7" : (isDark ? "rgba(245, 158, 11, 0.25)" : "#FEF3C7"),
-                  color: "#92400E",
+                  background: activeTab === "workstation" ? "#FFFBEB" : (isDark ? "rgba(245, 158, 11, 0.25)" : "#FFFBEB"),
+                  color: "#B45309",
                   border: "1px solid #FDE68A",
                   fontWeight: 900,
                 }}
@@ -2646,7 +2681,7 @@ export default function RadiologyPage({
                             ? "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)"
                             : isDark ? "#1E293B" : "#F8FAFC",
                           border: isApplied
-                            ? "1.5px solid #0EA5E9"
+                            ? "1.5px solid #38BDF8"
                             : isDark ? "1px solid #334155" : "1px solid #CBD5E1",
                           color: isApplied ? "#FFFFFF" : textColor,
                           cursor: "pointer",
@@ -2669,7 +2704,7 @@ export default function RadiologyPage({
                 {/* Study & Exposure Parameters Grid */}
                 <div
                   style={{
-                    background: isDark ? "#111827" : "#F8FAFC",
+                    background: isDark ? "#131D31" : "#F8FAFC",
                     border: isDark ? "1px solid rgba(255,255,255,0.06)" : "1px solid #E2E8F0",
                     borderRadius: "12px",
                     padding: "12px 14px",
@@ -2773,7 +2808,7 @@ export default function RadiologyPage({
                 {/* Technologist & Suite Audit */}
                 <div
                   style={{
-                    background: isDark ? "#111827" : "#F8FAFC",
+                    background: isDark ? "#131D31" : "#F8FAFC",
                     border: isDark ? "1px solid rgba(255,255,255,0.06)" : "1px solid #E2E8F0",
                     borderRadius: "12px",
                     padding: "12px 14px",
@@ -2837,7 +2872,7 @@ export default function RadiologyPage({
                 {/* Digital Scans & DICOM Multi-Image Upload Zone */}
                 <div
                   style={{
-                    background: isDark ? "#111827" : "#F8FAFC",
+                    background: isDark ? "#131D31" : "#F8FAFC",
                     border: isDark ? "1px solid rgba(255,255,255,0.06)" : "1px solid #E2E8F0",
                     borderRadius: "12px",
                     padding: "12px 14px",
@@ -2859,7 +2894,7 @@ export default function RadiologyPage({
                         padding: "5px 12px",
                         borderRadius: "8px",
                         background: isUploading ? "#94A3B8" : "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)",
-                        color: "#fff",
+                        color: "#FFFFFF",
                         fontSize: "11.5px",
                         fontWeight: 700,
                         cursor: isUploading ? "not-allowed" : "pointer",
@@ -2898,7 +2933,7 @@ export default function RadiologyPage({
                             overflow: "hidden",
                             width: "90px",
                             height: "90px",
-                            background: "#000",
+                            background: "#0F172A",
                             cursor: "pointer",
                           }}
                           onClick={() => openViewer(img)}
@@ -3012,26 +3047,6 @@ export default function RadiologyPage({
                   </div>
                 </div>
 
-                {/* Report Status Selector */}
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px", padding: "10px 14px", background: isDark ? "rgba(255,255,255,0.03)" : "#F8FAFC", borderRadius: "10px", border: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0" }}>
-                  <div style={{ fontSize: "11.5px", fontWeight: 700, color: mutedText }}>
-                    Report Status:
-                  </div>
-                  <div style={{ display: "flex", gap: "8px" }}>
-                    {["Draft", "Preliminary", "Final"].map((st) => (
-                      <label key={st} style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "12px", fontWeight: 700, cursor: "pointer" }}>
-                        <input
-                          type="radio"
-                          name="radReportStatus"
-                          value={st}
-                          checked={reportStatus === st}
-                          onChange={(e) => setReportStatus(e.target.value)}
-                        />
-                        <span>{st === "Final" ? "Final (Verified)" : st}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
 
                 {/* Bottom Action Bar */}
                 <div
@@ -3100,9 +3115,10 @@ export default function RadiologyPage({
                           showToast(isHi ? "कृपया पहले निष्कर्ष (Findings) और इंप्रेशन दर्ज करें" : "Please provide diagnostic findings and impression first", "warn");
                           return;
                         }
-                        // Pre-select referring doctor's department if available
-                        const preDept = parsedDoctorRx?.doctor_department || activeServingTicket.transferred_from_dept || "";
-                        setRouteTargetDept(preDept);
+                        // Pre-select referring doctor's department if available or default to first available
+                        const initialDept = parsedDoctorRx?.doctor_department || activeServingTicket.transferred_from_dept;
+                        const match = availableRouteDepartments.find((d) => d.id === initialDept || d.code === initialDept);
+                        setRouteTargetDept(match ? match.id : (availableRouteDepartments[0]?.id || "consultation"));
                         setShowRouteDeptModal(true);
                       }}
                       style={{
@@ -3166,7 +3182,7 @@ export default function RadiologyPage({
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px", flexWrap: "wrap", gap: "8px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  <span style={{ display: "inline-flex", alignItems: "center", padding: "7px", borderRadius: "10px", background: isDark ? "rgba(245, 158, 11, 0.2)" : "#FEF3C7", color: "#D97706" }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", padding: "7px", borderRadius: "10px", background: isDark ? "rgba(245, 158, 11, 0.2)" : "#FFFBEB", color: "#D97706" }}>
                     <Clock size={16} />
                   </span>
                   <div>
@@ -3186,7 +3202,7 @@ export default function RadiologyPage({
                     fontWeight: 800,
                     padding: "3px 10px",
                     borderRadius: "9999px",
-                    background: radiologyHeldTickets.length > 0 ? (isDark ? "rgba(245, 158, 11, 0.25)" : "#FEF3C7") : (isDark ? "#1E293B" : "#F1F5F9"),
+                    background: radiologyHeldTickets.length > 0 ? (isDark ? "rgba(245, 158, 11, 0.25)" : "#FFFBEB") : (isDark ? "#1E293B" : "#F1F5F9"),
                     color: radiologyHeldTickets.length > 0 ? "#D97706" : mutedText,
                     border: `1px solid ${radiologyHeldTickets.length > 0 ? "rgba(245, 158, 11, 0.4)" : (isDark ? "#334155" : "#CBD5E1")}`,
                   }}
@@ -3232,8 +3248,8 @@ export default function RadiologyPage({
                         key={ht.ticket_id}
                         style={{
                           background: isExpired
-                            ? (isDark ? "rgba(239, 68, 68, 0.12)" : "#FFF5F5")
-                            : (isDark ? "rgba(245, 158, 11, 0.1)" : "#FFFDF5"),
+                            ? (isDark ? "rgba(239, 68, 68, 0.12)" : "#FEF2F2")
+                            : (isDark ? "rgba(245, 158, 11, 0.1)" : "#FFFBEB"),
                           borderRadius: "14px",
                           border: isExpired
                             ? (isDark ? "1.5px solid rgba(239, 68, 68, 0.4)" : "1.5px solid #FECACA")
@@ -3290,7 +3306,7 @@ export default function RadiologyPage({
                                   fontWeight: 800,
                                   background: isExpired
                                     ? (isDark ? "rgba(239, 68, 68, 0.25)" : "#FEE2E2")
-                                    : (isDark ? "rgba(245, 158, 11, 0.25)" : "#FEF3C7"),
+                                    : (isDark ? "rgba(245, 158, 11, 0.25)" : "#FFFBEB"),
                                   color: isExpired ? "#DC2626" : "#D97706",
                                 }}
                               >
@@ -3319,7 +3335,7 @@ export default function RadiologyPage({
                               padding: "7px 14px",
                               borderRadius: "10px",
                               border: "none",
-                              background: "linear-gradient(135deg, #059669 0%, #047857 100%)",
+                              background: "linear-gradient(135deg, #10B981 0%, #059669 100%)",
                               color: "#FFFFFF",
                               fontSize: "12px",
                               fontWeight: 800,
@@ -3517,7 +3533,7 @@ export default function RadiologyPage({
                       <Clock size={12} />
                       <span>{isHi ? "होल्ड पर मरीज़" : "Patients on Hold"}</span>
                     </span>
-                    <span style={{ fontSize: "10px", fontWeight: 800, padding: "1px 6px", borderRadius: "999px", background: isDark ? "rgba(245, 158, 11, 0.25)" : "#FEF3C7", color: "#B45309" }}>
+                    <span style={{ fontSize: "10px", fontWeight: 800, padding: "1px 6px", borderRadius: "999px", background: isDark ? "rgba(245, 158, 11, 0.25)" : "#FFFBEB", color: "#B45309" }}>
                       {radiologyHeldTickets.length}
                     </span>
                   </div>
@@ -3526,7 +3542,7 @@ export default function RadiologyPage({
                       <div
                         key={ht.ticket_id}
                         style={{
-                          background: isDark ? "rgba(245, 158, 11, 0.1)" : "#FFFDF5",
+                          background: isDark ? "rgba(245, 158, 11, 0.1)" : "#FFFBEB",
                           border: isDark ? "1px solid rgba(245, 158, 11, 0.3)" : "1px solid #FDE68A",
                           borderRadius: "8px",
                           padding: "6px 8px",
@@ -4056,8 +4072,8 @@ export default function RadiologyPage({
                   width: "42px",
                   height: "42px",
                   borderRadius: "12px",
-                  background: isDark ? "rgba(99,102,241,0.2)" : "#EEF2FF",
-                  color: "#6366F1",
+                  background: isDark ? "rgba(2, 132, 199, 0.2)" : "#E0F2FE",
+                  color: "#0284C7",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -4083,11 +4099,11 @@ export default function RadiologyPage({
               <div style={{
                 padding: "10px 14px",
                 borderRadius: "10px",
-                background: isDark ? "rgba(99,102,241,0.1)" : "#EEF2FF",
-                border: isDark ? "1px solid rgba(99,102,241,0.3)" : "1px solid #C7D2FE",
+                background: isDark ? "rgba(2, 132, 199, 0.1)" : "#E0F2FE",
+                border: isDark ? "1px solid rgba(2, 132, 199, 0.3)" : "1px solid #BAE6FD",
                 marginBottom: "14px",
                 fontSize: "12px",
-                color: isDark ? "#A5B4FC" : "#4F46E5",
+                color: isDark ? "#38BDF8" : "#0369A1",
                 fontWeight: 700,
               }}>
                 {isHi ? "📌 संदर्भ चिकित्सक: " : "📌 Referring Doctor: "}
@@ -4095,14 +4111,14 @@ export default function RadiologyPage({
               </div>
             )}
 
-            {/* Department Grid */}
+            {/* Department Grid — Showing only actual active departments in this hospital */}
             <div style={{
               display: "grid",
-              gridTemplateColumns: "repeat(2, 1fr)",
+              gridTemplateColumns: availableRouteDepartments.length > 4 ? "repeat(2, 1fr)" : "1fr",
               gap: "8px",
               marginBottom: "18px",
             }}>
-              {ROUTE_DEPARTMENTS.map((dept) => {
+              {availableRouteDepartments.map((dept) => {
                 const isSelected = routeTargetDept === dept.id;
                 return (
                   <button
@@ -4115,16 +4131,16 @@ export default function RadiologyPage({
                       fontSize: "12px",
                       fontWeight: isSelected ? 800 : 600,
                       background: isSelected
-                        ? "linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)"
+                        ? "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)"
                         : isDark ? "#1E293B" : "#F8FAFC",
                       border: isSelected
-                        ? "1.5px solid #818CF8"
+                        ? "1.5px solid #38BDF8"
                         : isDark ? "1px solid #334155" : "1px solid #E2E8F0",
                       color: isSelected ? "#FFFFFF" : isDark ? "#CBD5E1" : "#334155",
                       cursor: "pointer",
                       textAlign: "left",
                       transition: "all 0.15s ease",
-                      boxShadow: isSelected ? "0 3px 10px rgba(99,102,241,0.3)" : "none",
+                      boxShadow: isSelected ? "0 3px 10px rgba(2, 132, 199, 0.3)" : "none",
                     }}
                   >
                     {isSelected ? "✓ " : ""}{isHi ? dept.labelHi : dept.label}
@@ -4163,13 +4179,13 @@ export default function RadiologyPage({
                   borderRadius: "10px",
                   border: "none",
                   background: routeTargetDept
-                    ? "linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)"
+                    ? "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)"
                     : isDark ? "#334155" : "#E2E8F0",
                   color: routeTargetDept ? "#FFFFFF" : "#94A3B8",
                   fontSize: "13px",
                   fontWeight: 800,
                   cursor: routeTargetDept ? "pointer" : "not-allowed",
-                  boxShadow: routeTargetDept ? "0 4px 14px rgba(99, 102, 241, 0.35)" : "none",
+                  boxShadow: routeTargetDept ? "0 4px 14px rgba(2, 132, 199, 0.35)" : "none",
                   display: "inline-flex",
                   alignItems: "center",
                   gap: "6px",
