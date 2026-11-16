@@ -383,7 +383,7 @@ export default function PatientPage({
   const isLiveTicketStatus = (ticket) => {
     if (!ticket || !ticket.status) return false;
     const s = String(ticket.status).toLowerCase();
-    return ["waiting", "serving", "on_hold", "hold"].includes(s);
+    return ["waiting", "serving", "on_hold", "hold", "consultation", "transferred", "scheduled", "pending"].includes(s);
   };
 
   const isLiveTicket = useMemo(() => {
@@ -2661,6 +2661,17 @@ export default function PatientPage({
   // 4. Cancel Ticket with Reason Validation
   const handleCancelTicket = async () => {
     if (!activeTicket) return;
+
+    const currentTicketStatus = (activeTicket.status || "").toLowerCase();
+    if (["serving", "consultation", "in_consultation"].includes(currentTicketStatus)) {
+      const errMsg = language === "hi"
+        ? "परामर्श प्रगति पर है। डॉक्टर द्वारा परामर्श के दौरान टोकन रद्द नहीं किया जा सकता।"
+        : "Consultation in progress. You cannot cancel a ticket while it is being served by the doctor.";
+      setCancelError(errMsg);
+      showToast(errMsg, "warn");
+      return;
+    }
+
     setCancelLoading(true);
     setCancelError("");
     const reasonText = cancelReason === "Other" && otherCancelReason.trim() ? otherCancelReason.trim() : cancelReason;
@@ -3869,6 +3880,16 @@ export default function PatientPage({
                   familyTickets={familyTickets}
                   isLiveTicketStatus={isLiveTicketStatus}
                   onOpenCancelModal={() => {
+                    const status = (activeTicket?.status || "").toLowerCase();
+                    if (["serving", "consultation", "in_consultation"].includes(status)) {
+                      showToast(
+                        language === "hi"
+                          ? "परामर्श प्रगति पर है। डॉक्टर द्वारा परामर्श के दौरान टोकन रद्द नहीं किया जा सकता।"
+                          : "Consultation in progress. Ticket cannot be cancelled while being served by the doctor.",
+                        "warn"
+                      );
+                      return;
+                    }
                     setCancelError("");
                     setShowCancelModal(true);
                   }}
@@ -3908,6 +3929,16 @@ export default function PatientPage({
                   familyTickets={familyTickets}
                   isLiveTicketStatus={isLiveTicketStatus}
                   onOpenCancelModal={() => {
+                    const status = (activeTicket?.status || "").toLowerCase();
+                    if (["serving", "consultation", "in_consultation"].includes(status)) {
+                      showToast(
+                        language === "hi"
+                          ? "परामर्श प्रगति पर है। डॉक्टर द्वारा परामर्श के दौरान टोकन रद्द नहीं किया जा सकता।"
+                          : "Consultation in progress. Ticket cannot be cancelled while being served by the doctor.",
+                        "warn"
+                      );
+                      return;
+                    }
                     setCancelError("");
                     setShowCancelModal(true);
                   }}
@@ -3971,6 +4002,16 @@ export default function PatientPage({
                     setShowAdjustModal(true);
                   }}
                   onOpenCancelModal={() => {
+                    const status = (activeTicket?.status || "").toLowerCase();
+                    if (["serving", "consultation", "in_consultation"].includes(status)) {
+                      showToast(
+                        language === "hi"
+                          ? "परामर्श प्रगति पर है। डॉक्टर द्वारा परामर्श के दौरान टोकन रद्द नहीं किया जा सकता।"
+                          : "Consultation in progress. Ticket cannot be cancelled while being served by the doctor.",
+                        "warn"
+                      );
+                      return;
+                    }
                     setCancelError("");
                     setShowCancelModal(true);
                   }}
@@ -4118,32 +4159,40 @@ export default function PatientPage({
               Are you sure you want to cancel ticket <strong>#{activeTicket.ticket_id}</strong>? This will remove you from the active queue.
             </p>
 
-            <div style={{ marginBottom: "18px" }}>
-              <label style={{ display: "block", fontSize: "12.5px", fontWeight: 700, color: "var(--patient-text-main, #334155)", marginBottom: "6px" }}>
-                Reason (optional):
-              </label>
-              <select
-                value={cancelReason}
-                onChange={(e) => setCancelReason(e.target.value)}
-                style={{ width: "100%", padding: "10px 12px", borderRadius: "8px", border: "1px solid var(--patient-card-border, #CBD5E1)", background: "var(--patient-card-bg, #FFFFFF)", color: "var(--patient-text-main, #0F172A)", fontSize: "13px", marginBottom: cancelReason === "Other" ? "8px" : "0" }}
-              >
-                <option value="Running late">Running late</option>
-                <option value="Feeling better / no longer needed">Feeling better / no longer needed</option>
-                <option value="Emergency elsewhere">Emergency elsewhere</option>
-                <option value="Wait time too long">Wait time too long</option>
-                <option value="Other">Other reason...</option>
-              </select>
+            {["serving", "consultation", "in_consultation"].includes((activeTicket?.status || "").toLowerCase()) ? (
+              <div style={{ padding: "12px 14px", borderRadius: "10px", background: "var(--emergency-card-bg, #FEF2F2)", border: "1.5px solid var(--emergency-card-border, #FECACA)", color: "var(--emergency-card-text, #DC2626)", fontSize: "13px", marginBottom: "16px", fontWeight: 700, lineHeight: 1.5 }}>
+                {language === "hi"
+                  ? "⚠️ यह टिकट डॉक्टर के पास सक्रिय परामर्श में है। अस्पताल नीति के अनुसार डॉक्टर द्वारा परामर्श के दौरान मरीज़ टिकट रद्द नहीं कर सकता।"
+                  : "⚠️ This ticket is currently in active consultation with a doctor. Hospital policy strictly prevents cancelling a ticket while consultation is underway."}
+              </div>
+            ) : (
+              <div style={{ marginBottom: "18px" }}>
+                <label style={{ display: "block", fontSize: "12.5px", fontWeight: 700, color: "var(--patient-text-main, #334155)", marginBottom: "6px" }}>
+                  Reason (optional):
+                </label>
+                <select
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  style={{ width: "100%", padding: "10px 12px", borderRadius: "8px", border: "1px solid var(--patient-card-border, #CBD5E1)", background: "var(--patient-card-bg, #FFFFFF)", color: "var(--patient-text-main, #0F172A)", fontSize: "13px", marginBottom: cancelReason === "Other" ? "8px" : "0" }}
+                >
+                  <option value="Running late">Running late</option>
+                  <option value="Feeling better / no longer needed">Feeling better / no longer needed</option>
+                  <option value="Emergency elsewhere">Emergency elsewhere</option>
+                  <option value="Wait time too long">Wait time too long</option>
+                  <option value="Other">Other reason...</option>
+                </select>
 
-              {cancelReason === "Other" && (
-                <input
-                  type="text"
-                  placeholder="Please specify reason..."
-                  value={otherCancelReason}
-                  onChange={(e) => setOtherCancelReason(e.target.value)}
-                  style={{ width: "100%", padding: "10px 12px", borderRadius: "8px", border: "1px solid var(--patient-card-border, #CBD5E1)", background: "var(--patient-card-bg, #FFFFFF)", color: "var(--patient-text-main, #0F172A)", fontSize: "13px", boxSizing: "border-box" }}
-                />
-              )}
-            </div>
+                {cancelReason === "Other" && (
+                  <input
+                    type="text"
+                    placeholder="Please specify reason..."
+                    value={otherCancelReason}
+                    onChange={(e) => setOtherCancelReason(e.target.value)}
+                    style={{ width: "100%", padding: "10px 12px", borderRadius: "8px", border: "1px solid var(--patient-card-border, #CBD5E1)", background: "var(--patient-card-bg, #FFFFFF)", color: "var(--patient-text-main, #0F172A)", fontSize: "13px", boxSizing: "border-box" }}
+                  />
+                )}
+              </div>
+            )}
 
             {cancelError && (
               <div style={{ padding: "10px 12px", borderRadius: "8px", background: "var(--emergency-card-bg, #FEF2F2)", border: "1px solid var(--emergency-card-border, #FECACA)", color: "var(--emergency-card-text, #DC2626)", fontSize: "12.5px", marginBottom: "16px", fontWeight: 600 }}>
@@ -4159,17 +4208,19 @@ export default function PatientPage({
                 className="patient-secondary-btn"
                 style={{ padding: "10px 18px", borderRadius: "10px", border: "1px solid var(--patient-card-border, #CBD5E1)", background: "var(--patient-sub-card, #F8FAFC)", color: "var(--patient-text-main, #334155)", fontSize: "13px", fontWeight: 700, cursor: "pointer" }}
               >
-                Keep Ticket
+                {["serving", "consultation", "in_consultation"].includes((activeTicket?.status || "").toLowerCase()) ? (language === "hi" ? "वापस जाएं" : "Close") : (language === "hi" ? "टोकन रखें" : "Keep Ticket")}
               </button>
-              <button
-                id="confirm-cancel-btn"
-                type="button"
-                onClick={handleCancelTicket}
-                disabled={cancelLoading}
-                style={{ padding: "10px 18px", borderRadius: "10px", border: "none", background: "#DC2626", color: "#FFFFFF", fontSize: "13px", fontWeight: 700, cursor: cancelLoading ? "not-allowed" : "pointer" }}
-              >
-                {cancelLoading ? "Cancelling..." : "Cancel Ticket"}
-              </button>
+              {!["serving", "consultation", "in_consultation"].includes((activeTicket?.status || "").toLowerCase()) && (
+                <button
+                  id="confirm-cancel-btn"
+                  type="button"
+                  onClick={handleCancelTicket}
+                  disabled={cancelLoading}
+                  style={{ padding: "10px 18px", borderRadius: "10px", border: "none", background: "#DC2626", color: "#FFFFFF", fontSize: "13px", fontWeight: 700, cursor: cancelLoading ? "not-allowed" : "pointer" }}
+                >
+                  {cancelLoading ? (language === "hi" ? "रद्द किया जा रहा है..." : "Cancelling...") : (language === "hi" ? "टोकन रद्द करें" : "Cancel Ticket")}
+                </button>
+              )}
             </div>
           </div>
         </div>

@@ -193,29 +193,50 @@ export default function WalkinTab({
                 <span>{t("viewPassBtn", language)}</span>
               </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  if (onOpenCancelModal) onOpenCancelModal();
-                }}
-                style={{
-                  padding: "8px 16px",
-                  borderRadius: "10px",
-                  background: "#FFF1F2",
-                  color: "#DC2626",
-                  border: "1px solid #FECACA",
-                  fontSize: "12px",
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: "6px",
-                }}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-                <span>{t("cancelCurrentTicketBtn", language)}</span>
-              </button>
+              {["serving", "consultation", "in_consultation"].includes((activeTicket?.status || "").toLowerCase()) ? (
+                <div
+                  style={{
+                    padding: "7px 12px",
+                    borderRadius: "10px",
+                    background: "#ECFDF5",
+                    color: "#059669",
+                    border: "1px solid #A7F3D0",
+                    fontSize: "11.5px",
+                    fontWeight: 700,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "6px",
+                  }}
+                  title={language === "hi" ? "परामर्श प्रगति पर है। डॉक्टर द्वारा परामर्श के दौरान टोकन रद्द नहीं किया जा सकता।" : "Consultation in progress. Ticket cannot be cancelled while being served."}
+                >
+                  <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#10B981" }} />
+                  <span>{language === "hi" ? "परामर्श प्रगति पर" : "In Consultation"}</span>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onOpenCancelModal) onOpenCancelModal();
+                  }}
+                  style={{
+                    padding: "8px 16px",
+                    borderRadius: "10px",
+                    background: "#FFF1F2",
+                    color: "#DC2626",
+                    border: "1px solid #FECACA",
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "6px",
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                  <span>{t("cancelCurrentTicketBtn", language)}</span>
+                </button>
+              )}
             </div>
           </div>
 

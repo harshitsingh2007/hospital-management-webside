@@ -1061,9 +1061,18 @@ async function cancelTicket(tenantId = "city-hospital-01", ticketId, reason = "N
     };
   }
 
-  if (!["waiting", "scheduled", "on_hold", "pending", "serving"].includes(currStatus)) {
+  // Reject cancellation if the ticket is already being served in consultation
+  if (["serving", "consultation", "in_consultation"].includes(currStatus)) {
     const err = new Error(
-      `Cannot cancel ticket: Ticket status is '${currStatus.toUpperCase()}'. Only active or queued tickets can be cancelled.`
+      `Cannot cancel ticket: Patient is currently in consultation. Active consultations cannot be cancelled.`
+    );
+    err.status = 409;
+    throw err;
+  }
+
+  if (!["waiting", "scheduled", "on_hold", "pending"].includes(currStatus)) {
+    const err = new Error(
+      `Cannot cancel ticket: Ticket status is '${currStatus.toUpperCase()}'. Only waiting or queued tickets can be cancelled.`
     );
     err.status = 409;
     throw err;

@@ -1707,7 +1707,7 @@ export default function RadiologyPage({
                 : toast.type === "warn"
                   ? "#F59E0B"
                   : toast.type === "info"
-                    ? brandPrimary
+                    ? "#0284C7"
                     : "#10B981",
             color: "#FFFFFF",
             fontWeight: 700,
@@ -2367,7 +2367,7 @@ export default function RadiologyPage({
           <span
             className="tab-count-badge"
             style={{
-              background: activeTab === "archive" ? "rgba(255,255,255,0.25)" : (isDark ? "rgba(99, 102, 241, 0.25)" : "#EEF2FF"),
+              background: activeTab === "archive" ? "rgba(255,255,255,0.25)" : (isDark ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE"),
               color: activeTab === "archive" ? "#FFFFFF" : "#0284C7",
             }}
           >
@@ -3122,7 +3122,7 @@ export default function RadiologyPage({
                         setShowRouteDeptModal(true);
                       }}
                       style={{
-                        background: "linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)",
+                        background: "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)",
                         color: "#FFFFFF",
                         border: "none",
                         padding: "8px 14px",
@@ -3133,7 +3133,7 @@ export default function RadiologyPage({
                         display: "inline-flex",
                         alignItems: "center",
                         gap: "5px",
-                        boxShadow: "0 4px 14px rgba(99, 102, 241, 0.3)",
+                        boxShadow: "0 4px 14px rgba(2, 132, 199, 0.3)",
                         transition: "all 0.15s ease",
                       }}
                     >

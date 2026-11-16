@@ -1,9 +1,4 @@
-/**
- * env.js
- * ------
- * Typed environment config. Values come only from backend/.env
- * (loaded via loadEnv.js).
- */
+
 
 require("../../loadEnv");
 

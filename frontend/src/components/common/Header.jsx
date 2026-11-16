@@ -984,9 +984,9 @@ export default function Header({
                       display: "inline-flex",
                       alignItems: "center",
                       gap: "6px",
-                      border: activePage === "radiology" ? "1.5px solid #6366F1" : undefined,
-                      background: activePage === "radiology" ? (isDarkHeader ? "rgba(99, 102, 241, 0.25)" : "#EEF2FF") : undefined,
-                      color: activePage === "radiology" ? (isDarkHeader ? "#818CF8" : "#4F46E5") : undefined,
+                      border: activePage === "radiology" ? "1.5px solid #38BDF8" : undefined,
+                      background: activePage === "radiology" ? (isDarkHeader ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE") : undefined,
+                      color: activePage === "radiology" ? (isDarkHeader ? "#38BDF8" : "#0284C7") : undefined,
                     }}
                     title={language === "hi" ? "रेडियोलॉजी एवं इमेजिंग वर्कस्टेशन" : "Radiology & Imaging Workstation"}
                   >
