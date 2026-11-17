@@ -1390,23 +1390,26 @@ export default function RadiologyPage({
   const [historyList, setHistoryList] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  const fetchRadiologyHistory = useCallback(async () => {
+  const fetchRadiologyHistory = useCallback(async (dateParam) => {
+    if (!effectiveHospitalCode) return;
     setLoadingHistory(true);
     try {
-      // First try patient-history endpoint
-      const res = await fetch(`${API_BASE}/api/v1/patient-history?hospital_id=${effectiveHospitalCode}`);
-      const data = await res.json();
-      if (data && Array.isArray(data.visits)) {
-        setHistoryList(data.visits);
-      } else {
-        // Fallback to queue history
-        const qRes = await fetch(`${API_BASE}/api/v1/plugin/queue/${effectiveHospitalCode}/history`);
-        const qData = await qRes.json();
-        const raw = qData?.history || qData?.data || [];
-        setHistoryList(raw);
-      }
+      // Build query: pass date=all to get all records, or specific date string
+      const dateStr = dateParam || "all";
+      const url = `${API_BASE}/api/v1/plugin/queue/${effectiveHospitalCode}/history?department=radiology&date=${encodeURIComponent(dateStr)}`;
+      const res = await fetch(url, {
+        headers: {
+          ...(localStorage.getItem("token") || localStorage.getItem("ai_queue_token")
+            ? { Authorization: `Bearer ${localStorage.getItem("token") || localStorage.getItem("ai_queue_token")}` }
+            : {}),
+        },
+      });
+      const qData = await res.json();
+      // The endpoint returns { tickets: [...] }
+      const raw = qData?.tickets || qData?.history || qData?.data || [];
+      setHistoryList(Array.isArray(raw) ? raw : []);
     } catch (e) {
-      console.warn("History fetch error:", e);
+      console.warn("Radiology history fetch error:", e);
       setHistoryList([]);
     } finally {
       setLoadingHistory(false);
@@ -1415,9 +1418,21 @@ export default function RadiologyPage({
 
   useEffect(() => {
     if (activeTab === "history" || activeTab === "archive") {
-      fetchRadiologyHistory();
+      // Determine what date to request from the backend
+      const todayStr = new Date().toISOString().split("T")[0];
+      const yestDate = new Date();
+      yestDate.setDate(yestDate.getDate() - 1);
+      const yestStr = yestDate.toISOString().split("T")[0];
+
+      let dateParam = "all";
+      if (historyFilter === "today") dateParam = todayStr;
+      else if (historyFilter === "yesterday") dateParam = yestStr;
+      else if (historyFilter === "date") dateParam = customFilterDate || todayStr;
+      // "all" stays as "all"
+
+      fetchRadiologyHistory(dateParam);
     }
-  }, [activeTab, fetchRadiologyHistory]);
+  }, [activeTab, historyFilter, customFilterDate, fetchRadiologyHistory]);
 
   const filteredHistory = useMemo(() => {
     const todayStr = new Date().toISOString().split("T")[0];

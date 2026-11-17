@@ -1,16 +1,3 @@
-/**
- * voiceSynthesizer.js
- * -------------------
- * Web Speech Audio Engine for Automated Hospital Voice Announcements.
- * Multi-Lingual Text-to-Speech (English & Hindi).
- * 
- * Hindi Announcement Formats:
- * - Devanagari Hindi Script (for native Hindi speech engine):
- *   "कृपया ध्यान दें: टोकन नंबर T 5 0 1 6 1 2, मरीज राहुल वर्मा, ओपीडी विभाग में पधारें।"
- * - Phonetic Hindi Script (for fallback speech engine):
- *   "Kripya dhyan dein: Token number T 5 0 1 6 1 2, Mareez Rahul Verma, OPD Department mein padharein."
- */
-
 let lastSpokenTicketKey = "";
 let lastSpokenTimestamp = 0;
 

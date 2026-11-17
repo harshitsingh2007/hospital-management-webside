@@ -849,14 +849,16 @@ class NodeQueueEngine {
    * Retrieves historical queue tickets for given date.
    */
   async getHistoricalQueueTickets(tenantId, queueDate, department = null) {
-    const targetDate = parseQueueDate(queueDate);
     const hid = await this.resolveHospitalId(tenantId);
     const deptFilter = String(department || "").trim().toLowerCase();
+    const fetchAll = !queueDate || String(queueDate).trim().toLowerCase() === "all";
 
-    const where = {
-      hospital_id: hid,
-      queue_date: queueDateToPrismaDate(targetDate),
-    };
+    const where = { hospital_id: hid };
+
+    if (!fetchAll) {
+      const targetDate = parseQueueDate(queueDate);
+      where.queue_date = queueDateToPrismaDate(targetDate);
+    }
 
     if (deptFilter && deptFilter !== "all") {
       const deptId = await this.resolveDepartmentId(hid, deptFilter);
@@ -869,14 +871,15 @@ class NodeQueueEngine {
         departments: true,
         hospitals: true,
       },
-      orderBy: [{ priority_level: "asc" }, { join_timestamp: "asc" }],
+      orderBy: [{ join_timestamp: "desc" }],
+      take: fetchAll ? 500 : undefined, // cap at 500 records for all-time view
     });
 
     return rows.map((r) => ({
       ...r,
       department_name: r.departments?.name || r.service_category,
       hospital_code: r.hospitals?.hospital_code || tenantId,
-      queue_date: targetDate,
+      queue_date: r.queue_date ? parseQueueDate(r.queue_date) : null,
       created_at: r.created_at ? r.created_at.toISOString() : null,
       updated_at: r.updated_at ? r.updated_at.toISOString() : null,
       serve_start_time: r.serve_start_time ? r.serve_start_time.toISOString() : null,

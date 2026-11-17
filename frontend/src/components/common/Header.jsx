@@ -897,8 +897,8 @@ export default function Header({
 
         {/* 2. Center: Quick Hospital Support & Emergency Hotline or Staff Desk Switcher */}
         <nav className="header-center-nav">
-          {/* Clinical & Staff Desk Switcher Bar (Pharmacy Station, Pathology, Radiology) - Hidden on Super Admin & Doctor Portals */}
-          {!isPatientOrGuest && activePage !== "superadmin" && activePage !== "doctor" && !["doctor", "physician"].includes(userRole) && (
+          {/* Clinical & Staff Desk Switcher Bar (Pharmacy Station, Pathology, Radiology) - Visible on Reception/Staff Desk */}
+          {!isPatientOrGuest && activePage === "staff" && !["doctor", "physician"].includes(userRole) && (
             Boolean(
               (isPharmacistAccess || isSuperAdmin) ||
               (isPathologistAccess || isSuperAdmin) ||
@@ -1319,47 +1319,6 @@ export default function Header({
                         );
                       })}
                     </>
-                  )}
-
-                  {/* Staff Workspace Direct Links (Targeted by Department & Role) */}
-                  {isPharmacist && activePage !== "doctor" && !["doctor", "physician"].includes(userRole) && (
-                    <button
-                      type="button"
-                      className={`header-dropdown-item ${activePage === "pharmacy" ? "active" : ""}`}
-                      onClick={() => {
-                        setProfileDropdownOpen(false);
-                        navigateTo("pharmacy");
-                      }}
-                    >
-                      <span style={{ fontSize: "14px" }}>💊</span>
-                      <span>{language === "hi" ? "फार्मेसी वितरण वर्कस्टेशन" : "Pharmacy Dispensing Portal"}</span>
-                    </button>
-                  )}
-                  {isPathologist && (
-                    <button
-                      type="button"
-                      className={`header-dropdown-item ${activePage === "pathology" ? "active" : ""}`}
-                      onClick={() => {
-                        setProfileDropdownOpen(false);
-                        navigateTo("pathology");
-                      }}
-                    >
-                      <span style={{ fontSize: "14px" }}>🔬</span>
-                      <span>{language === "hi" ? "पैथोलॉजी प्रयोगशाला पोर्टल" : "Pathology & Diagnostic Lab"}</span>
-                    </button>
-                  )}
-                  {isRadiologist && (
-                    <button
-                      type="button"
-                      className={`header-dropdown-item ${activePage === "radiology" ? "active" : ""}`}
-                      onClick={() => {
-                        setProfileDropdownOpen(false);
-                        navigateTo("radiology");
-                      }}
-                    >
-                      <span style={{ fontSize: "14px" }}>🩻</span>
-                      <span>{language === "hi" ? "रेडियोलॉजी एवं इमेजिंग पोर्टल" : "Radiology & Imaging Portal"}</span>
-                    </button>
                   )}
 
                   <div style={{ height: "1px", background: isDarkHeader ? "#334155" : "#E2E8F0", margin: "6px 0" }} />
