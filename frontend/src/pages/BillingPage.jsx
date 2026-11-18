@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { API_BASE } from "../config/hospitalConfig";
-import { announceTicketVoice } from "../utils/voiceSynthesizer";
 import { printBillInvoice, printPaymentReceipt } from "../utils/printPassHelper";
 import Footer from "../components/common/Footer";
 import {
@@ -511,21 +510,28 @@ export default function BillingPage({
     }
   };
 
-  // Re-announce Ticket Voice
-  const handleReannounce = (ticket) => {
+  // Send Re-announce signal to Waiting-Room Display Kiosk
+  const handleReannounce = async (ticket) => {
     if (!ticket) return;
-    const voiceText = isHi
-      ? `टोकन संख्या ${ticket.ticket_id || ticket.token_number}, कृपया केंद्रीय बिलिंग डेस्क पर पधारें।`
-      : `Token number ${ticket.ticket_id || ticket.token_number}, please proceed to the central billing desk.`;
-    announceTicketVoice({
-      ticket_id: ticket.ticket_id || ticket.token_number,
-      department: "Central Billing",
-      counter: activeDeskName,
-      desk_name: activeDeskName,
-      language,
-      customText: voiceText,
-    });
-    showToast(isHi ? `टोकन #${ticket.ticket_id} पुनः पुकारा गया` : `Re-announced Token #${ticket.ticket_id}`, "info");
+    try {
+      if (socketRef && socketRef.current) {
+        socketRef.current.emit("re_announce", {
+          tenant_id: effectiveHospitalCode,
+          ticket_id: ticket.ticket_id || ticket.token_number,
+          ticket,
+        });
+      } else {
+        await fetch(`${API_BASE}/api/v1/plugin/re-announce`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tenant_id: effectiveHospitalCode,
+            ticket_id: ticket.ticket_id || ticket.token_number,
+          }),
+        });
+      }
+    } catch (_) {}
+    showToast(isHi ? `टोकन #${ticket.ticket_id || ticket.token_number} प्रतीक्षालय डिस्प्ले पर भेजा गया` : `Sent Token #${ticket.ticket_id || ticket.token_number} to waiting-room display`, "info");
   };
 
   // Active Bill Workstation State
@@ -2219,7 +2225,7 @@ export default function BillingPage({
                       <button
                         type="button"
                         onClick={() => handleReannounce(t)}
-                        title={isHi ? "पुनः पुकारें" : "Re-announce"}
+                        title={isHi ? "प्रतीक्षालय डिस्प्ले पर भेजें" : "Call on waiting-room display"}
                         style={{
                           background: isDark ? "rgba(2, 132, 199, 0.2)" : "#E0F2FE",
                           color: "#0284C7",

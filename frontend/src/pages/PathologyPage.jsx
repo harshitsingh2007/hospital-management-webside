@@ -14,7 +14,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { API_BASE, HOSPITAL_CONFIG } from "../config/hospitalConfig";
-import { announceTicketVoice } from "../utils/voiceSynthesizer";
 import { printLabReportSlip } from "../utils/printPassHelper";
 import Footer from "../components/common/Footer";
 import {
@@ -43,6 +42,7 @@ import {
   Trash2,
   Shield,
   ArrowRight,
+  XCircle,
   ChevronDown,
   Check,
   FileCheck,
@@ -827,7 +827,6 @@ export default function PathologyPage({
             counter: activeCounter,
           };
           setSelectedServingTicket(labTicket);
-          announceTicketVoice(labTicket, language);
           showToast(
             isHi
               ? `टोकन #${data.ticket.ticket_id} (${data.ticket.name}) को पैथोलॉजी स्टेशन पर बुलाया गया!`
@@ -882,7 +881,6 @@ export default function PathologyPage({
     };
 
     setSelectedServingTicket(labTicket);
-    announceTicketVoice(labTicket, language);
     showToast(
       isHi
         ? `टोकन #${ticket.ticket_id} (${ticket.name}) को जांच हेतु काउंटर पर बुलाया गया!`
@@ -964,7 +962,6 @@ export default function PathologyPage({
             service_category: "LABORATORY",
           };
           setSelectedServingTicket(labTicket);
-          announceTicketVoice(labTicket, language);
           showToast(
             isHi
               ? `टोकन #${t.ticket_id} (${t.name}) को पैथोलॉजी काउंटर पर बुलाया गया!`
@@ -1054,11 +1051,10 @@ export default function PathologyPage({
       }
     } catch (e) { }
 
-    announceTicketVoice(labTicket, language);
     showToast(
       isHi
-        ? `टोकन #${activeServingTicket.ticket_id} (${activeServingTicket.name}) की कॉल लाउडस्पीकर पर पुनः प्रसारित की गई!`
-        : `Token #${activeServingTicket.ticket_id} (${activeServingTicket.name}) re-announced on loudspeaker!`,
+        ? `टोकन #${activeServingTicket.ticket_id} (${activeServingTicket.name}) प्रतीक्षालय डिस्प्ले पर भेजा गया`
+        : `Sent Token #${activeServingTicket.ticket_id} (${activeServingTicket.name}) to waiting-room display`,
       "info"
     );
   };
@@ -1132,7 +1128,6 @@ export default function PathologyPage({
         counter_name: assignedDesk?.desk_name || activeDesk || "Pathology Workstation",
         room_number: assignedDesk?.desk_name || "Diagnostic Lab Room",
       };
-      announceTicketVoice(labTicket, language);
       const msg = isHi
         ? `टोकन #${ticket.ticket_id} (${ticket.name}) को पुनः सक्रिय किया गया!`
         : `Recalled #${ticket.ticket_id} (${ticket.name}) back to active station!`;
@@ -1431,16 +1426,30 @@ export default function PathologyPage({
       return;
     }
 
-    const rows = filteredHistory.map((item, idx) => ({
-      "S.No": idx + 1,
-      "Date": item.created_at ? new Date(item.created_at).toLocaleDateString() : "",
-      "Token ID": item.ticket_id || "",
-      "Patient Name": item.patient_name || item.name || "",
-      "Age / Gender": `${item.age || "-"} / ${item.gender || "-"}`,
-      "Contact": item.phone || "",
-      "Test / Condition": item.medical_condition || item.service_category || "Diagnostic Assay",
-      "Status": item.status || "Completed"
-    }));
+    const rows = filteredHistory.map((item, idx) => {
+      const rawSt = String(item.status || "completed").toLowerCase();
+      const isCancelled = rawSt === "cancelled" || rawSt === "canceled";
+      const isNoShow = rawSt === "no_show" || rawSt === "noshow" || rawSt === "expired";
+      let statusFormatted = "Completed";
+      if (isCancelled) statusFormatted = "Cancelled";
+      else if (isNoShow) statusFormatted = "No-Show";
+      else if (rawSt === "serving" || rawSt === "in_progress") statusFormatted = "Serving";
+      else if (rawSt === "waiting" || rawSt === "queued") statusFormatted = "Waiting";
+
+      return {
+        "S.No": idx + 1,
+        "Date": item.created_at ? new Date(item.created_at).toLocaleDateString() : "",
+        "Token ID": item.ticket_id || "",
+        "Patient Name": item.patient_name || item.name || "",
+        "Age / Gender": `${item.age || "-"} / ${item.gender || "-"}`,
+        "Contact": item.phone || "",
+        "Test / Condition": isCancelled
+          ? (item.cancellation_reason ? `Cancelled: ${item.cancellation_reason}` : "Ticket Cancelled - No Test Performed")
+          : (item.medical_condition || item.service_category || "Diagnostic Assay"),
+        "Status": statusFormatted,
+        "Cancellation Reason": item.cancellation_reason || "-",
+      };
+    });
 
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
@@ -2302,10 +2311,10 @@ export default function PathologyPage({
                         gap: "5px",
                         transition: "all 0.15s ease",
                       }}
-                      title="Re-broadcast announcement over loudspeaker"
+                      title={isHi ? "प्रतीक्षालय डिस्प्ले पर भेजें" : "Call on waiting-room display"}
                     >
                       <Volume2 size={13} color="#0284C7" />
-                      <span>{isHi ? "पुनः उद्घोषणा (Recall)" : "Re-announce"}</span>
+                      <span>{isHi ? "डिस्प्ले पर बुलाएं" : "Call on display"}</span>
                     </button>
                     <button
                       type="button"
@@ -3294,10 +3303,10 @@ export default function PathologyPage({
                               cursor: "pointer",
                               transition: "all 0.15s ease",
                             }}
-                            title={isServing ? "Re-announce active ticket" : "Call this patient to station"}
+                            title={isServing ? (isHi ? "प्रतीक्षालय डिस्प्ले पर भेजें" : "Call on waiting-room display") : (isHi ? "स्टेशन पर बुलाएं" : "Call patient to station")}
                           >
                             <Volume2 size={11} />
-                            <span>{isServing ? (isHi ? "उद्घोषणा" : "Announce") : (isHi ? "बुलाएं" : "Call")}</span>
+                            <span>{isServing ? (isHi ? "डिस्प्ले" : "Call on display") : (isHi ? "बुलाएं" : "Call")}</span>
                           </button>
                         </div>
                       </div>
@@ -3690,84 +3699,238 @@ export default function PathologyPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredHistory.map((item, idx) => (
-                    <tr
-                      key={idx}
-                      style={{
-                        borderBottom: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0",
-                      }}
-                    >
-                      <td style={{ padding: "6px 10px", color: mutedText }}>{idx + 1}</td>
-                      <td style={{ padding: "6px 10px", color: mutedText }}>
-                        {item.created_at ? new Date(item.created_at).toLocaleString() : "-"}
-                      </td>
-                      <td style={{ padding: "6px 10px", fontWeight: 800, color: "#0284C7", fontFamily: "monospace" }}>
-                        #{item.ticket_id || "-"}
-                      </td>
-                      <td style={{ padding: "6px 10px", fontWeight: 700, color: textColor }}>
-                        {item.patient_name || item.name || "Patient"}
-                      </td>
-                      <td style={{ padding: "6px 10px" }}>
-                        {item.age || "-"}y / {item.gender || "-"}
-                      </td>
-                      <td style={{ padding: "6px 10px", fontWeight: 600 }}>
-                        {item.medical_condition || item.service_category || "Diagnostic Assay"}
-                      </td>
-                      <td style={{ padding: "6px 10px", textAlign: "center" }}>
-                        <span
-                          style={{
-                            fontSize: "10px",
-                            fontWeight: 800,
-                            padding: "2px 8px",
-                            borderRadius: "9999px",
-                            background: "#ECFDF5",
-                            color: "#059669",
-                            border: "1px solid rgba(16, 185, 129, 0.3)",
-                          }}
-                        >
-                          COMPLETED
-                        </span>
-                      </td>
-                      <td style={{ padding: "6px 10px", textAlign: "center" }}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            printLabReportSlip(
-                              {
-                                patient_name: item.patient_name || item.name,
-                                age: item.age || 30,
-                                gender: item.gender || "M",
-                                phone: item.phone || "",
-                                ticket_id: item.ticket_id,
-                                test_panel_name: item.medical_condition || "Complete Blood Count (CBC)",
-                                results: DEFAULT_TEST_PANELS.cbc.parameters,
-                                hospital_name: brandName,
-                              },
-                              language,
-                              hospitalBranding
-                            );
-                          }}
-                          style={{
-                            background: isDark ? "rgba(2, 132, 199, 0.15)" : "#E0F2FE",
-                            border: "1px solid #0284C7",
-                            color: "#0284C7",
-                            padding: "4px 10px",
-                            borderRadius: "6px",
-                            fontSize: "11px",
-                            fontWeight: 800,
-                            cursor: "pointer",
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "4px",
-                            transition: "all 0.15s ease",
-                          }}
-                        >
-                          <Printer size={12} />
-                          <span>{isHi ? "प्रिंट" : "Print"}</span>
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {filteredHistory.map((item, idx) => {
+                    const rawSt = String(item.status || "completed").toLowerCase();
+                    const isCancelled = rawSt === "cancelled" || rawSt === "canceled";
+                    const isNoShow = rawSt === "no_show" || rawSt === "noshow" || rawSt === "expired";
+                    const isServing = rawSt === "serving" || rawSt === "in_progress";
+                    const isWaiting = rawSt === "waiting" || rawSt === "queued";
+
+                    return (
+                      <tr
+                        key={idx}
+                        style={{
+                          borderBottom: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0",
+                          background: isCancelled
+                            ? (isDark ? "rgba(239, 68, 68, 0.05)" : "rgba(254, 242, 242, 0.6)")
+                            : isNoShow
+                            ? (isDark ? "rgba(245, 158, 11, 0.04)" : "rgba(255, 251, 235, 0.5)")
+                            : "transparent",
+                          opacity: isCancelled ? 0.92 : 1,
+                        }}
+                      >
+                        <td style={{ padding: "6px 10px", color: mutedText }}>{idx + 1}</td>
+                        <td style={{ padding: "6px 10px", color: mutedText }}>
+                          <div>{item.created_at ? new Date(item.created_at).toLocaleString() : "-"}</div>
+                          {isCancelled && item.cancelled_at && (
+                            <div style={{ fontSize: "10px", color: "#DC2626", marginTop: "2px", fontWeight: 600 }}>
+                              {isHi ? "रद्द: " : "Cancelled: "}{new Date(item.cancelled_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ padding: "6px 10px", fontWeight: 800, color: isCancelled ? "#94A3B8" : "#0284C7", fontFamily: "monospace" }}>
+                          #{item.ticket_id || "-"}
+                        </td>
+                        <td style={{ padding: "6px 10px", fontWeight: 700, color: textColor }}>
+                          <div style={{ textDecoration: isCancelled ? "line-through" : "none", color: isCancelled ? (isDark ? "#94A3B8" : "#64748B") : textColor }}>
+                            {item.patient_name || item.name || "Patient"}
+                          </div>
+                          {item.phone && (
+                            <div style={{ fontSize: "10.5px", color: mutedText, fontWeight: 500 }}>
+                              {item.phone}
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ padding: "6px 10px", color: mutedText }}>
+                          {item.age || "-"}y / {item.gender || "-"}
+                        </td>
+                        <td style={{ padding: "6px 10px", fontWeight: 600 }}>
+                          <span style={{ textDecoration: isCancelled ? "line-through" : "none", color: isCancelled ? mutedText : textColor }}>
+                            {item.medical_condition || item.service_category || "Diagnostic Assay"}
+                          </span>
+                        </td>
+                        <td style={{ padding: "6px 10px", textAlign: "center" }}>
+                          {isCancelled ? (
+                            <div style={{ display: "inline-flex", flexDirection: "column", alignItems: "center" }}>
+                              <span
+                                style={{
+                                  fontSize: "10px",
+                                  fontWeight: 800,
+                                  padding: "2px 8px",
+                                  borderRadius: "9999px",
+                                  background: isDark ? "rgba(239, 68, 68, 0.18)" : "#FEE2E2",
+                                  color: "#DC2626",
+                                  border: "1px solid rgba(239, 68, 68, 0.4)",
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "4px",
+                                }}
+                                title={item.cancellation_reason ? `Reason: ${item.cancellation_reason}` : (isHi ? "रद्द किया गया टोकन" : "Cancelled Ticket")}
+                              >
+                                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#DC2626" }} />
+                                {isHi ? "रद्द (CANCELLED)" : "CANCELLED"}
+                              </span>
+                              {item.cancellation_reason && (
+                                <span
+                                  style={{
+                                    fontSize: "9.5px",
+                                    color: "#DC2626",
+                                    marginTop: "2px",
+                                    maxWidth: "140px",
+                                    whiteSpace: "nowrap",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                  }}
+                                  title={item.cancellation_reason}
+                                >
+                                  {item.cancellation_reason}
+                                </span>
+                              )}
+                            </div>
+                          ) : isNoShow ? (
+                            <span
+                              style={{
+                                fontSize: "10px",
+                                fontWeight: 800,
+                                padding: "2px 8px",
+                                borderRadius: "9999px",
+                                background: isDark ? "rgba(245, 158, 11, 0.18)" : "#FEF3C7",
+                                color: "#D97706",
+                                border: "1px solid rgba(245, 158, 11, 0.4)",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                              }}
+                            >
+                              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#D97706" }} />
+                              {isHi ? "अनुपस्थित (NO-SHOW)" : "NO-SHOW"}
+                            </span>
+                          ) : isServing ? (
+                            <span
+                              style={{
+                                fontSize: "10px",
+                                fontWeight: 800,
+                                padding: "2px 8px",
+                                borderRadius: "9999px",
+                                background: isDark ? "rgba(59, 130, 246, 0.18)" : "#DBEAFE",
+                                color: "#2563EB",
+                                border: "1px solid rgba(59, 130, 246, 0.4)",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                              }}
+                            >
+                              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#2563EB" }} />
+                              {isHi ? "प्रक्रियाधीन" : "SERVING"}
+                            </span>
+                          ) : isWaiting ? (
+                            <span
+                              style={{
+                                fontSize: "10px",
+                                fontWeight: 800,
+                                padding: "2px 8px",
+                                borderRadius: "9999px",
+                                background: isDark ? "rgba(147, 51, 234, 0.18)" : "#F3E8FF",
+                                color: "#9333EA",
+                                border: "1px solid rgba(147, 51, 234, 0.4)",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                              }}
+                            >
+                              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#9333EA" }} />
+                              {isHi ? "प्रतीक्षारत" : "WAITING"}
+                            </span>
+                          ) : (
+                            <span
+                              style={{
+                                fontSize: "10px",
+                                fontWeight: 800,
+                                padding: "2px 8px",
+                                borderRadius: "9999px",
+                                background: "#ECFDF5",
+                                color: "#059669",
+                                border: "1px solid rgba(16, 185, 129, 0.3)",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                              }}
+                            >
+                              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#059669" }} />
+                              {isHi ? "पूर्ण (COMPLETED)" : "COMPLETED"}
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ padding: "6px 10px", textAlign: "center" }}>
+                          {isCancelled ? (
+                            <span
+                              style={{
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                color: isDark ? "#EF4444" : "#DC2626",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                fontStyle: "italic",
+                              }}
+                              title={item.cancellation_reason || (isHi ? "यह टिकट रद्द कर दिया गया था" : "Ticket was cancelled")}
+                            >
+                              <XCircle size={12} />
+                              <span>{isHi ? "रद्द (रिपोर्ट नहीं)" : "Cancelled (No Report)"}</span>
+                            </span>
+                          ) : isNoShow ? (
+                            <span
+                              style={{
+                                fontSize: "11px",
+                                fontWeight: 600,
+                                color: mutedText,
+                                fontStyle: "italic",
+                              }}
+                            >
+                              {isHi ? "अनुपस्थित" : "No-Show"}
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                printLabReportSlip(
+                                  {
+                                    patient_name: item.patient_name || item.name,
+                                    age: item.age || 30,
+                                    gender: item.gender || "M",
+                                    phone: item.phone || "",
+                                    ticket_id: item.ticket_id,
+                                    test_panel_name: item.medical_condition || "Complete Blood Count (CBC)",
+                                    results: DEFAULT_TEST_PANELS.cbc.parameters,
+                                    hospital_name: brandName,
+                                  },
+                                  language,
+                                  hospitalBranding
+                                );
+                              }}
+                              style={{
+                                background: isDark ? "rgba(2, 132, 199, 0.15)" : "#E0F2FE",
+                                border: "1px solid #0284C7",
+                                color: "#0284C7",
+                                padding: "4px 10px",
+                                borderRadius: "6px",
+                                fontSize: "11px",
+                                fontWeight: 800,
+                                cursor: "pointer",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                transition: "all 0.15s ease",
+                              }}
+                            >
+                              <Printer size={12} />
+                              <span>{isHi ? "प्रिंट" : "Print"}</span>
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

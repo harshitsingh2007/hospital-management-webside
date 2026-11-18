@@ -1,7 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { API_BASE, HOSPITAL_CONFIG } from "../config/hospitalConfig";
-import { announceTicketVoice } from "../utils/voiceSynthesizer";
 import { printPrescriptionSlip } from "../utils/printPassHelper";
 import Footer from "../components/common/Footer";
 import {
@@ -1612,25 +1611,34 @@ export default function PharmacyPage({
     }
   };
 
-  // Re-announce patient on loudspeaker
-  const handleReAnnounce = (ticket) => {
+  // Send patient call to waiting-room display kiosk
+  const handleReAnnounce = async (ticket) => {
     if (!ticket) return;
     try {
-      announceTicketVoice(
-        {
-          ...ticket,
-          service_category: "PHARMACY",
-        },
-        language
-      );
+      if (socketRef && socketRef.current) {
+        socketRef.current.emit("re_announce", {
+          tenant_id: effectiveHospitalCode,
+          ticket_id: ticket.ticket_id,
+          ticket: { ...ticket, service_category: "PHARMACY" },
+        });
+      } else {
+        await fetch(`${API_BASE}/api/v1/plugin/re-announce`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tenant_id: effectiveHospitalCode,
+            ticket_id: ticket.ticket_id,
+          }),
+        });
+      }
       showToast(
         isHi
-          ? `टोकन #${ticket.ticket_id} (${ticket.name}) की कॉल लाउडस्पीकर पर प्रसारित की गई!`
-          : `Announced Token #${ticket.ticket_id} (${ticket.name}) to Pharmacy Counter!`,
+          ? `टोकन #${ticket.ticket_id} (${ticket.name}) प्रतीक्षालय डिस्प्ले पर भेजा गया`
+          : `Sent Token #${ticket.ticket_id} (${ticket.name}) to waiting-room display`,
         "info"
       );
     } catch (e) {
-      console.warn("Announcement error:", e);
+      console.warn("Display broadcast error:", e);
     }
   };
 
@@ -2506,10 +2514,10 @@ export default function PharmacyPage({
                             alignItems: "center",
                             gap: "5px",
                           }}
-                          title="Broadcast Audio Call Chime"
+                          title={isHi ? "प्रतीक्षालय डिस्प्ले पर भेजें" : "Call on waiting-room display"}
                         >
                           <Volume2 size={13} color="#0284C7" />
-                          <span>{isHi ? "लाउडस्पीकर" : "Re-Announce"}</span>
+                          <span>{isHi ? "डिस्प्ले पर बुलाएं" : "Call on display"}</span>
                         </button>
 
 
@@ -2860,7 +2868,7 @@ export default function PharmacyPage({
                       {isHi ? "प्रतीक्षारत फार्मेसी कतार" : "Waiting Prescriptions"} ({pharmacyQueue.length})
                     </h3>
                     <p style={{ margin: 0, fontSize: "12.5px", color: mutedText }}>
-                      {isHi ? "दवा वितरण प्रारंभ करने हेतु काउंटर पर लें या लाउडस्पीकर पर कॉल करें।" : "Call next queued patient or select any prescription to dispense at your counter."}
+                      {isHi ? "दवा वितरण प्रारंभ करने हेतु काउंटर पर लें या प्रतीक्षा डिस्प्ले पर कॉल करें।" : "Call next queued patient or select any prescription to dispense at your counter."}
                     </p>
                   </div>
 
@@ -2994,9 +3002,10 @@ export default function PharmacyPage({
                               justifyContent: "center",
                               gap: "5px",
                             }}
+                            title={isHi ? "प्रतीक्षालय डिस्प्ले पर भेजें" : "Call on waiting-room display"}
                           >
                             <Volume2 size={12} color="#0284C7" />
-                            <span>{isHi ? "कॉल करें" : "Announce"}</span>
+                            <span>{isHi ? "डिस्प्ले पर बुलाएं" : "Call on display"}</span>
                           </button>
 
                           <button

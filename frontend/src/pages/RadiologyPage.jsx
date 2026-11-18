@@ -16,7 +16,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { API_BASE, HOSPITAL_CONFIG } from "../config/hospitalConfig";
-import { announceTicketVoice } from "../utils/voiceSynthesizer";
 import { printRadiologyReportSlip } from "../utils/printPassHelper";
 import { getCategoryLabel } from "../utils/i18n";
 import Footer from "../components/common/Footer";
@@ -57,6 +56,15 @@ import {
   ZoomOut,
   Play,
   UserX,
+  Users,
+  CalendarCheck,
+  CheckSquare,
+  Square,
+  ArrowUpDown,
+  Filter,
+  Pause,
+  XCircle,
+  X,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -206,13 +214,13 @@ export default function RadiologyPage({
   }, [theme, currentTheme]);
 
   const isDark = currentTheme === "dark";
-  const pageBg = isDark ? "#070B14" : "#F8FAFC";
+  const pageBg = isDark ? "#0F172A" : "#F8FAFC";
   const cardBg = isDark ? "#0F172A" : "#FFFFFF";
   const cardBorder = isDark ? "1px solid #1E293B" : "1px solid #E2E8F0";
   const textColor = isDark ? "#F8FAFC" : "#0F172A";
   const mutedText = isDark ? "#94A3B8" : "#64748B";
 
-  // Tab State: "workstation" | "archive" | "history"
+  // Tab State: "workstation" | "queue" | "history"
   const [activeTab, setActiveTab] = useState("workstation");
 
   // Radiologist identity state
@@ -308,10 +316,10 @@ export default function RadiologyPage({
         id: "ACTIVE",
         label: isHi ? "स्कैन हेतु तैयार" : "Ready to Scan",
         desc: isHi ? "मरीज़ बुलाने के लिए सक्रिय" : "Active & Accepting Patients",
-        color: "#10B981",
-        bg: isDark ? "rgba(16, 185, 129, 0.15)" : "#ECFDF5",
-        border: "#10B981",
-        icon: "●",
+        color: "#0284C7",
+        bg: isDark ? "rgba(2, 132, 199, 0.15)" : "#E0F2FE",
+        border: "#0284C7",
+        icon: null,
       },
       {
         id: "PROCESSING",
@@ -320,16 +328,16 @@ export default function RadiologyPage({
         color: "#0284C7",
         bg: isDark ? "rgba(2, 132, 199, 0.15)" : "#E0F2FE",
         border: "#0284C7",
-        icon: "⚙",
+        icon: null,
       },
       {
         id: "BREAK",
         label: isHi ? "अवकाश पर" : "On Break",
         desc: isHi ? "अल्पकालिक अवकाश" : "Short Break / Calling Paused",
-        color: "#F59E0B",
-        bg: isDark ? "rgba(245, 158, 11, 0.15)" : "#FFFBEB",
-        border: "#F59E0B",
-        icon: "☕",
+        color: "#64748B",
+        bg: isDark ? "rgba(100, 116, 139, 0.15)" : "#F1F5F9",
+        border: "#64748B",
+        icon: null,
       },
       {
         id: "OFF_DUTY",
@@ -338,7 +346,7 @@ export default function RadiologyPage({
         color: "#EF4444",
         bg: isDark ? "rgba(239, 68, 68, 0.15)" : "#FEF2F2",
         border: "#EF4444",
-        icon: "■",
+        icon: null,
       },
     ],
     [isHi, isDark]
@@ -751,7 +759,7 @@ export default function RadiologyPage({
     setTechnique(t.technique);
     setFindings(t.findings);
     setImpression(t.impression);
-    showToast(isHi ? `'${t.title}' टेम्पलेट लागू किया गया ✓` : `Applied '${t.title}' template ✓`, "info");
+    showToast(isHi ? `'${t.title}' प्रारूप लागू किया गया।` : `Applied '${t.title}' template.`, "info");
   };
 
   // Image Upload Handler
@@ -788,7 +796,7 @@ export default function RadiologyPage({
 
       if (res.ok && data.status === "success" && Array.isArray(data.files)) {
         setImages((prev) => [...prev, ...data.files]);
-        showToast(isHi ? `${data.files.length} इमेज सफलतापूर्वक अपलोड हुईं ✓` : `${data.files.length} scan(s) uploaded successfully ✓`, "success");
+        showToast(isHi ? `${data.files.length} इमेज अपलोड की गईं।` : `Uploaded ${data.files.length} scan files.`, "success");
       } else {
         throw new Error(data.message || "Upload failed");
       }
@@ -925,12 +933,10 @@ export default function RadiologyPage({
         }
       } catch (_) { }
 
-      announceTicketVoice(radTicket, language);
-
       showToast(
         isHi
-          ? `टोकन #${nextTicket.ticket_id} (${nextTicket.name}) को बुलाया गया!`
-          : `Called Token #${nextTicket.ticket_id} (${nextTicket.name}) to Imaging Desk!`,
+          ? `टोकन #${nextTicket.ticket_id} (${nextTicket.name || nextTicket.patient_name || "Patient"}) को बुलाया गया!`
+          : `Called Token #${nextTicket.ticket_id} (${nextTicket.name || nextTicket.patient_name || "Patient"}) to Imaging Desk!`,
         "success"
       );
       if (refreshData) refreshData();
@@ -941,6 +947,8 @@ export default function RadiologyPage({
       setCallingNext(false);
     }
   };
+
+  const handleCallNextPatient = handleCallNext;
 
   // Call Specific Patient from Live Queue
   const handleCallSpecificPatient = async (ticket) => {
@@ -992,8 +1000,6 @@ export default function RadiologyPage({
           window.dispatchEvent(new CustomEvent("ticket_called", { detail: { ticket: radTicket } }));
         }
       } catch (_) { }
-
-      announceTicketVoice(radTicket, language);
       showToast(
         isHi
           ? `टोकन #${ticket.ticket_id} (${ticket.name}) को बुलाया गया!`
@@ -1040,40 +1046,39 @@ export default function RadiologyPage({
         window.dispatchEvent(new CustomEvent("ticket_called", { detail: { ticket: radTicket } }));
       }
     } catch (_) { }
-
-    announceTicketVoice(radTicket, language);
     showToast(
       isHi
-        ? `टोकन #${activeServingTicket.ticket_id} (${activeServingTicket.name}) की उद्घोषणा पुनः प्रसारित की गई!`
-        : `Token #${activeServingTicket.ticket_id} (${activeServingTicket.name}) re-announced on loudspeaker!`,
+        ? `टोकन #${activeServingTicket.ticket_id} (${activeServingTicket.name}) प्रतीक्षालय डिस्प्ले पर भेजा गया।`
+        : `Sent Token #${activeServingTicket.ticket_id} (${activeServingTicket.name}) to waiting-room display.`,
       "info"
     );
   };
 
-  // Hold Ticket
   // Hold Ticket (10-minute Grace Window)
-  const handleHold = async () => {
-    if (!activeServingTicket) return;
+  const handleHold = async (targetTicket) => {
+    const target = targetTicket || activeServingTicket;
+    if (!target) return;
     try {
       await fetch(`${API_BASE}/api/v1/plugin/hold-ticket`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           tenant_id: effectiveHospitalCode,
-          ticket_id: activeServingTicket.ticket_id,
+          ticket_id: target.ticket_id,
           grace_minutes: 10,
         }),
       });
       if (socketRef && socketRef.current) {
         socketRef.current.emit("hold_ticket", {
           tenant_id: effectiveHospitalCode,
-          ticket_id: activeServingTicket.ticket_id,
+          ticket_id: target.ticket_id,
           grace_minutes: 10,
         });
       }
-      setSelectedServingTicket(null);
-      showToast(isHi ? `टोकन #${activeServingTicket.ticket_id} को होल्ड पर रखा गया` : `Token #${activeServingTicket.ticket_id} placed on 10-minute hold`, "warn");
-      showToast(isHi ? `टोकन #${activeServingTicket.ticket_id} को होल्ड पर रखा गया (10 मिनट ग्रेस)` : `Token #${activeServingTicket.ticket_id} placed on 10-minute hold`, "warn");
+      if (selectedServingTicket && selectedServingTicket.ticket_id === target.ticket_id) {
+        setSelectedServingTicket(null);
+      }
+      showToast(isHi ? `टोकन #${target.ticket_id} को होल्ड पर रखा गया (10 मिनट ग्रेस)` : `Token #${target.ticket_id} placed on 10-minute hold`, "warn");
       if (refreshData) refreshData();
     } catch (_) { }
   };
@@ -1116,7 +1121,6 @@ export default function RadiologyPage({
         counter_name: assignedDesk?.desk_name || activeDesk || "Imaging Workstation",
         room_number: assignedDesk?.desk_name || "Radiology Scan Room",
       };
-      announceTicketVoice(radTicket, language);
       const msg = isHi
         ? `टोकन #${ticket.ticket_id} (${ticket.name}) को पुनः सक्रिय किया गया!`
         : `Recalled #${ticket.ticket_id} (${ticket.name}) back to active station!`;
@@ -1211,7 +1215,7 @@ export default function RadiologyPage({
       });
 
       if (res.ok) {
-        showToast(isHi ? "रेडियोलॉजी रिपोर्ट ड्राफ्ट सहेजा गया ✓" : "Radiology report draft saved successfully ✓", "success");
+        showToast(isHi ? "रेडियोलॉजी रिपोर्ट प्रारूप सहेजा गया।" : "Radiology report draft saved.", "success");
         if (refreshData) refreshData();
       } else {
         throw new Error("Failed to save draft");
@@ -1312,8 +1316,8 @@ export default function RadiologyPage({
 
         showToast(
           isHi
-            ? `जांच पूर्ण! टोकन #${activeServingTicket.ticket_id} को डॉ. ${parsedDoctorRx?.doctor_name || "OPD"} को भेजा गया ✓`
-            : `Scan completed! Token #${activeServingTicket.ticket_id} routed back to ${parsedDoctorRx?.doctor_name || "Referring Doctor"} ✓`,
+            ? `जांच पूर्ण। टोकन #${activeServingTicket.ticket_id} को डॉ. ${parsedDoctorRx?.doctor_name || "OPD"} को भेजा गया।`
+            : `Scan completed. Token #${activeServingTicket.ticket_id} routed back to ${parsedDoctorRx?.doctor_name || "Referring Doctor"}.`,
           "success"
         );
         setSelectedServingTicket(null);
@@ -1372,8 +1376,8 @@ export default function RadiologyPage({
 
       showToast(
         isHi
-          ? `इमेजिंग पूर्ण एवं टोकन #${activeServingTicket.ticket_id} डिस्चार्ज किया गया ✓`
-          : `Imaging study verified & Token #${activeServingTicket.ticket_id} discharged ✓`,
+          ? `इमेजिंग पूर्ण एवं टोकन #${activeServingTicket.ticket_id} डिस्चार्ज किया गया।`
+          : `Imaging study verified. Token #${activeServingTicket.ticket_id} discharged.`,
         "success"
       );
       setSelectedServingTicket(null);
@@ -1385,6 +1389,7 @@ export default function RadiologyPage({
 
   // Historical Records & Date Filtering
   const [historyFilter, setHistoryFilter] = useState("today"); // "today" | "yesterday" | "date" | "all"
+  const [historyStatusFilter, setHistoryStatusFilter] = useState("all"); // "all" | "completed" | "cancelled" | "no_show"
   const [customFilterDate, setCustomFilterDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [archiveSearch, setArchiveSearch] = useState("");
   const [historyList, setHistoryList] = useState([]);
@@ -1417,7 +1422,7 @@ export default function RadiologyPage({
   }, [effectiveHospitalCode]);
 
   useEffect(() => {
-    if (activeTab === "history" || activeTab === "archive") {
+    if (activeTab === "history") {
       // Determine what date to request from the backend
       const todayStr = new Date().toISOString().split("T")[0];
       const yestDate = new Date();
@@ -1434,6 +1439,54 @@ export default function RadiologyPage({
     }
   }, [activeTab, historyFilter, customFilterDate, fetchRadiologyHistory]);
 
+  // Real-time synchronization for history when tickets are cancelled or updated
+  useEffect(() => {
+    const sock = socketRef?.current;
+    if (!sock) return;
+    const handleHistorySocketUpdate = () => {
+      if (activeTab === "history") {
+        const todayStr = new Date().toISOString().split("T")[0];
+        const yestDate = new Date();
+        yestDate.setDate(yestDate.getDate() - 1);
+        const yestStr = yestDate.toISOString().split("T")[0];
+
+        let dateParam = "all";
+        if (historyFilter === "today") dateParam = todayStr;
+        else if (historyFilter === "yesterday") dateParam = yestStr;
+        else if (historyFilter === "date") dateParam = customFilterDate || todayStr;
+        fetchRadiologyHistory(dateParam);
+      }
+    };
+
+    sock.on("ticket_cancelled", handleHistorySocketUpdate);
+    sock.on("ticket_completed", handleHistorySocketUpdate);
+    sock.on("queue_updated", handleHistorySocketUpdate);
+    return () => {
+      sock.off("ticket_cancelled", handleHistorySocketUpdate);
+      sock.off("ticket_completed", handleHistorySocketUpdate);
+      sock.off("queue_updated", handleHistorySocketUpdate);
+    };
+  }, [socketRef, activeTab, historyFilter, customFilterDate, fetchRadiologyHistory]);
+
+  // Status Counts for History Filter Badges
+  const historyCounts = useMemo(() => {
+    let completed = 0;
+    let cancelled = 0;
+    let noShow = 0;
+    historyList.forEach((item) => {
+      const st = String(item.status || "completed").toLowerCase();
+      if (st === "cancelled" || st === "canceled") cancelled++;
+      else if (st === "no_show" || st === "noshow" || st === "expired") noShow++;
+      else completed++;
+    });
+    return {
+      all: historyList.length,
+      completed,
+      cancelled,
+      noShow,
+    };
+  }, [historyList]);
+
   const filteredHistory = useMemo(() => {
     const todayStr = new Date().toISOString().split("T")[0];
     const yestDate = new Date();
@@ -1446,17 +1499,28 @@ export default function RadiologyPage({
       if (historyFilter === "yesterday" && itemDate && itemDate !== yestStr) return false;
       if (historyFilter === "date" && itemDate && itemDate !== customFilterDate) return false;
 
+      const rawSt = String(item.status || "completed").toLowerCase();
+      const isCancelled = rawSt === "cancelled" || rawSt === "canceled";
+      const isNoShow = rawSt === "no_show" || rawSt === "noshow" || rawSt === "expired";
+      const isCompleted = !isCancelled && !isNoShow;
+
+      if (historyStatusFilter === "cancelled" && !isCancelled) return false;
+      if (historyStatusFilter === "completed" && !isCompleted) return false;
+      if (historyStatusFilter === "no_show" && !isNoShow) return false;
+
       if (archiveSearch.trim()) {
         const q = archiveSearch.toLowerCase();
         const nameMatch = String(item.patient_name || item.name || "").toLowerCase().includes(q);
         const tIdMatch = String(item.ticket_id || "").toLowerCase().includes(q);
         const condMatch = String(item.medical_condition || item.service_category || "").toLowerCase().includes(q);
         const phoneMatch = String(item.phone || "").toLowerCase().includes(q);
-        if (!nameMatch && !tIdMatch && !condMatch && !phoneMatch) return false;
+        const reasonMatch = String(item.cancellation_reason || "").toLowerCase().includes(q);
+        const stMatch = rawSt.includes(q);
+        if (!nameMatch && !tIdMatch && !condMatch && !phoneMatch && !reasonMatch && !stMatch) return false;
       }
       return true;
     });
-  }, [historyList, historyFilter, customFilterDate, archiveSearch]);
+  }, [historyList, historyFilter, customFilterDate, historyStatusFilter, archiveSearch]);
 
   // Excel Export using XLSX
   const handleExportExcel = () => {
@@ -1476,6 +1540,16 @@ export default function RadiologyPage({
         }
       } catch (_) { }
 
+      const rawSt = String(item.status || "completed").toLowerCase();
+      const isCancelled = rawSt === "cancelled" || rawSt === "canceled";
+      const isNoShow = rawSt === "no_show" || rawSt === "noshow" || rawSt === "expired";
+
+      let statusFormatted = "Completed";
+      if (isCancelled) statusFormatted = "Cancelled";
+      else if (isNoShow) statusFormatted = "No-Show";
+      else if (rawSt === "serving" || rawSt === "in_progress") statusFormatted = "Serving";
+      else if (rawSt === "waiting" || rawSt === "queued") statusFormatted = "Waiting";
+
       return {
         "S.No": idx + 1,
         "Date": item.queue_date || (item.created_at ? new Date(item.created_at).toLocaleDateString() : ""),
@@ -1483,8 +1557,11 @@ export default function RadiologyPage({
         "Patient Name": item.patient_name || item.name || "",
         "Age / Gender": `${item.age || 30} / ${item.gender || "M"}`,
         "Modality": mod,
-        "Impression": imp || item.medical_condition || item.service_category || "Completed",
-        "Status": item.status || "Completed",
+        "Impression": isCancelled
+          ? (item.cancellation_reason ? `Cancelled: ${item.cancellation_reason}` : "Ticket Cancelled - No Imaging Performed")
+          : (imp || item.medical_condition || item.service_category || "Completed"),
+        "Status": statusFormatted,
+        "Cancellation Reason": item.cancellation_reason || "-",
       };
     });
 
@@ -1492,8 +1569,515 @@ export default function RadiologyPage({
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Radiology_Records");
     XLSX.writeFile(wb, `Radiology_Records_${historyFilter}_${new Date().toISOString().slice(0, 10)}.xlsx`);
-    showToast(isHi ? "एक्सेल स्प्रेडशीट डाउनलोड हो गई ✓" : "Excel spreadsheet exported successfully ✓", "success");
+    showToast(isHi ? "एक्सेल स्प्रेडशीट डाउनलोड हो गई।" : "Excel spreadsheet exported successfully.", "success");
   };
+
+  // =========================================================================
+  // QUEUE & APPOINTMENTS TAB STATE & LOGIC
+  // =========================================================================
+  const [queueSubView, setQueueSubView] = useState("queue"); // "queue" | "appointments"
+  const [queueModalityFilter, setQueueModalityFilter] = useState("all"); // "all" | "X-Ray" | "CT" | "MRI" | "USG"
+  const [queueStatusFilter, setQueueStatusFilter] = useState("all");
+  const [queuePriorityFilter, setQueuePriorityFilter] = useState("all");
+  const [queueSearchQuery, setQueueSearchQuery] = useState("");
+
+  // Appointments Data
+  const [appointmentsList, setAppointmentsList] = useState([]);
+  const [appointmentsLoading, setAppointmentsLoading] = useState(false);
+
+  const fetchRadiologyAppointments = useCallback(async (isInitial = false) => {
+    if (!effectiveHospitalCode) return;
+    if (isInitial) setAppointmentsLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/plugin/appointments/tenant/${encodeURIComponent(effectiveHospitalCode)}`);
+      const data = await res.json();
+      if (res.ok && (data.status === "success" || Array.isArray(data.appointments))) {
+        setAppointmentsList(Array.isArray(data.appointments) ? data.appointments : []);
+      }
+    } catch (e) {
+      console.error("Error fetching radiology appointments:", e);
+    } finally {
+      if (isInitial) setAppointmentsLoading(false);
+    }
+  }, [effectiveHospitalCode]);
+
+  useEffect(() => {
+    fetchRadiologyAppointments(true);
+  }, [fetchRadiologyAppointments]);
+
+  // Handle Manual Check-In from Appointments
+  const handleCheckInAppointment = async (aptId) => {
+    if (!aptId) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/plugin/appointments/check-in`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ appointment_id: aptId }),
+      });
+      const data = await res.json();
+      if (res.ok && data.status === "success") {
+        showToast(
+          isHi
+            ? `टोकन #${data.ticket?.ticket_id || ""} चेक-इन सफल।`
+            : `Checked in successfully. Token #${data.ticket?.ticket_id || ""} issued.`,
+          "success"
+        );
+        fetchRadiologyAppointments();
+        if (refreshData) refreshData();
+        if (data.ticket) {
+        }
+      } else {
+        showToast(data.message || data.detail || (isHi ? "चेक-इन विफल रहा" : "Check-in failed"), "error");
+      }
+    } catch (e) {
+      showToast(isHi ? `चेक-इन त्रुटि: ${e.message}` : `Error during check-in: ${e.message}`, "error");
+    }
+  };
+
+  // Handle Cancel Appointment
+  const handleCancelAppointment = async (aptId) => {
+    if (!aptId) return;
+    if (!window.confirm(isHi ? `क्या आप वाकई अपॉइंटमेंट #${aptId} को रद्द करना चाहते हैं?` : `Are you sure you want to cancel appointment #${aptId}?`)) {
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/plugin/appointments/${aptId}/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: "Cancelled by radiology department" }),
+      });
+      const data = await res.json();
+      if (res.ok && data.status === "success") {
+        showToast(isHi ? "अपॉइंटमेंट रद्द किया गया।" : "Appointment cancelled.", "info");
+        fetchRadiologyAppointments();
+        if (refreshData) refreshData();
+      } else {
+        showToast(data.message || (isHi ? "रद्द करने में विफलता" : "Failed to cancel appointment"), "error");
+      }
+    } catch (e) {
+      showToast(`Error: ${e.message}`, "error");
+    }
+  };
+
+  // Dedicated Queue Ticket Transfer Modal State
+  const [transferTicket, setTransferTicket] = useState(null);
+  const [transferTargetDept, setTransferTargetDept] = useState("");
+  const [transferNotes, setTransferNotes] = useState("");
+  const [isTransferringQueueTicket, setIsTransferringQueueTicket] = useState(false);
+
+  const handleExecuteQueueTransfer = async () => {
+    if (!transferTicket || !transferTargetDept) return;
+    setIsTransferringQueueTicket(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/plugin/transfer-ticket`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenant_id: effectiveHospitalCode,
+          ticket_id: transferTicket.ticket_id,
+          target_department: transferTargetDept,
+          prescription_notes: transferNotes ? JSON.stringify({ transfer_notes: transferNotes, advised_by: "Radiology Department" }) : "",
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast(
+          isHi
+            ? `टोकन #${transferTicket.ticket_id} को स्थानांतरित किया गया।`
+            : `Transferred #${transferTicket.ticket_id} to ${transferTargetDept}.`,
+          "success"
+        );
+        setTransferTicket(null);
+        setTransferTargetDept("");
+        setTransferNotes("");
+        if (refreshData) refreshData();
+      } else {
+        showToast(data.message || (isHi ? "स्थानांतरण विफल रहा" : "Failed to transfer ticket"), "error");
+      }
+    } catch (e) {
+      showToast(`Error: ${e.message}`, "error");
+    } finally {
+      setIsTransferringQueueTicket(false);
+    }
+  };
+
+  // Persistent Prep Checklist State per Patient
+  const [prepState, setPrepState] = useState(() => {
+    try {
+      const key = `ai_queue_radiology_prep_${effectiveHospitalCode}`;
+      const saved = localStorage.getItem(key);
+      return saved ? JSON.parse(saved) : {};
+    } catch (_) {
+      return {};
+    }
+  });
+
+  const updatePrepState = useCallback((patientKey, updater) => {
+    setPrepState((prev) => {
+      const curr = prev[patientKey] || { items: {}, prepDone: false };
+      const updated = typeof updater === "function" ? updater(curr) : updater;
+      const next = { ...prev, [patientKey]: updated };
+      try {
+        localStorage.setItem(`ai_queue_radiology_prep_${effectiveHospitalCode}`, JSON.stringify(next));
+      } catch (_) { }
+      return next;
+    });
+  }, [effectiveHospitalCode]);
+
+  const togglePrepItem = (patientKey, itemId) => {
+    updatePrepState(patientKey, (curr) => {
+      const items = { ...(curr.items || {}) };
+      items[itemId] = !items[itemId];
+      return { ...curr, items };
+    });
+  };
+
+  const setPatientPrepDone = (patientKey, isDone) => {
+    updatePrepState(patientKey, (curr) => {
+      return { ...curr, prepDone: isDone };
+    });
+    showToast(
+      isDone
+        ? (isHi ? "प्री-स्कैन तैयारी सत्यापित की गई।" : "Pre-scan preparation confirmed.")
+        : (isHi ? "तैयारी लंबित चिह्नित की गई" : "Prep status marked incomplete"),
+      isDone ? "success" : "info"
+    );
+  };
+
+  // Helper to detect Modality & Body Part
+  const detectItemModality = useCallback((item) => {
+    if (!item) return "X-Ray";
+    const pNotes = typeof item.prescription_notes === "object" ? JSON.stringify(item.prescription_notes || {}) : (item.prescription_notes || "");
+    const text = `${item.service_category || ""} ${item.department || item.department_name || ""} ${item.medical_condition || ""} ${pNotes} ${item.notes || ""} ${item.reason || ""}`.toLowerCase();
+    if (text.includes("mri") || text.includes("magnetic")) return "MRI";
+    if (text.includes("ct") || text.includes("computed") || text.includes("tomography")) return "CT";
+    if (text.includes("usg") || text.includes("ultrasound") || text.includes("sonography")) return "USG";
+    if (text.includes("xray") || text.includes("x-ray") || text.includes("radiograph")) return "X-Ray";
+    if (text.includes("mammo")) return "X-Ray";
+    return "X-Ray";
+  }, []);
+
+  const detectItemBodyPart = useCallback((item) => {
+    if (!item) return "Chest";
+    const pNotes = typeof item.prescription_notes === "object" ? JSON.stringify(item.prescription_notes || {}) : (item.prescription_notes || "");
+    const text = `${item.service_category || ""} ${item.medical_condition || ""} ${pNotes} ${item.notes || ""} ${item.reason || ""}`.toLowerCase();
+    if (text.includes("chest") || text.includes("thorax") || text.includes("lung")) return "Chest";
+    if (text.includes("brain") || text.includes("head") || text.includes("skull")) return "Brain / Head";
+    if (text.includes("pelvis") || text.includes("pelvic") || text.includes("bladder") || text.includes("uterus")) return "Pelvis";
+    if (text.includes("abdomen") || text.includes("belly") || text.includes("liver") || text.includes("kidney") || text.includes("stomach")) return "Abdomen";
+    if (text.includes("spine") || text.includes("back") || text.includes("lumbar") || text.includes("cervical")) return "Spine (L-S / Cervical)";
+    if (text.includes("knee") || text.includes("joint") || text.includes("leg") || text.includes("arm") || text.includes("shoulder") || text.includes("bone")) return "Extremity / Joint";
+    return "Chest";
+  }, []);
+
+  // Helper to get tailored prep checklist items for a patient
+  const getPrepChecklistItems = useCallback((item) => {
+    if (!item) return [];
+    const mod = detectItemModality(item);
+    const part = detectItemBodyPart(item);
+    const age = Number(item.age || 0);
+    const gender = String(item.gender || "").toLowerCase();
+    const isFemaleReproductive = (gender.startsWith("f") || gender === "female") && age >= 12 && age <= 55;
+    const isIonizing = mod === "X-Ray" || mod === "CT";
+
+    const items = [];
+
+    // 1. Fasting for Abdomen USG
+    if (mod === "USG" && (part === "Abdomen" || part.toLowerCase().includes("abdo"))) {
+      items.push({
+        id: "fasting_usg",
+        label: isHi ? "पेट अल्ट्रासाउंड हेतु 6-8 घंटे उपवास (खाली पेट / NPO)" : "Fasting for Abdomen USG (6-8 hrs NPO, no solid food or milk)",
+        hint: isHi ? "पित्ताशय व यकृत के स्पष्ट दृश्य हेतु आवश्यक" : "Ensures optimal gallbladder distension & minimal bowel gas",
+        tag: "Fasting",
+      });
+    }
+
+    // 2. Full Bladder for Pelvic USG
+    if (mod === "USG" && (part === "Pelvis" || part.toLowerCase().includes("pelv") || part === "Abdomen")) {
+      items.push({
+        id: "full_bladder",
+        label: isHi ? "पेल्विक अल्ट्रासाउंड हेतु भरा हुआ मूत्राशय (1L पानी पिएं, पेशाब न करें)" : "Full Bladder for Pelvic USG (Drink 1L water 1h prior, do not void)",
+        hint: isHi ? "मूत्राशय व गर्भाशय/प्रोस्टेट के दृश्य हेतु अकॉस्टिक विंडो" : "Acoustic window essential for pelvic organs visualization",
+        tag: "Full Bladder",
+      });
+    }
+
+    // 3. Creatinine & Contrast Allergy for CT
+    if (mod === "CT") {
+      items.push({
+        id: "creatinine_check",
+        label: isHi ? "सीरम क्रिएटिनिन जांच (< 1.4 mg/dL सत्यापित) - रीनल सुरक्षा" : "Serum Creatinine Verified (< 1.4 mg/dL - Renal Safety)",
+        hint: isHi ? "IV आयोडीन कंट्रास्ट डाई नेफ्रोपैथी से बचाव हेतु" : "Guards against contrast-induced nephropathy (CIN)",
+        tag: "Creatinine",
+      });
+      items.push({
+        id: "contrast_allergy",
+        label: isHi ? "IV कंट्रास्ट एवं आयोडीन एलर्जी स्क्रीनिंग (कोई पूर्व एनाफिलेक्सिस नहीं)" : "IV Contrast & Iodine Allergy Screening (No prior severe reaction/asthma)",
+        hint: isHi ? "गंभीर एलर्जी व ब्रोन्कोस्पाज्म से बचाव" : "Check for seafood/iodine allergy, pre-medication if indicated",
+        tag: "Allergy",
+      });
+    }
+
+    // 4. Implant & Metal Screening for MRI
+    if (mod === "MRI") {
+      items.push({
+        id: "mri_metal_screening",
+        label: isHi ? "एमआरआई धातु स्क्रीनिंग: पेसमेकर, न्यूरोस्टिम्युलेटर, धातु क्लिप्स मुक्त" : "MRI Safety: Pacemaker, Aneurysm Clips & Metal Implants Ruled Out",
+        hint: isHi ? "Zone IV 1.5T/3.0T उच्च चुंबकीय क्षेत्र सुरक्षा" : "Zone IV safety check: Ferromagnetic items, cochlear implants, shrapnel",
+        tag: "MRI Safety",
+      });
+      items.push({
+        id: "mri_clothing_artifacts",
+        label: isHi ? "सभी आभूषण, घड़ी, धातु के बटन व मोबाइल फोन हटा दिए गए हैं" : "All Jewelry, Watches, Hairpins & External Metal Removed",
+        hint: isHi ? "आरएफ बर्न व विरूपण से बचाव" : "Hospital gown provided; zero metallic artifacts",
+        tag: "Metal Check",
+      });
+    }
+
+    // 5. Radiation Safety Pregnancy Rule-Out for Ionizing Modalities
+    if (isIonizing && isFemaleReproductive) {
+      items.push({
+        id: "pregnancy_check",
+        label: isHi ? "रेडिएशन सुरक्षा: गर्भावस्था की अनुपस्थिति सत्यापित (LMP / 10-दिन नियम)" : "Radiation Safety: Pregnancy Ruled Out (LMP Verified / Non-Pregnant)",
+        hint: isHi ? "AERB / ACR दिशा-निर्देश: भ्रूण को एक्स-रे विकिरण से सुरक्षित रखने हेतु" : "AERB / ACR 10-day rule protocol for female patients aged 12-55",
+        tag: "Pregnancy Safety",
+        isWarning: true,
+      });
+    }
+
+    // Default safety check for plain X-Ray
+    if (items.length === 0) {
+      items.push({
+        id: "general_prep",
+        label: isHi ? "धातु व कपड़े के आर्टिफैक्ट्स हटाए गए (गहने, बटन, जिपर)" : "Artifacts Removed: Jewelry, Buttons, Snaps & Zippers Removed",
+        hint: isHi ? "स्पष्ट इमेजिंग एवं गुणवत्ता हेतु" : "Patient properly positioned in gown for diagnostic quality",
+        tag: "Prep Verified",
+      });
+    }
+
+    return items;
+  }, [detectItemModality, detectItemBodyPart, isHi]);
+
+  // Call patient with prep verification prompt
+  const handleCallWithPrepCheck = useCallback((ticket) => {
+    if (!ticket) return;
+    const pKey = `ticket_${ticket.ticket_id}`;
+    const isPrepDone = Boolean(prepState[pKey]?.prepDone);
+    const pName = ticket.name || ticket.patient_name || "Patient";
+    if (!isPrepDone) {
+      const confirmCall = window.confirm(
+        isHi
+          ? `टोकन #${ticket.ticket_id} (${pName}) की प्री-स्कैन तैयारी अधूरी है। क्या आप तैयारी की पुष्टि करके मरीज़ को बुलाना चाहते हैं?`
+          : `Pre-scan preparation incomplete for Token #${ticket.ticket_id} (${pName}). Click OK to confirm preparation and call patient, or Cancel to review checklist.`
+      );
+      if (confirmCall) {
+        setPatientPrepDone(pKey, true);
+        handleCallSpecificPatient(ticket);
+      }
+      return;
+    }
+    handleCallSpecificPatient(ticket);
+  }, [prepState, isHi, handleCallSpecificPatient, setPatientPrepDone]);
+
+  // Filtered Today's Appointments
+  const todayDateStr = useMemo(() => new Date().toISOString().split("T")[0], []);
+
+  const todayAppointments = useMemo(() => {
+    return appointmentsList.filter((apt) => {
+      const aptDate = apt.appointment_date || (apt.appointment_time ? apt.appointment_time.split("T")[0] : "");
+      return !aptDate || aptDate === todayDateStr;
+    });
+  }, [appointmentsList, todayDateStr]);
+
+  const todayAppointmentsFiltered = useMemo(() => {
+    return todayAppointments.filter((apt) => {
+      // Modality filter
+      if (queueModalityFilter !== "all") {
+        const m = detectItemModality(apt);
+        if (m !== queueModalityFilter) return false;
+      }
+
+      // Status filter
+      if (queueStatusFilter !== "all") {
+        const s = (apt.status || "booked").toLowerCase();
+        if (queueStatusFilter === "waiting" && s !== "booked" && s !== "check_in_available") return false;
+        if (queueStatusFilter === "checked_in" && s !== "checked_in") return false;
+        if (queueStatusFilter === "booked" && s !== "booked") return false;
+        if (queueStatusFilter === "expired" && s !== "expired") return false;
+        if (queueStatusFilter === "cancelled" && s !== "cancelled") return false;
+      }
+
+      // Priority filter
+      if (queuePriorityFilter !== "all") {
+        const p = Number(apt.priority_level || apt.priority || 3);
+        if (queuePriorityFilter === "emergency" && p !== 1) return false;
+        if (queuePriorityFilter === "urgent" && p !== 2) return false;
+        if (queuePriorityFilter === "routine" && p !== 3 && p !== 2 && p !== 1) return false;
+      }
+
+      // Search query
+      if (queueSearchQuery.trim()) {
+        const q = queueSearchQuery.toLowerCase();
+        const name = String(apt.patient_name || apt.name || "").toLowerCase();
+        const phone = String(apt.phone || "").toLowerCase();
+        const id = String(apt.appointment_id || apt.ticket_id || "").toLowerCase();
+        if (!name.includes(q) && !phone.includes(q) && !id.includes(q)) return false;
+      }
+
+      return true;
+    });
+  }, [todayAppointments, queueModalityFilter, queueStatusFilter, queuePriorityFilter, queueSearchQuery, detectItemModality]);
+
+  // Appointments grouped by time slot
+  const appointmentsBySlot = useMemo(() => {
+    const groups = {};
+    todayAppointmentsFiltered.forEach((apt) => {
+      const slot = apt.time_slot || apt.formatted_appointment_time || apt.appointment_time || "General OPD Slot";
+      if (!groups[slot]) groups[slot] = [];
+      groups[slot].push(apt);
+    });
+    return groups;
+  }, [todayAppointmentsFiltered]);
+
+  // Late appointment checker
+  const isAppointmentLate = useCallback((apt) => {
+    const rawStatus = (apt.status || "booked").toLowerCase();
+    if (rawStatus === "checked_in" || rawStatus === "cancelled" || rawStatus === "completed") return false;
+    const slot = apt.time_slot || apt.appointment_time || "";
+    const timeMatch = slot.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+    if (!timeMatch) return false;
+    let hours = parseInt(timeMatch[1], 10);
+    const minutes = parseInt(timeMatch[2], 10);
+    const ampm = timeMatch[3];
+    if (ampm) {
+      if (ampm.toUpperCase() === "PM" && hours < 12) hours += 12;
+      if (ampm.toUpperCase() === "AM" && hours === 12) hours = 0;
+    }
+    const now = new Date();
+    const slotDate = new Date();
+    slotDate.setHours(hours, minutes, 0, 0);
+    return now > slotDate;
+  }, []);
+
+  // Filtered & Sorted Live Queue
+  const combinedLiveQueue = useMemo(() => {
+    const map = new Map();
+    // 1. Currently Serving
+    if (radiologyServing) {
+      map.set(radiologyServing.ticket_id, { ...radiologyServing, _queueCategory: "serving" });
+    }
+    // 2. On Hold
+    (radiologyHeldTickets || []).forEach((t) => {
+      map.set(t.ticket_id, { ...t, _queueCategory: "on_hold" });
+    });
+    // 3. Waiting Queue
+    (radiologyQueue || []).forEach((t) => {
+      if (!map.has(t.ticket_id)) {
+        map.set(t.ticket_id, { ...t, _queueCategory: "waiting" });
+      }
+    });
+
+    const list = Array.from(map.values());
+
+    return list.filter((ticket) => {
+      // Modality filter
+      if (queueModalityFilter !== "all") {
+        const m = detectItemModality(ticket);
+        if (m !== queueModalityFilter) return false;
+      }
+
+      // Status filter
+      if (queueStatusFilter !== "all") {
+        if (queueStatusFilter === "waiting" && ticket._queueCategory !== "waiting") return false;
+        if (queueStatusFilter === "serving" && ticket._queueCategory !== "serving") return false;
+        if (queueStatusFilter === "on_hold" && ticket._queueCategory !== "on_hold") return false;
+      }
+
+      // Priority filter
+      if (queuePriorityFilter !== "all") {
+        const p = Number(ticket.priority_level || ticket.priority || 3);
+        if (queuePriorityFilter === "emergency" && p !== 1) return false;
+        if (queuePriorityFilter === "urgent" && p !== 2) return false;
+        if (queuePriorityFilter === "routine" && p !== 3 && p !== 2 && p !== 1) return false;
+      }
+
+      // Search query
+      if (queueSearchQuery.trim()) {
+        const q = queueSearchQuery.toLowerCase();
+        const name = String(ticket.name || ticket.patient_name || "").toLowerCase();
+        const phone = String(ticket.phone || "").toLowerCase();
+        const tid = String(ticket.ticket_id || "").toLowerCase();
+        if (!name.includes(q) && !phone.includes(q) && !tid.includes(q)) return false;
+      }
+
+      return true;
+    }).sort((a, b) => {
+      // Priority 1: Serving ticket always top
+      if (a._queueCategory === "serving" && b._queueCategory !== "serving") return -1;
+      if (b._queueCategory === "serving" && a._queueCategory !== "serving") return 1;
+
+      // Priority 2: Emergency (P1) first
+      const pa = Number(a.priority_level || a.priority || 3);
+      const pb = Number(b.priority_level || b.priority || 3);
+      if (pa !== pb) return pa - pb; // 1 before 2 before 3
+
+      // Priority 3: Longest wait time (earliest join_timestamp)
+      const parseJoin = (t) => {
+        if (!t) return 0;
+        if (t.join_timestamp) {
+          const num = Number(t.join_timestamp);
+          if (!isNaN(num) && num > 0) return num > 1e11 ? num / 1000 : num;
+        }
+        if (t.created_at) {
+          const time = new Date(t.created_at).getTime();
+          if (!isNaN(time)) return time / 1000;
+        }
+        return 0;
+      };
+      const ja = parseJoin(a);
+      const jb = parseJoin(b);
+      return ja - jb;
+    });
+  }, [radiologyServing, radiologyHeldTickets, radiologyQueue, queueModalityFilter, queueStatusFilter, queuePriorityFilter, queueSearchQuery, detectItemModality]);
+
+  // 8 Summary Strip Metrics Calculations
+  const waitingMetric = Array.isArray(radiologyQueue) ? radiologyQueue.length : 0;
+  const servingMetric = radiologyServing ? 1 : 0;
+  const heldMetric = Array.isArray(radiologyHeldTickets) ? radiologyHeldTickets.length : 0;
+  const bookedTodayMetric = useMemo(() => {
+    return todayAppointments.filter((a) => {
+      const s = (a.status || "booked").toLowerCase();
+      return s === "booked" || s === "confirmed" || s === "scheduled" || s === "check_in_available";
+    }).length;
+  }, [todayAppointments]);
+  const checkedInMetric = useMemo(() => {
+    return todayAppointments.filter((a) => {
+      const s = (a.status || "").toLowerCase();
+      return s === "checked_in" || Boolean(a.ticket_id);
+    }).length;
+  }, [todayAppointments]);
+  const noShowExpiredMetric = useMemo(() => {
+    const aptNoShow = todayAppointments.filter((a) => {
+      const s = (a.status || "").toLowerCase();
+      return s === "no_show" || s === "expired" || s === "cancelled";
+    }).length;
+    return aptNoShow;
+  }, [todayAppointments]);
+  const avgWaitMinutes = useMemo(() => {
+    if (!Array.isArray(radiologyQueue) || radiologyQueue.length === 0) return 12;
+    let totalSec = 0;
+    radiologyQueue.forEach((t) => {
+      const rawJoin = t.join_timestamp
+        ? (Number(t.join_timestamp) > 1e11 ? Number(t.join_timestamp) / 1000 : Number(t.join_timestamp))
+        : (t.created_at ? new Date(t.created_at).getTime() / 1000 : nowSec - 600);
+      const validJoin = isNaN(rawJoin) ? nowSec - 600 : rawJoin;
+      const elapsed = Math.max(0, nowSec - validJoin);
+      totalSec += elapsed;
+    });
+    const mins = Math.round((totalSec / radiologyQueue.length) / 60);
+    return !isNaN(mins) && mins > 0 ? mins : 8;
+  }, [radiologyQueue, nowSec]);
+  const avgScanTimeMinutes = 14;
 
   return (
     <div
@@ -1505,9 +2089,24 @@ export default function RadiologyPage({
         background: pageBg,
         color: textColor,
         transition: "all 0.25s ease",
-        "--rad-card-bg": cardBg,
-        "--rad-card-border": isDark ? "#1E293B" : "#E2E8F0",
+                "--rad-card-bg": cardBg,
+        "--rad-card-border": isDark ? "#334155" : "#E2E8F0",
         "--rad-card-text": textColor,
+        "--rad-primary": brandPrimary,
+        "--rad-primary-hover": "#0369A1",
+        "--rad-primary-light": isDark ? "rgba(2, 132, 199, 0.18)" : "#E0F2FE",
+        "--rad-primary-border": isDark ? "rgba(2, 132, 199, 0.45)" : "#BAE6FD",
+        "--rad-navy": "#0C2340",
+        "--rad-bg": pageBg,
+        "--rad-surface": cardBg,
+        "--rad-surface-subtle": isDark ? "#0F172A" : "#F8FAFC",
+        "--rad-border": isDark ? "#334155" : "#E2E8F0",
+        "--rad-border-subtle": isDark ? "#1E293B" : "#F1F5F9",
+        "--rad-text": textColor,
+        "--rad-muted": mutedText,
+        "--rad-destructive": "#DC2626",
+        "--rad-destructive-light": isDark ? "rgba(220, 38, 38, 0.15)" : "#FEF2F2",
+        "--rad-destructive-border": isDark ? "rgba(220, 38, 38, 0.35)" : "#FECACA",
       }}
     >
       {/* Embedded CSS Style Rules matching Pathology & Doctor Portals */}
@@ -1527,7 +2126,7 @@ export default function RadiologyPage({
         .radiology-hero-container {
           background: radial-gradient(circle at 10% 15%, rgba(2, 132, 199, 0.28) 0%, transparent 45%),
                       radial-gradient(circle at 90% 85%, rgba(56, 189, 248, 0.18) 0%, transparent 50%),
-                      linear-gradient(135deg, #090F1E 0%, #0F172A 60%, #162447 100%);
+                      linear-gradient(135deg, #0C2340 0%, #0F172A 60%, #1E293B 100%);
           border: 1px solid rgba(56, 189, 248, 0.25);
           border-radius: 20px;
           padding: 20px 24px;
@@ -1720,10 +2319,10 @@ export default function RadiologyPage({
               toast.type === "error"
                 ? "#EF4444"
                 : toast.type === "warn"
-                  ? "#F59E0B"
+                  ? "#64748B"
                   : toast.type === "info"
                     ? "#0284C7"
-                    : "#10B981",
+                    : "#0284C7",
             color: "#FFFFFF",
             fontWeight: 700,
             fontSize: "13px",
@@ -1736,9 +2335,7 @@ export default function RadiologyPage({
           <button
             onClick={() => setToast(null)}
             style={{ background: "none", border: "none", color: "#FFFFFF", cursor: "pointer", marginLeft: "8px", fontWeight: "bold" }}
-          >
-            ✕
-          </button>
+          ><X size={15} /></button>
         </div>
       )}
 
@@ -1798,9 +2395,7 @@ export default function RadiologyPage({
                   cursor: "pointer",
                   padding: "4px 8px",
                 }}
-              >
-                ✕
-              </button>
+              ><X size={15} /></button>
             </div>
 
             {/* Viewer Toolbar */}
@@ -1849,7 +2444,7 @@ export default function RadiologyPage({
                   cursor: "pointer",
                 }}
               >
-                ◑ Invert (Negative)
+                Invert (Negative)
               </button>
 
               <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
@@ -1983,8 +2578,8 @@ export default function RadiologyPage({
                     width: "6px",
                     height: "6px",
                     borderRadius: "50%",
-                    background: "#34D399",
-                    boxShadow: "0 0 6px #10B981",
+                    background: "#38BDF8",
+                    boxShadow: "0 0 6px rgba(56, 189, 248, 0.5)",
                     display: "inline-block",
                     flexShrink: 0,
                   }}
@@ -1992,7 +2587,7 @@ export default function RadiologyPage({
                 <span style={{ fontSize: "10.5px", fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.5px" }}>
                   {isHi ? "विभाग:" : "Dept:"}
                 </span>
-                <span style={{ fontSize: "12px", fontWeight: 800, color: "#34D399", letterSpacing: "0.3px" }}>
+                <span style={{ fontSize: "12px", fontWeight: 800, color: "#38BDF8", letterSpacing: "0.3px" }}>
                   {(currentUser?.department || "RADIOLOGY & IMAGING").toUpperCase()}
                 </span>
               </div>
@@ -2028,10 +2623,10 @@ export default function RadiologyPage({
                 gap: "6px",
                 background: assignedDesk
                   ? "rgba(255, 255, 255, 0.12)"
-                  : "rgba(245, 158, 11, 0.14)",
+                  : "rgba(100, 116, 139, 0.14)",
                 border: assignedDesk
                   ? "1px solid rgba(255, 255, 255, 0.25)"
-                  : "1px solid rgba(245, 158, 11, 0.4)",
+                  : "1px solid rgba(100, 116, 139, 0.4)",
                 borderRadius: "10px",
                 padding: "6px 12px",
                 backdropFilter: "blur(8px)",
@@ -2048,7 +2643,7 @@ export default function RadiologyPage({
                 style={{
                   fontSize: "10px",
                   fontWeight: 800,
-                  color: assignedDesk ? "#38BDF8" : "#FBBF24",
+                  color: assignedDesk ? "#38BDF8" : "#94A3B8",
                   display: "flex",
                   alignItems: "center",
                   gap: "4px",
@@ -2063,7 +2658,7 @@ export default function RadiologyPage({
                 style={{
                   fontSize: "12px",
                   fontWeight: 900,
-                  color: assignedDesk ? "#FFFFFF" : "#FDE68A",
+                  color: assignedDesk ? "#FFFFFF" : "#CBD5E1",
                   letterSpacing: "0.3px",
                 }}
               >
@@ -2079,11 +2674,11 @@ export default function RadiologyPage({
                 style={{
                   background:
                     dutyStatus === "ACTIVE"
-                      ? "linear-gradient(135deg, #10B981 0%, #059669 100%)"
+                      ? "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)"
                       : dutyStatus === "PROCESSING"
                         ? "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)"
                         : dutyStatus === "BREAK"
-                          ? "linear-gradient(135deg, #F59E0B 0%, #D97706 100%)"
+                          ? "linear-gradient(135deg, #475569 0%, #334155 100%)"
                           : "linear-gradient(135deg, #EF4444 0%, #DC2626 100%)",
                   color: "#FFFFFF",
                   border: "none",
@@ -2097,11 +2692,11 @@ export default function RadiologyPage({
                   gap: "6px",
                   boxShadow:
                     dutyStatus === "ACTIVE"
-                      ? "0 4px 14px rgba(16, 185, 129, 0.35)"
+                      ? "0 4px 14px rgba(2, 132, 199, 0.35)"
                       : dutyStatus === "PROCESSING"
                         ? "0 4px 14px rgba(2, 132, 199, 0.35)"
                         : dutyStatus === "BREAK"
-                          ? "0 4px 14px rgba(245, 158, 11, 0.35)"
+                          ? "0 4px 14px rgba(100, 116, 139, 0.35)"
                           : "0 4px 14px rgba(239, 68, 68, 0.35)",
                   transition: "all 0.2s ease",
                   outline: "none",
@@ -2117,7 +2712,7 @@ export default function RadiologyPage({
                         ? (isHi ? "अवकाश पर" : "On Break")
                         : (isHi ? "ड्यूटी समाप्त" : "Off Duty")}
                 </span>
-                <span style={{ fontSize: "9px", opacity: 0.85, marginLeft: "2px" }}>▼</span>
+                <ChevronDown size={11} style={{ marginLeft: "2px" }} />
               </button>
 
               {showDutyDropdown && (
@@ -2155,7 +2750,7 @@ export default function RadiologyPage({
                         width: "100%",
                       }}
                     >
-                      <span style={{ fontSize: "13px" }}>{opt.icon}</span>
+                      <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: opt.color, display: "inline-block" }} />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: "11.5px", fontWeight: 800, color: opt.color }}>
                           {opt.label}
@@ -2165,7 +2760,7 @@ export default function RadiologyPage({
                         </div>
                       </div>
                       {dutyStatus === opt.id && (
-                        <span style={{ color: opt.color, fontSize: "11px", fontWeight: 900 }}>✓</span>
+                        <Check size={12} color={opt.color} />
                       )}
                     </button>
                   ))}
@@ -2226,7 +2821,7 @@ export default function RadiologyPage({
               <div style={{ fontSize: "10.5px", fontWeight: 700, opacity: 0.85, textTransform: "uppercase", color: "#BAE6FD" }}>
                 {isHi ? "आज सत्यापित रिपोर्ट" : "Reported Today"}
               </div>
-              <CheckCircle2 size={15} color="#34D399" />
+              <CheckCircle2 size={15} color="#38BDF8" />
             </div>
             <div style={{ fontSize: "22px", fontWeight: 900, marginTop: "2px", lineHeight: "1.2" }}>
               {historyList.length || 0}
@@ -2241,7 +2836,7 @@ export default function RadiologyPage({
               <div style={{ fontSize: "10.5px", fontWeight: 700, opacity: 0.85, textTransform: "uppercase", color: "#BAE6FD" }}>
                 {isHi ? "औसत टर्नअराउंड समय" : "Avg. Turnaround"}
               </div>
-              <Sliders size={15} color="#FBBF24" />
+              <Sliders size={15} color="#38BDF8" />
             </div>
             <div style={{ fontSize: "22px", fontWeight: 900, marginTop: "2px", lineHeight: "1.2" }}>
               ~14.5 min
@@ -2263,15 +2858,15 @@ export default function RadiologyPage({
             background:
               dutyStatus === "OFF_DUTY"
                 ? (isDark ? "rgba(239, 68, 68, 0.15)" : "#FEF2F2")
-                : (isDark ? "rgba(245, 158, 11, 0.15)" : "#FFFBEB"),
+                : (isDark ? "rgba(100, 116, 139, 0.15)" : "#F1F5F9"),
             border:
               dutyStatus === "OFF_DUTY"
                 ? (isDark ? "1px solid rgba(239, 68, 68, 0.35)" : "1px solid #FECACA")
-                : (isDark ? "1px solid rgba(245, 158, 11, 0.35)" : "1px solid #FDE68A"),
+                : (isDark ? "1px solid rgba(100, 116, 139, 0.35)" : "1px solid #CBD5E1"),
             color:
               dutyStatus === "OFF_DUTY"
                 ? (isDark ? "#FCA5A5" : "#B91C1C")
-                : (isDark ? "#FDE68A" : "#B45309"),
+                : (isDark ? "#BAE6FD" : "#0369A1"),
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
@@ -2297,7 +2892,7 @@ export default function RadiologyPage({
             type="button"
             onClick={() => handleUpdateDutyStatus("ACTIVE")}
             style={{
-              background: "linear-gradient(135deg, #10B981 0%, #059669 100%)",
+              background: "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)",
               color: "#FFFFFF",
               border: "none",
               borderRadius: "8px",
@@ -2308,10 +2903,10 @@ export default function RadiologyPage({
               display: "inline-flex",
               alignItems: "center",
               gap: "4px",
-              boxShadow: "0 2px 6px rgba(16, 185, 129, 0.35)",
+              boxShadow: "0 2px 6px rgba(2, 132, 199, 0.35)",
             }}
           >
-            <span>✓</span>
+            <Check size={12} />
             <span>{isHi ? "ड्यूटी पुनः शुरू करें" : "Resume Active Duty"}</span>
           </button>
         </div>
@@ -2329,17 +2924,8 @@ export default function RadiologyPage({
           </div>
           <div style={{ flex: 1 }}>
             <div className="tab-title-text">{isHi ? "इमेजिंग वर्कस्टेशन" : "Imaging Workstation"}</div>
-            <span className="tab-sub-text">{isHi ? "सक्रिय स्कैन व लाइव कतार" : "Active Scan & Live Queue"}</span>
+            <span className="tab-sub-text">{isHi ? "सक्रिय अध्ययन व रिपोर्टिंग" : "Active Study & Reporting"}</span>
           </div>
-          <span
-            className="tab-count-badge"
-            style={{
-              background: activeTab === "workstation" ? "rgba(255,255,255,0.25)" : (isDark ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE"),
-              color: activeTab === "workstation" ? "#FFFFFF" : "#0284C7",
-            }}
-          >
-            {radiologyQueue.length}
-          </span>
           <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
             <span
               className="tab-count-badge"
@@ -2348,15 +2934,15 @@ export default function RadiologyPage({
                 color: activeTab === "workstation" ? "#FFFFFF" : "#0284C7",
               }}
             >
-              {radiologyQueue.length}
+              {radiologyServing ? 1 : 0} {isHi ? "सक्रिय" : "Active"}
             </span>
             {radiologyHeldTickets.length > 0 && (
               <span
                 className="tab-count-badge"
                 style={{
-                  background: activeTab === "workstation" ? "#FFFBEB" : (isDark ? "rgba(245, 158, 11, 0.25)" : "#FFFBEB"),
-                  color: "#B45309",
-                  border: "1px solid #FDE68A",
+                  background: activeTab === "workstation" ? "#F1F5F9" : (isDark ? "rgba(100, 116, 139, 0.25)" : "#F1F5F9"),
+                  color: "#334155",
+                  border: "1px solid #CBD5E1",
                   fontWeight: 900,
                 }}
                 title={`${radiologyHeldTickets.length} ${isHi ? "मरीज़ होल्ड पर" : "Patients on Hold / Grace Window"}`}
@@ -2369,25 +2955,41 @@ export default function RadiologyPage({
 
         <button
           type="button"
-          onClick={() => setActiveTab("archive")}
-          className={`tab-button-modern ${activeTab === "archive" ? "active" : "inactive"}`}
+          onClick={() => setActiveTab("queue")}
+          className={`tab-button-modern ${activeTab === "queue" ? "active" : "inactive"}`}
         >
           <div className="tab-icon-wrapper">
-            <FileText size={19} />
+            <Users size={19} />
           </div>
           <div style={{ flex: 1 }}>
-            <div className="tab-title-text">{isHi ? "रेडियोलॉजी रिपोर्ट संग्रह" : "Radiology Reports Archive"}</div>
-            <span className="tab-sub-text">{isHi ? "सत्यापित रिपोर्ट खोज व प्रिंट" : "Search & Reprint Reports"}</span>
+            <div className="tab-title-text">{isHi ? "कतार एवं अपॉइंटमेंट्स" : "Queue & Appointments"}</div>
+            <span className="tab-sub-text">{isHi ? "लाइव कतार व शेड्यूल्ड स्कैन" : "Live Queue & Scheduled Scans"}</span>
           </div>
-          <span
-            className="tab-count-badge"
-            style={{
-              background: activeTab === "archive" ? "rgba(255,255,255,0.25)" : (isDark ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE"),
-              color: activeTab === "archive" ? "#FFFFFF" : "#0284C7",
-            }}
-          >
-            {historyList.length}
-          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+            <span
+              className="tab-count-badge"
+              style={{
+                background: activeTab === "queue" ? "rgba(255,255,255,0.25)" : (isDark ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE"),
+                color: activeTab === "queue" ? "#FFFFFF" : "#0284C7",
+              }}
+              title={`${radiologyQueue.length} ${isHi ? "प्रतीक्षारत मरीज़" : "Waiting Patients"}`}
+            >
+              {radiologyQueue.length} {isHi ? "कतार" : "Queue"}
+            </span>
+            {todayAppointments.length > 0 && (
+              <span
+                className="tab-count-badge"
+                style={{
+                  background: activeTab === "queue" ? "rgba(255,255,255,0.2)" : (isDark ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE"),
+                  color: activeTab === "queue" ? "#FFFFFF" : "#0369A1",
+                  border: "1px solid rgba(2, 132, 199, 0.3)",
+                }}
+                title={`${todayAppointments.length} ${isHi ? "आज की अपॉइंटमेंट्स" : "Today's Appointments"}`}
+              >
+                {todayAppointments.length} {isHi ? "अपॉइंटमेंट" : "Apt"}
+              </span>
+            )}
+          </div>
         </button>
 
         <button
@@ -2405,8 +3007,8 @@ export default function RadiologyPage({
           <span
             className="tab-count-badge"
             style={{
-              background: activeTab === "history" ? "rgba(255,255,255,0.25)" : (isDark ? "rgba(16, 185, 129, 0.25)" : "#ECFDF5"),
-              color: activeTab === "history" ? "#FFFFFF" : "#059669",
+              background: activeTab === "history" ? "rgba(255,255,255,0.25)" : (isDark ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE"),
+              color: activeTab === "history" ? "#FFFFFF" : "#0369A1",
             }}
           >
             {filteredHistory.length}
@@ -2457,9 +3059,9 @@ export default function RadiologyPage({
                           fontWeight: 800,
                           padding: "2px 8px",
                           borderRadius: "9999px",
-                          background: activeServingTicket.priority_level === 1 ? "#FEE2E2" : "#ECFDF5",
-                          color: activeServingTicket.priority_level === 1 ? "#DC2626" : "#059669",
-                          border: `1px solid ${activeServingTicket.priority_level === 1 ? "rgba(239, 68, 68, 0.3)" : "rgba(16, 185, 129, 0.3)"}`,
+                          background: activeServingTicket.priority_level === 1 ? "#FEE2E2" : "#E0F2FE",
+                          color: activeServingTicket.priority_level === 1 ? "#DC2626" : "#0369A1",
+                          border: `1px solid ${activeServingTicket.priority_level === 1 ? "rgba(239, 68, 68, 0.3)" : "rgba(2, 132, 199, 0.3)"}`,
                         }}
                       >
                         {activeServingTicket.priority_level === 1 ? "EMERGENCY PRIORITY" : "STANDARD"}
@@ -2491,10 +3093,10 @@ export default function RadiologyPage({
                         gap: "5px",
                         transition: "all 0.15s ease",
                       }}
-                      title="Re-broadcast announcement over loudspeaker"
+                      title={isHi ? "प्रतीक्षालय डिस्प्ले पर भेजें" : "Call on waiting-room display"}
                     >
                       <Volume2 size={13} color="#0284C7" />
-                      <span>{isHi ? "पुनः उद्घोषणा (Recall)" : "Re-announce"}</span>
+                      <span>{isHi ? "डिस्प्ले पर बुलाएं" : "Call on display"}</span>
                     </button>
                     <button
                       type="button"
@@ -2502,7 +3104,7 @@ export default function RadiologyPage({
                       style={{
                         background: isDark ? "#1E293B" : "#F1F5F9",
                         border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
-                        color: "#D97706",
+                        color: "#475569",
                         padding: "6px 12px",
                         borderRadius: "8px",
                         fontSize: "11.5px",
@@ -2549,7 +3151,7 @@ export default function RadiologyPage({
                       marginTop: "12px",
                       padding: "10px 14px",
                       borderRadius: "12px",
-                      background: isDark ? "#131D31" : "#F8FAFC",
+                      background: isDark ? "#0F172A" : "#F8FAFC",
                       border: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0",
                       fontSize: "12px",
                     }}
@@ -2641,7 +3243,7 @@ export default function RadiologyPage({
                   <div
                     style={{
                       background: pregnancyConfirmed ? "rgba(16, 185, 129, 0.1)" : "rgba(239, 68, 68, 0.1)",
-                      border: pregnancyConfirmed ? "1px solid #10B981" : "1.5px solid #EF4444",
+                      border: pregnancyConfirmed ? "1px solid #0284C7" : "1.5px solid #EF4444",
                       borderRadius: "12px",
                       padding: "10px 14px",
                       marginBottom: "14px",
@@ -2650,9 +3252,9 @@ export default function RadiologyPage({
                       gap: "10px",
                     }}
                   >
-                    <span style={{ fontSize: "18px" }}>{pregnancyConfirmed ? "✅" : "⚠️"}</span>
+                    <span style={{ fontSize: "18px" }}>{pregnancyConfirmed ? <CheckCircle2 size={18} color="var(--rad-primary, #0284C7)" /> : <AlertTriangle size={18} color="#DC2626" />}</span>
                     <div style={{ flex: 1, fontSize: "11.5px" }}>
-                      <strong style={{ color: pregnancyConfirmed ? "#059669" : "#DC2626" }}>
+                      <strong style={{ color: pregnancyConfirmed ? "#0369A1" : "#DC2626" }}>
                         {isHi ? "AERB / ACR विकिरण सुरक्षा सत्यापन (Radiation Safety Check)" : "AERB & ACR Radiation Safety Verification Required"}
                       </strong>
                       <div style={{ color: mutedText, marginTop: "2px" }}>
@@ -2708,7 +3310,7 @@ export default function RadiologyPage({
                           transform: isApplied ? "scale(1.03)" : "scale(1)",
                         }}
                       >
-                        <span>{isApplied ? "✅" : "⚡"}</span>
+                        <span>{isApplied ? <CheckCircle2 size={13} /> : <Sparkles size={13} />}</span>
                         <span>{NORMAL_TEMPLATES[key].title}</span>
                       </button>
                       );
@@ -2719,7 +3321,7 @@ export default function RadiologyPage({
                 {/* Study & Exposure Parameters Grid */}
                 <div
                   style={{
-                    background: isDark ? "#131D31" : "#F8FAFC",
+                    background: isDark ? "#0F172A" : "#F8FAFC",
                     border: isDark ? "1px solid rgba(255,255,255,0.06)" : "1px solid #E2E8F0",
                     borderRadius: "12px",
                     padding: "12px 14px",
@@ -2823,7 +3425,7 @@ export default function RadiologyPage({
                 {/* Technologist & Suite Audit */}
                 <div
                   style={{
-                    background: isDark ? "#131D31" : "#F8FAFC",
+                    background: isDark ? "#0F172A" : "#F8FAFC",
                     border: isDark ? "1px solid rgba(255,255,255,0.06)" : "1px solid #E2E8F0",
                     borderRadius: "12px",
                     padding: "12px 14px",
@@ -2887,7 +3489,7 @@ export default function RadiologyPage({
                 {/* Digital Scans & DICOM Multi-Image Upload Zone */}
                 <div
                   style={{
-                    background: isDark ? "#131D31" : "#F8FAFC",
+                    background: isDark ? "#0F172A" : "#F8FAFC",
                     border: isDark ? "1px solid rgba(255,255,255,0.06)" : "1px solid #E2E8F0",
                     borderRadius: "12px",
                     padding: "12px 14px",
@@ -2998,9 +3600,7 @@ export default function RadiologyPage({
                               alignItems: "center",
                               justifyContent: "center",
                             }}
-                          >
-                            ✕
-                          </button>
+                          ><X size={15} /></button>
                         </div>
                       ))}
                     </div>
@@ -3160,7 +3760,7 @@ export default function RadiologyPage({
                       type="button"
                       onClick={handleCompleteAndDischarge}
                       style={{
-                        background: "linear-gradient(135deg, #10B981 0%, #059669 100%)",
+                        background: "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)",
                         color: "#FFFFFF",
                         border: "none",
                         padding: "8px 14px",
@@ -3171,7 +3771,7 @@ export default function RadiologyPage({
                         display: "inline-flex",
                         alignItems: "center",
                         gap: "5px",
-                        boxShadow: "0 4px 14px rgba(16, 185, 129, 0.3)",
+                        boxShadow: "0 4px 14px rgba(2, 132, 199, 0.3)",
                         transition: "all 0.15s ease",
                       }}
                     >
@@ -3197,7 +3797,7 @@ export default function RadiologyPage({
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px", flexWrap: "wrap", gap: "8px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  <span style={{ display: "inline-flex", alignItems: "center", padding: "7px", borderRadius: "10px", background: isDark ? "rgba(245, 158, 11, 0.2)" : "#FFFBEB", color: "#D97706" }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", padding: "7px", borderRadius: "10px", background: isDark ? "rgba(100, 116, 139, 0.2)" : "#F1F5F9", color: "#475569" }}>
                     <Clock size={16} />
                   </span>
                   <div>
@@ -3217,9 +3817,9 @@ export default function RadiologyPage({
                     fontWeight: 800,
                     padding: "3px 10px",
                     borderRadius: "9999px",
-                    background: radiologyHeldTickets.length > 0 ? (isDark ? "rgba(245, 158, 11, 0.25)" : "#FFFBEB") : (isDark ? "#1E293B" : "#F1F5F9"),
-                    color: radiologyHeldTickets.length > 0 ? "#D97706" : mutedText,
-                    border: `1px solid ${radiologyHeldTickets.length > 0 ? "rgba(245, 158, 11, 0.4)" : (isDark ? "#334155" : "#CBD5E1")}`,
+                    background: radiologyHeldTickets.length > 0 ? (isDark ? "rgba(100, 116, 139, 0.25)" : "#F1F5F9") : (isDark ? "#1E293B" : "#F1F5F9"),
+                    color: radiologyHeldTickets.length > 0 ? "#475569" : mutedText,
+                    border: `1px solid ${radiologyHeldTickets.length > 0 ? "rgba(100, 116, 139, 0.4)" : (isDark ? "#334155" : "#CBD5E1")}`,
                   }}
                 >
                   {radiologyHeldTickets.length} {isHi ? "होल्ड पर" : "On Hold"}
@@ -3230,7 +3830,7 @@ export default function RadiologyPage({
                 <div
                   style={{
                     padding: "16px 18px",
-                    background: isDark ? "#131D31" : "#F8FAFC",
+                    background: isDark ? "#0F172A" : "#F8FAFC",
                     borderRadius: "12px",
                     border: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0",
                     display: "flex",
@@ -3240,7 +3840,7 @@ export default function RadiologyPage({
                     fontSize: "12.5px",
                   }}
                 >
-                  <CheckCircle2 size={16} color="#10B981" />
+                  <CheckCircle2 size={16} color="#0284C7" />
                   <span>
                     {isHi
                       ? "वर्तमान में कोई मरीज़ होल्ड पर नहीं है। सभी इमेजिंग जांच सुचारु रूप से चल रही हैं।"
@@ -3264,11 +3864,11 @@ export default function RadiologyPage({
                         style={{
                           background: isExpired
                             ? (isDark ? "rgba(239, 68, 68, 0.12)" : "#FEF2F2")
-                            : (isDark ? "rgba(245, 158, 11, 0.1)" : "#FFFBEB"),
+                            : (isDark ? "rgba(100, 116, 139, 0.1)" : "#F1F5F9"),
                           borderRadius: "14px",
                           border: isExpired
                             ? (isDark ? "1.5px solid rgba(239, 68, 68, 0.4)" : "1.5px solid #FECACA")
-                            : (isDark ? "1.5px solid rgba(245, 158, 11, 0.45)" : "1.5px solid #FDE68A"),
+                            : (isDark ? "1.5px solid rgba(100, 116, 139, 0.45)" : "1.5px solid #CBD5E1"),
                           padding: "12px 16px",
                           display: "flex",
                           justifyContent: "space-between",
@@ -3285,7 +3885,7 @@ export default function RadiologyPage({
                               minWidth: "54px",
                               height: "36px",
                               borderRadius: "10px",
-                              background: isExpired ? "#DC2626" : "#D97706",
+                              background: isExpired ? "#DC2626" : "#475569",
                               color: "#FFFFFF",
                               display: "inline-flex",
                               alignItems: "center",
@@ -3321,8 +3921,8 @@ export default function RadiologyPage({
                                   fontWeight: 800,
                                   background: isExpired
                                     ? (isDark ? "rgba(239, 68, 68, 0.25)" : "#FEE2E2")
-                                    : (isDark ? "rgba(245, 158, 11, 0.25)" : "#FFFBEB"),
-                                  color: isExpired ? "#DC2626" : "#D97706",
+                                    : (isDark ? "rgba(100, 116, 139, 0.25)" : "#F1F5F9"),
+                                  color: isExpired ? "#DC2626" : "#475569",
                                 }}
                               >
                                 {isExpired ? <AlertTriangle size={12} /> : <Clock size={12} />}
@@ -3350,7 +3950,7 @@ export default function RadiologyPage({
                               padding: "7px 14px",
                               borderRadius: "10px",
                               border: "none",
-                              background: "linear-gradient(135deg, #10B981 0%, #059669 100%)",
+                              background: "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)",
                               color: "#FFFFFF",
                               fontSize: "12px",
                               fontWeight: 800,
@@ -3478,7 +4078,7 @@ export default function RadiologyPage({
                         style={{
                           background: isServing
                             ? isDark ? "rgba(2, 132, 199, 0.2)" : "#E0F2FE"
-                            : isDark ? "#131D31" : "#F8FAFC",
+                            : isDark ? "#0F172A" : "#F8FAFC",
                           border: isServing
                             ? "1.5px solid #0284C7"
                             : isDark ? "1px solid #1E293B" : "1px solid #E2E8F0",
@@ -3517,21 +4117,21 @@ export default function RadiologyPage({
                               padding: "3px 8px",
                               borderRadius: "6px",
                               background: isServing
-                                ? (isDark ? "rgba(16, 185, 129, 0.2)" : "#ECFDF5")
+                                ? (isDark ? "rgba(2, 132, 199, 0.2)" : "#E0F2FE")
                                 : (isDark ? "rgba(2, 132, 199, 0.2)" : "#E0F2FE"),
                               border: isServing
-                                ? "1px solid #10B981"
+                                ? "1px solid #0284C7"
                                 : "1px solid #0284C7",
-                              color: isServing ? "#10B981" : "#0284C7",
+                              color: isServing ? "#0284C7" : "#0284C7",
                               fontSize: "10.5px",
                               fontWeight: 800,
                               cursor: "pointer",
                               transition: "all 0.15s ease",
                             }}
-                            title={isServing ? "Re-announce active ticket" : "Call this patient to station"}
+                            title={isServing ? (isHi ? "प्रतीक्षालय डिस्प्ले पर भेजें" : "Call on waiting-room display") : (isHi ? "स्टेशन पर बुलाएं" : "Call patient to station")}
                           >
                             <Volume2 size={11} />
-                            <span>{isServing ? (isHi ? "उद्घोषणा" : "Announce") : (isHi ? "बुलाएं" : "Call")}</span>
+                            <span>{isServing ? (isHi ? "डिस्प्ले" : "Call on display") : (isHi ? "बुलाएं" : "Call")}</span>
                           </button>
                         </div>
                       </div>
@@ -3544,11 +4144,11 @@ export default function RadiologyPage({
               {radiologyHeldTickets.length > 0 && (
                 <div style={{ marginTop: "14px", paddingTop: "12px", borderTop: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                    <span style={{ fontSize: "11.5px", fontWeight: 800, color: "#D97706", display: "flex", alignItems: "center", gap: "5px" }}>
+                    <span style={{ fontSize: "11.5px", fontWeight: 800, color: "#475569", display: "flex", alignItems: "center", gap: "5px" }}>
                       <Clock size={12} />
                       <span>{isHi ? "होल्ड पर मरीज़" : "Patients on Hold"}</span>
                     </span>
-                    <span style={{ fontSize: "10px", fontWeight: 800, padding: "1px 6px", borderRadius: "999px", background: isDark ? "rgba(245, 158, 11, 0.25)" : "#FFFBEB", color: "#B45309" }}>
+                    <span style={{ fontSize: "10px", fontWeight: 800, padding: "1px 6px", borderRadius: "999px", background: isDark ? "rgba(100, 116, 139, 0.25)" : "#F1F5F9", color: "#334155" }}>
                       {radiologyHeldTickets.length}
                     </span>
                   </div>
@@ -3557,8 +4157,8 @@ export default function RadiologyPage({
                       <div
                         key={ht.ticket_id}
                         style={{
-                          background: isDark ? "rgba(245, 158, 11, 0.1)" : "#FFFBEB",
-                          border: isDark ? "1px solid rgba(245, 158, 11, 0.3)" : "1px solid #FDE68A",
+                          background: isDark ? "rgba(100, 116, 139, 0.1)" : "#F1F5F9",
+                          border: isDark ? "1px solid rgba(100, 116, 139, 0.3)" : "1px solid #CBD5E1",
                           borderRadius: "8px",
                           padding: "6px 8px",
                           display: "flex",
@@ -3571,7 +4171,7 @@ export default function RadiologyPage({
                           <div style={{ fontSize: "11.5px", fontWeight: 800, color: textColor, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                             #{ht.ticket_id} {ht.name}
                           </div>
-                          <div style={{ fontSize: "10px", color: "#D97706", fontWeight: 700 }}>
+                          <div style={{ fontSize: "10px", color: "#475569", fontWeight: 700 }}>
                             {ht.service_category || "Radiology"}
                           </div>
                         </div>
@@ -3582,7 +4182,7 @@ export default function RadiologyPage({
                             padding: "4px 8px",
                             borderRadius: "6px",
                             border: "none",
-                            background: "#059669",
+                            background: "#0369A1",
                             color: "#FFFFFF",
                             fontSize: "10.5px",
                             fontWeight: 800,
@@ -3608,177 +4208,1548 @@ export default function RadiologyPage({
       )}
 
       {/* ========================================================
-          TAB 2: RADIOLOGY REPORTS ARCHIVE
+          TAB 2: QUEUE & APPOINTMENTS WORKBENCH
          ======================================================== */}
-      {activeTab === "archive" && (
-        <div
-          style={{
-            background: "var(--rad-card-bg, #FFFFFF)",
-            border: "var(--rad-card-border, #E2E8F0)",
-            borderRadius: "16px",
-            padding: "16px 18px",
-            boxShadow: isDark ? "0 8px 24px rgba(0, 0, 0, 0.3)" : "0 4px 16px rgba(0, 0, 0, 0.03)",
-          }}
-        >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", flexWrap: "wrap", gap: "10px" }}>
-            <div>
-              <h2 style={{ margin: 0, fontSize: "16px", fontWeight: 900, color: textColor }}>
-                {isHi ? "रेडियोलॉजी रिपोर्ट संग्रह" : "Radiology & Imaging Reports Archive"}
-              </h2>
-              <p style={{ margin: "2px 0 0 0", fontSize: "12px", color: mutedText }}>
-                {isHi ? "मरीज़ के नाम, टोकन नंबर या फ़ोन से रिपोर्ट खोजें एवं पुनः प्रिंट करें।" : "Lookup, verify and re-print historical patient radiology reports."}
-              </p>
+      {activeTab === "queue" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+          {/* 1. SUMMARY STRIP (8 METRICS) */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
+              gap: "10px",
+            }}
+          >
+            {/* 1. Waiting */}
+            <div
+              style={{
+                background: "var(--rad-card-bg, #FFFFFF)",
+                border: "var(--rad-card-border, #E2E8F0)",
+                borderRadius: "14px",
+                padding: "10px 14px",
+                boxShadow: isDark ? "0 4px 14px rgba(0,0,0,0.25)" : "0 2px 6px rgba(0,0,0,0.02)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase" }}>
+                  {isHi ? "प्रतीक्षारत" : "Waiting"}
+                </span>
+                <Clock size={14} color="#0284C7" />
+              </div>
+              <div style={{ fontSize: "22px", fontWeight: 900, color: "#0284C7", marginTop: "4px", lineHeight: "1" }}>
+                {waitingMetric}
+              </div>
+              <div style={{ fontSize: "10.5px", color: mutedText, marginTop: "4px" }}>
+                {isHi ? "कतार में सक्रिय मरीज़" : "Active in live queue"}
+              </div>
             </div>
 
-            <div style={{ position: "relative", width: "260px" }}>
-              <Search size={15} style={{ position: "absolute", left: "10px", top: "9px", color: mutedText }} />
-              <input
-                type="text"
-                placeholder={isHi ? "नाम, टोकन या फ़ोन खोजें..." : "Search name, token or phone..."}
-                value={archiveSearch}
-                onChange={(e) => setArchiveSearch(e.target.value)}
-                style={{
-                  width: "100%",
-                  padding: "6px 12px 6px 32px",
-                  borderRadius: "10px",
-                  border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
-                  background: isDark ? "#0F172A" : "#F8FAFC",
-                  color: textColor,
-                  fontSize: "12px",
-                  outline: "none",
-                  boxSizing: "border-box",
-                }}
-              />
+            {/* 2. Serving */}
+            <div
+              style={{
+                background: "var(--rad-card-bg, #FFFFFF)",
+                border: "var(--rad-card-border, #E2E8F0)",
+                borderRadius: "14px",
+                padding: "10px 14px",
+                boxShadow: isDark ? "0 4px 14px rgba(0,0,0,0.25)" : "0 2px 6px rgba(0,0,0,0.02)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase" }}>
+                  {isHi ? "स्कैन जारी" : "Serving"}
+                </span>
+                <Scan size={14} color="#0284C7" />
+              </div>
+              <div style={{ fontSize: "22px", fontWeight: 900, color: "#0C2340", marginTop: "4px", lineHeight: "1" }}>
+                {servingMetric}
+              </div>
+              <div style={{ fontSize: "10.5px", color: mutedText, marginTop: "4px" }}>
+                {radiologyServing ? `#${radiologyServing.ticket_id} (${radiologyServing.name})` : (isHi ? "स्टेशन तैयार है" : "Counter ready")}
+              </div>
+            </div>
+
+            {/* 3. On Hold */}
+            <div
+              style={{
+                background: "var(--rad-card-bg, #FFFFFF)",
+                border: "var(--rad-card-border, #E2E8F0)",
+                borderRadius: "14px",
+                padding: "10px 14px",
+                boxShadow: isDark ? "0 4px 14px rgba(0,0,0,0.25)" : "0 2px 6px rgba(0,0,0,0.02)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase" }}>
+                  {isHi ? "होल्ड पर" : "On Hold"}
+                </span>
+                <Pause size={14} color="#64748B" />
+              </div>
+              <div style={{ fontSize: "22px", fontWeight: 900, color: "#64748B", marginTop: "4px", lineHeight: "1" }}>
+                {heldMetric}
+              </div>
+              <div style={{ fontSize: "10.5px", color: mutedText, marginTop: "4px" }}>
+                {isHi ? "10 मिनट ग्रेस विंडो" : "10-min grace window"}
+              </div>
+            </div>
+
+            {/* 4. Booked Today */}
+            <div
+              style={{
+                background: "var(--rad-card-bg, #FFFFFF)",
+                border: "var(--rad-card-border, #E2E8F0)",
+                borderRadius: "14px",
+                padding: "10px 14px",
+                boxShadow: isDark ? "0 4px 14px rgba(0,0,0,0.25)" : "0 2px 6px rgba(0,0,0,0.02)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase" }}>
+                  {isHi ? "आज बुक" : "Booked Today"}
+                </span>
+                <Calendar size={14} color="#0284C7" />
+              </div>
+              <div style={{ fontSize: "22px", fontWeight: 900, color: "#0284C7", marginTop: "4px", lineHeight: "1" }}>
+                {bookedTodayMetric}
+              </div>
+              <div style={{ fontSize: "10.5px", color: mutedText, marginTop: "4px" }}>
+                {isHi ? "शेड्यूल्ड अपॉइंटमेंट्स" : "Scheduled bookings"}
+              </div>
+            </div>
+
+            {/* 5. Checked In */}
+            <div
+              style={{
+                background: "var(--rad-card-bg, #FFFFFF)",
+                border: "var(--rad-card-border, #E2E8F0)",
+                borderRadius: "14px",
+                padding: "10px 14px",
+                boxShadow: isDark ? "0 4px 14px rgba(0,0,0,0.25)" : "0 2px 6px rgba(0,0,0,0.02)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase" }}>
+                  {isHi ? "चेक-इन पूर्ण" : "Checked In"}
+                </span>
+                <CheckCircle2 size={14} color="#0369A1" />
+              </div>
+              <div style={{ fontSize: "22px", fontWeight: 900, color: "#0369A1", marginTop: "4px", lineHeight: "1" }}>
+                {checkedInMetric}
+              </div>
+              <div style={{ fontSize: "10.5px", color: mutedText, marginTop: "4px" }}>
+                {isHi ? "टोकन जारी / कतार में" : "Issued token / in queue"}
+              </div>
+            </div>
+
+            {/* 6. No-Show / Expired */}
+            <div
+              style={{
+                background: "var(--rad-card-bg, #FFFFFF)",
+                border: "var(--rad-card-border, #E2E8F0)",
+                borderRadius: "14px",
+                padding: "10px 14px",
+                boxShadow: isDark ? "0 4px 14px rgba(0,0,0,0.25)" : "0 2px 6px rgba(0,0,0,0.02)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase" }}>
+                  {isHi ? "अनुपस्थित/समाप्त" : "No-Show / Exp."}
+                </span>
+                <UserX size={14} color="#EF4444" />
+              </div>
+              <div style={{ fontSize: "22px", fontWeight: 900, color: "#EF4444", marginTop: "4px", lineHeight: "1" }}>
+                {noShowExpiredMetric}
+              </div>
+              <div style={{ fontSize: "10.5px", color: mutedText, marginTop: "4px" }}>
+                {isHi ? "अनुपस्थित / समय समाप्त" : "Missed or expired slots"}
+              </div>
+            </div>
+
+            {/* 7. Average Wait */}
+            <div
+              style={{
+                background: "var(--rad-card-bg, #FFFFFF)",
+                border: "var(--rad-card-border, #E2E8F0)",
+                borderRadius: "14px",
+                padding: "10px 14px",
+                boxShadow: isDark ? "0 4px 14px rgba(0,0,0,0.25)" : "0 2px 6px rgba(0,0,0,0.02)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase" }}>
+                  {isHi ? "औसत प्रतीक्षा" : "Avg. Wait"}
+                </span>
+                <Sliders size={14} color="#0284C7" />
+              </div>
+              <div style={{ fontSize: "22px", fontWeight: 900, color: "#0284C7", marginTop: "4px", lineHeight: "1" }}>
+                ~{avgWaitMinutes}m
+              </div>
+              <div style={{ fontSize: "10.5px", color: mutedText, marginTop: "4px" }}>
+                {isHi ? "वर्तमान कतार विलंब" : "Live queue wait time"}
+              </div>
+            </div>
+
+            {/* 8. Average Scan Time */}
+            <div
+              style={{
+                background: "var(--rad-card-bg, #FFFFFF)",
+                border: "var(--rad-card-border, #E2E8F0)",
+                borderRadius: "14px",
+                padding: "10px 14px",
+                boxShadow: isDark ? "0 4px 14px rgba(0,0,0,0.25)" : "0 2px 6px rgba(0,0,0,0.02)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase" }}>
+                  {isHi ? "औसत स्कैन" : "Avg. Scan"}
+                </span>
+                <Activity size={14} color="#38BDF8" />
+              </div>
+              <div style={{ fontSize: "22px", fontWeight: 900, color: "#38BDF8", marginTop: "4px", lineHeight: "1" }}>
+                ~{avgScanTimeMinutes}m
+              </div>
+              <div style={{ fontSize: "10.5px", color: mutedText, marginTop: "4px" }}>
+                {isHi ? "प्रोटोकॉल मानक समय" : "Standard scan protocol"}
+              </div>
             </div>
           </div>
 
-          {loadingHistory ? (
-            <div style={{ textAlign: "center", padding: "30px 0", color: "#0284C7" }}>
-              <RefreshCw size={22} className="spin-icon" style={{ margin: "0 auto 8px auto" }} />
-              <div style={{ fontSize: "12.5px", fontWeight: 700 }}>{isHi ? "रिपोर्ट्स लोड हो रही हैं..." : "Loading reports..."}</div>
+          {/* 2. SUB-VIEW CONTROLS & FILTERS BAR */}
+          <div
+            style={{
+              background: "var(--rad-card-bg, #FFFFFF)",
+              border: "var(--rad-card-border, #E2E8F0)",
+              borderRadius: "16px",
+              padding: "14px 16px",
+              boxShadow: isDark ? "0 8px 24px rgba(0,0,0,0.3)" : "0 4px 16px rgba(0,0,0,0.03)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "12px",
+            }}
+          >
+            {/* Top Row: Sub-view Switcher & Quick Actions */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: "12px",
+              }}
+            >
+              {/* Segmented Sub-view Switcher */}
+              <div
+                style={{
+                  display: "inline-flex",
+                  background: isDark ? "#0F172A" : "#F1F5F9",
+                  padding: "4px",
+                  borderRadius: "12px",
+                  border: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0",
+                  gap: "4px",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setQueueSubView("queue")}
+                  style={{
+                    padding: "7px 16px",
+                    borderRadius: "9px",
+                    border: "none",
+                    fontSize: "12.5px",
+                    fontWeight: queueSubView === "queue" ? 800 : 700,
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "7px",
+                    background: queueSubView === "queue" ? "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)" : "transparent",
+                    color: queueSubView === "queue" ? "#FFFFFF" : mutedText,
+                    boxShadow: queueSubView === "queue" ? "0 2px 8px rgba(2, 132, 199, 0.3)" : "none",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: queueSubView === "queue" ? "#38BDF8" : "#94A3B8", display: "inline-block" }} />
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}><Activity size={13} /> {isHi ? "लाइव कतार" : "Live Queue"}</span>
+                  <span
+                    style={{
+                      fontSize: "10.5px",
+                      padding: "1px 6px",
+                      borderRadius: "10px",
+                      background: queueSubView === "queue" ? "rgba(255,255,255,0.25)" : (isDark ? "#1E293B" : "#E2E8F0"),
+                      color: queueSubView === "queue" ? "#FFFFFF" : mutedText,
+                      fontWeight: 800,
+                    }}
+                  >
+                    {combinedLiveQueue.length}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setQueueSubView("appointments")}
+                  style={{
+                    padding: "7px 16px",
+                    borderRadius: "9px",
+                    border: "none",
+                    fontSize: "12.5px",
+                    fontWeight: queueSubView === "appointments" ? 800 : 700,
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "7px",
+                    background: queueSubView === "appointments" ? "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)" : "transparent",
+                    color: queueSubView === "appointments" ? "#FFFFFF" : mutedText,
+                    boxShadow: queueSubView === "appointments" ? "0 2px 8px rgba(2, 132, 199, 0.3)" : "none",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  <CalendarCheck size={14} />
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}><CalendarCheck size={13} /> {isHi ? "आज की अपॉइंटमेंट्स" : "Today's Appointments"}</span>
+                  <span
+                    style={{
+                      fontSize: "10.5px",
+                      padding: "1px 6px",
+                      borderRadius: "10px",
+                      background: queueSubView === "appointments" ? "rgba(255,255,255,0.25)" : (isDark ? "#1E293B" : "#E2E8F0"),
+                      color: queueSubView === "appointments" ? "#FFFFFF" : mutedText,
+                      fontWeight: 800,
+                    }}
+                  >
+                    {todayAppointmentsFiltered.length}
+                  </span>
+                </button>
+              </div>
+
+              {/* Call Next & Refresh Buttons */}
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    fetchRadiologyAppointments();
+                    if (refreshData) refreshData();
+                    showToast(isHi ? "कतार डेटा रीफ्रेश हुआ" : "Queue refreshed", "info");
+                  }}
+                  style={{
+                    background: isDark ? "#1E293B" : "#F1F5F9",
+                    border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
+                    color: textColor,
+                    padding: "7px 12px",
+                    borderRadius: "10px",
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "5px",
+                  }}
+                  title="Refresh Queue & Appointments"
+                >
+                  <RefreshCw size={13} />
+                  <span>{isHi ? "रीफ्रेश" : "Refresh"}</span>
+                </button>
+
+                {Array.isArray(radiologyQueue) && radiologyQueue.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleCallNext}
+                    disabled={callingNext}
+                    style={{
+                      background: "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)",
+                      color: "#FFFFFF",
+                      border: "none",
+                      padding: "7px 14px",
+                      borderRadius: "10px",
+                      fontSize: "12.5px",
+                      fontWeight: 800,
+                      cursor: callingNext ? "not-allowed" : "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      boxShadow: "0 2px 8px rgba(2, 132, 199, 0.3)",
+                      opacity: callingNext ? 0.7 : 1,
+                    }}
+                  >
+                    <Volume2 size={14} className={callingNext ? "spin-icon" : ""} />
+                    <span>{callingNext ? (isHi ? "कॉल जारी है..." : "Calling...") : (isHi ? "अगला मरीज़ बुलाएं" : "Call Next Patient")}</span>
+                  </button>
+                )}
+              </div>
             </div>
-          ) : filteredHistory.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "30px 0", color: mutedText }}>
-              <FileText size={36} style={{ opacity: 0.35, margin: "0 auto 8px auto" }} />
-              <div style={{ fontSize: "13px", fontWeight: 700 }}>{isHi ? "कोई रिपोर्ट नहीं मिली" : "No radiology reports match your search criteria"}</div>
+
+            {/* Bottom Row: Filters Strip (Modality Chips + Priority + Status + Search) */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                flexWrap: "wrap",
+                gap: "10px",
+                borderTop: isDark ? "1px solid #1E293B" : "1px solid #F1F5F9",
+                paddingTop: "10px",
+              }}
+            >
+              {/* Modality Chips */}
+              <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                <span style={{ fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", marginRight: "2px" }}>
+                  {isHi ? "मोडैलिटी:" : "Modality:"}
+                </span>
+                {[
+                  { id: "all", label: isHi ? "सभी" : "All" },
+                  { id: "X-Ray", label: "X-Ray" },
+                  { id: "CT", label: "CT Scan" },
+                  { id: "MRI", label: "MRI" },
+                  { id: "USG", label: "USG" },
+                ].map((m) => {
+                  const isSelected = queueModalityFilter === m.id;
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => setQueueModalityFilter(m.id)}
+                      style={{
+                        padding: "4px 10px",
+                        borderRadius: "8px",
+                        fontSize: "11.5px",
+                        fontWeight: isSelected ? 800 : 700,
+                        cursor: "pointer",
+                        border: isSelected ? "1.5px solid #0284C7" : isDark ? "1px solid #334155" : "1px solid #E2E8F0",
+                        background: isSelected
+                          ? (isDark ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE")
+                          : (isDark ? "#0F172A" : "#F8FAFC"),
+                        color: isSelected ? "#0284C7" : mutedText,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "5px",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      <span>{m.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Status & Priority Selectors + Search Input */}
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                {/* Priority Filter */}
+                <select
+                  value={queuePriorityFilter}
+                  onChange={(e) => setQueuePriorityFilter(e.target.value)}
+                  style={{
+                    padding: "5px 8px",
+                    borderRadius: "8px",
+                    fontSize: "11.5px",
+                    fontWeight: 700,
+                    border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
+                    background: isDark ? "#0F172A" : "#FFFFFF",
+                    color: textColor,
+                    outline: "none",
+                  }}
+                >
+                  <option value="all">{isHi ? "प्राथमिकता: सभी" : "Priority: All"}</option>
+                  <option value="emergency">{isHi ? "आपातकालीन (Emergency)" : "Emergency (P1)"}</option>
+                  <option value="urgent">{isHi ? "अत्यावश्यक (Urgent)" : "Urgent (P2)"}</option>
+                  <option value="routine">{isHi ? "सामान्य (Routine)" : "Routine (P3)"}</option>
+                </select>
+
+                {/* Status Filter */}
+                <select
+                  value={queueStatusFilter}
+                  onChange={(e) => setQueueStatusFilter(e.target.value)}
+                  style={{
+                    padding: "5px 8px",
+                    borderRadius: "8px",
+                    fontSize: "11.5px",
+                    fontWeight: 700,
+                    border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
+                    background: isDark ? "#0F172A" : "#FFFFFF",
+                    color: textColor,
+                    outline: "none",
+                  }}
+                >
+                  <option value="all">{isHi ? "स्थिति: सभी" : "Status: All"}</option>
+                  {queueSubView === "queue" ? (
+                    <>
+                      <option value="waiting">{isHi ? "प्रतीक्षारत (Waiting)" : "Waiting in Queue"}</option>
+                      <option value="serving">{isHi ? "स्कैन जारी (Serving)" : "Currently Serving"}</option>
+                      <option value="on_hold">{isHi ? "होल्ड पर (On Hold)" : "On 10-min Hold"}</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="booked">{isHi ? "आरक्षित (Booked)" : "Booked / Scheduled"}</option>
+                      <option value="checked_in">{isHi ? "चेक-इन पूर्ण (Checked In)" : "Checked In"}</option>
+                      <option value="expired">{isHi ? "समय समाप्त (Expired)" : "Expired Slots"}</option>
+                      <option value="cancelled">{isHi ? "रद्द (Cancelled)" : "Cancelled"}</option>
+                    </>
+                  )}
+                </select>
+
+                {/* Search Box */}
+                <div style={{ position: "relative", minWidth: "200px" }}>
+                  <Search size={13} style={{ position: "absolute", left: "9px", top: "8px", color: mutedText }} />
+                  <input
+                    type="text"
+                    placeholder={isHi ? "नाम, टोकन, फ़ोन खोजें..." : "Search name, token or phone..."}
+                    value={queueSearchQuery}
+                    onChange={(e) => setQueueSearchQuery(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "5px 10px 5px 28px",
+                      borderRadius: "8px",
+                      border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
+                      background: isDark ? "#0F172A" : "#F8FAFC",
+                      color: textColor,
+                      fontSize: "11.5px",
+                      outline: "none",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  {queueSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setQueueSearchQuery("")}
+                      style={{
+                        position: "absolute",
+                        right: "6px",
+                        top: "6px",
+                        background: "none",
+                        border: "none",
+                        color: mutedText,
+                        fontSize: "10px",
+                        cursor: "pointer",
+                      }}
+                    ><X size={15} /></button>
+                  )}
+                </div>
+              </div>
             </div>
-          ) : (
-            <div style={{ overflowX: "auto", borderRadius: "12px", border: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
-                <thead>
-                  <tr style={{ background: isDark ? "#131D31" : "#F1F5F9", borderBottom: isDark ? "1.5px solid #1E293B" : "1.5px solid #E2E8F0" }}>
-                    <th style={{ padding: "8px 10px", textAlign: "left", fontWeight: 800, color: isDark ? "#94A3B8" : "#475569" }}>{isHi ? "दिनांक" : "Date"}</th>
-                    <th style={{ padding: "8px 10px", textAlign: "left", fontWeight: 800, color: isDark ? "#94A3B8" : "#475569" }}>{isHi ? "टोकन #" : "Token #"}</th>
-                    <th style={{ padding: "8px 10px", textAlign: "left", fontWeight: 800, color: isDark ? "#94A3B8" : "#475569" }}>{isHi ? "मरीज़ का नाम" : "Patient Name"}</th>
-                    <th style={{ padding: "8px 10px", textAlign: "left", fontWeight: 800, color: isDark ? "#94A3B8" : "#475569" }}>{isHi ? "आयु/लिंग" : "Age/Sex"}</th>
-                    <th style={{ padding: "8px 10px", textAlign: "left", fontWeight: 800, color: isDark ? "#94A3B8" : "#475569" }}>{isHi ? "जांच / मोडैलिटी" : "Modality / Study"}</th>
-                    <th style={{ padding: "8px 10px", textAlign: "center", fontWeight: 800, color: isDark ? "#94A3B8" : "#475569" }}>{isHi ? "स्थिति" : "Status"}</th>
-                    <th style={{ padding: "8px 10px", textAlign: "center", fontWeight: 800, color: isDark ? "#94A3B8" : "#475569" }}>{isHi ? "कार्रवाई" : "Action"}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredHistory.map((item, idx) => {
-                    let parsedRx = null;
+          </div>
+
+          {/* 3. SUB-VIEW 1: LIVE QUEUE LIST */}
+          {queueSubView === "queue" && (
+            <div
+              style={{
+                background: "var(--rad-card-bg, #FFFFFF)",
+                border: "var(--rad-card-border, #E2E8F0)",
+                borderRadius: "16px",
+                padding: "16px 18px",
+                boxShadow: isDark ? "0 8px 24px rgba(0,0,0,0.3)" : "0 4px 16px rgba(0,0,0,0.03)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px", flexWrap: "wrap", gap: "8px" }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: "15px", fontWeight: 900, color: textColor, display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span>{isHi ? "लाइव रेडियोलॉजी कतार स्ट्रीम" : "Live Radiology & Diagnostic Stream"}</span>
+                    <span style={{ fontSize: "11px", fontWeight: 800, padding: "2px 8px", borderRadius: "12px", background: isDark ? "rgba(2, 132, 199, 0.2)" : "#E0F2FE", color: "#0284C7" }}>
+                      {combinedLiveQueue.length} {isHi ? "मरीज़" : "Patients"}
+                    </span>
+                  </h3>
+                  <p style={{ margin: "2px 0 0 0", fontSize: "11.5px", color: mutedText }}>
+                    {isHi
+                      ? "आपातकालीन ट्राइएज वरीयता क्रम में क्रमबद्ध • प्रत्येक मरीज़ हेतु प्री-स्कैन प्रोटोकॉल सत्यापन"
+                      : "Sorted emergency first, then by wait time • Live wait timer & modality pre-scan safety checklist"}
+                  </p>
+                </div>
+
+                <div style={{ fontSize: "11px", fontWeight: 700, color: mutedText, display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                    <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#EF4444" }} /> {isHi ? "आपातकाल" : "Emergency (P1)"}
+                  </span>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                    <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#64748B" }} /> {isHi ? "अत्यावश्यक" : "Urgent (P2)"}
+                  </span>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                    <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#0284C7" }} /> {isHi ? "सामान्य" : "Routine (P3)"}
+                  </span>
+                </div>
+              </div>
+
+              {combinedLiveQueue.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "40px 10px", color: mutedText }}>
+                  <Scan size={40} style={{ opacity: 0.3, margin: "0 auto 10px auto" }} />
+                  <div style={{ fontSize: "14px", fontWeight: 800, color: textColor }}>
+                    {isHi ? "कतार में कोई मरीज़ नहीं है" : "No patients in live radiology queue"}
+                  </div>
+                  <div style={{ fontSize: "12px", color: mutedText, marginTop: "4px" }}>
+                    {queueSearchQuery || queueModalityFilter !== "all" || queuePriorityFilter !== "all"
+                      ? (isHi ? "फ़िल्टर बदलकर देखें" : "Try clearing filters to see waiting patients")
+                      : (isHi ? "जब मरीज़ चेक-इन करेंगे तो यहाँ प्रदर्शित होंगे" : "Patients will appear here automatically when checked in")}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                  {combinedLiveQueue.map((ticket) => {
+                    const patientKey = `ticket_${ticket.ticket_id}`;
+                    const pState = prepState[patientKey] || { items: {}, prepDone: false };
+                    const isPrepDone = Boolean(pState.prepDone);
+                    const prepItems = getPrepChecklistItems(ticket);
+                    const mod = detectItemModality(ticket);
+                    const bodyP = detectItemBodyPart(ticket);
+                    const isEmergency = Number(ticket.priority_level || ticket.priority) === 1 || String(ticket.priority || "").toLowerCase().includes("emerg");
+                    const isUrgent = Number(ticket.priority_level || ticket.priority) === 2 || String(ticket.priority || "").toLowerCase().includes("urg");
+                    const isServing = ticket._queueCategory === "serving";
+                    const isHeld = ticket._queueCategory === "on_hold";
+
+                    // Wait Time Calculation
+                    const rawJoin = ticket.join_timestamp
+                      ? (Number(ticket.join_timestamp) > 1e11 ? Number(ticket.join_timestamp) / 1000 : Number(ticket.join_timestamp))
+                      : (ticket.created_at ? new Date(ticket.created_at).getTime() / 1000 : nowSec);
+                    const joinSec = isNaN(rawJoin) ? nowSec : rawJoin;
+                    const elapsedSec = Math.max(0, nowSec - joinSec);
+                    const elapsedMin = Math.floor(elapsedSec / 60);
+                    const elapsedRemSec = Math.floor(elapsedSec % 60);
+                    const isOverdueWait = elapsedMin >= 30;
+                    const isModerateWait = elapsedMin >= 15;
+
+                    // Referring Doctor
+                    let docRef = "General OPD";
                     try {
-                      parsedRx = typeof item.prescription_notes === "object" ? item.prescription_notes : JSON.parse(item.prescription_notes);
+                      const p = typeof ticket.prescription_notes === "object" ? ticket.prescription_notes : JSON.parse(ticket.prescription_notes || "{}");
+                      if (p?.doctor_name) docRef = `${p.doctor_name} (${p.doctor_department || "OPD"})`;
                     } catch (_) { }
-                    const radRep = parsedRx?.radiology_report;
 
                     return (
-                      <tr
-                        key={idx}
+                      <div
+                        key={ticket.ticket_id}
                         style={{
+                          background: isServing
+                            ? (isDark ? "rgba(2, 132, 199, 0.08)" : "#F0F9FF")
+                            : isHeld
+                              ? (isDark ? "rgba(100, 116, 139, 0.08)" : "#F1F5F9")
+                              : isEmergency
+                                ? (isDark ? "rgba(239, 68, 68, 0.08)" : "#FEF2F2")
+                                : (isDark ? "#0F172A" : "#F8FAFC"),
+                          border: isServing
+                            ? "1.5px solid #0284C7"
+                            : isHeld
+                              ? "1.5px solid #64748B"
+                              : isEmergency
+                                ? "1.5px solid #EF4444"
+                                : (isDark ? "1px solid #1E293B" : "1px solid #E2E8F0"),
+                          borderRadius: "14px",
+                          padding: "12px 14px",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "10px",
+                          transition: "all 0.15s ease",
+                        }}
+                      >
+                        {/* Row 1: Patient Header, Badges, Timer & Actions */}
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "flex-start",
+                            flexWrap: "wrap",
+                            gap: "10px",
+                          }}
+                        >
+                          {/* Left: Token & Patient Info */}
+                          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                            {/* Token Badge */}
+                            <div
+                              style={{
+                                padding: "6px 12px",
+                                borderRadius: "10px",
+                                background: isEmergency ? "#EF4444" : isUrgent ? "#64748B" : "#0284C7",
+                                color: "#FFFFFF",
+                                fontWeight: 900,
+                                fontSize: "14px",
+                                letterSpacing: "-0.2px",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                boxShadow: isEmergency ? "0 2px 10px rgba(239, 68, 68, 0.4)" : "none",
+                              }}
+                            >
+                              
+                              <span>#{ticket.ticket_id}</span>
+                            </div>
+
+                            {/* Patient Demographics */}
+                            <div>
+                              <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                                <span style={{ fontWeight: 800, fontSize: "14px", color: textColor }}>
+                                  {ticket.name || ticket.patient_name || "Patient"}
+                                </span>
+                                <span style={{ fontSize: "12px", color: mutedText, fontWeight: 600 }}>
+                                  {ticket.age || 30}y / {ticket.gender || "M"}
+                                </span>
+                                {ticket.phone && (
+                                  <span style={{ fontSize: "11.5px", color: mutedText }}>
+                                    • {ticket.phone}
+                                  </span>
+                                )}
+                              </div>
+
+                              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "3px", flexWrap: "wrap" }}>
+                                {/* Modality & Body Part Tag */}
+                                <span
+                                  style={{
+                                    fontSize: "11px",
+                                    fontWeight: 800,
+                                    padding: "2px 8px",
+                                    borderRadius: "6px",
+                                    background: isDark ? "rgba(56, 189, 248, 0.15)" : "#E0F2FE",
+                                    color: isDark ? "#38BDF8" : "#0284C7",
+                                    border: "1px solid rgba(56, 189, 248, 0.3)",
+                                  }}
+                                >
+                                  {mod} • {bodyP}
+                                </span>
+
+                                {/* Referring Doctor */}
+                                <span style={{ fontSize: "11px", color: mutedText, display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                                  <Stethoscope size={11} />
+                                  <span>{isHi ? "रेफरल:" : "Ref:"} {docRef}</span>
+                                </span>
+
+                                {/* Priority Badge */}
+                                <span
+                                  style={{
+                                    fontSize: "10px",
+                                    fontWeight: 900,
+                                    padding: "2px 7px",
+                                    borderRadius: "9999px",
+                                    background: isEmergency ? "#FEE2E2" : isUrgent ? "#F1F5F9" : "#EFF6FF",
+                                    color: isEmergency ? "#DC2626" : isUrgent ? "#475569" : "#2563EB",
+                                    border: isEmergency ? "1px solid #FECACA" : isUrgent ? "1px solid #CBD5E1" : "1px solid #BFDBFE",
+                                  }}
+                                >
+                                  {isEmergency ? (isHi ? "आपातकालीन" : "Emergency") : isUrgent ? (isHi ? "अत्यावश्यक" : "Urgent") : (isHi ? "सामान्य" : "Routine")}
+                                </span>
+
+                                {/* Status Badge */}
+                                {isServing ? (
+                                  <span style={{ fontSize: "10.5px", fontWeight: 800, padding: "2px 8px", borderRadius: "6px", background: "#0284C7", color: "#FFFFFF" }}>
+                                    {isHi ? "स्कैन जारी" : "Serving"}
+                                  </span>
+                                ) : isHeld ? (
+                                  <span style={{ fontSize: "10.5px", fontWeight: 800, padding: "2px 8px", borderRadius: "6px", background: "#64748B", color: "#FFFFFF" }}>
+                                    {isHi ? "होल्ड (10 मिनट)" : "On Hold"}
+                                  </span>
+                                ) : (
+                                  <span style={{ fontSize: "10.5px", fontWeight: 800, padding: "2px 8px", borderRadius: "6px", background: isDark ? "rgba(2, 132, 199, 0.15)" : "#E0F2FE", color: "#0284C7", border: "1px solid rgba(2, 132, 199, 0.3)" }}>
+                                    {isHi ? "प्रतीक्षारत" : "Waiting"}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Right: Wait Timer & Operational Action Buttons */}
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                            {/* Live Wait Timer */}
+                            <div
+                              style={{
+                                padding: "4px 10px",
+                                borderRadius: "8px",
+                                background: isOverdueWait
+                                  ? (isDark ? "rgba(239, 68, 68, 0.2)" : "#FEE2E2")
+                                  : isModerateWait
+                                    ? (isDark ? "rgba(100, 116, 139, 0.2)" : "#F1F5F9")
+                                    : (isDark ? "rgba(2, 132, 199, 0.15)" : "#E0F2FE"),
+                                color: isOverdueWait ? "#DC2626" : isModerateWait ? "#475569" : "#0284C7",
+                                border: isOverdueWait ? "1px solid #FECACA" : isModerateWait ? "1px solid #CBD5E1" : "1px solid #BAE6FD",
+                                fontSize: "11.5px",
+                                fontWeight: 800,
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                fontVariantNumeric: "tabular-nums",
+                              }}
+                              title={isHi ? `प्रतीक्षा समय: ${elapsedMin} मिनट ${elapsedRemSec} सेकंड` : `Live Waiting Duration: ${elapsedMin}m ${elapsedRemSec}s`}
+                            >
+                              <Clock size={12} />
+                              <span>{isHi ? "प्रतीक्षा:" : "Wait:"} {elapsedMin}m {elapsedRemSec}s</span>
+                            </div>
+
+                            {/* Call Patient Button */}
+                            <button
+                              type="button"
+                              onClick={() => handleCallWithPrepCheck(ticket)}
+                              style={{
+                                background: "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)",
+                                color: "#FFFFFF",
+                                border: "none",
+                                padding: "6px 12px",
+                                borderRadius: "8px",
+                                fontSize: "11.5px",
+                                fontWeight: 800,
+                                cursor: "pointer",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "5px",
+                                boxShadow: "0 2px 6px rgba(2, 132, 199, 0.25)",
+                              }}
+                              title="Call patient to radiology scanner"
+                            >
+                              <Volume2 size={13} />
+                              <span>{isHi ? "कॉल" : "Call"}</span>
+                            </button>
+
+                            {/* Hold Button */}
+                            <button
+                              type="button"
+                              onClick={() => handleHold(ticket)}
+                              style={{
+                                background: isDark ? "rgba(100, 116, 139, 0.15)" : "#F1F5F9",
+                                border: "1px solid #64748B",
+                                color: "#475569",
+                                padding: "6px 10px",
+                                borderRadius: "8px",
+                                fontSize: "11.5px",
+                                fontWeight: 700,
+                                cursor: "pointer",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                              }}
+                              title="Place on 10-minute grace window hold"
+                            >
+                              <Coffee size={12} />
+                              <span>{isHi ? "होल्ड" : "Hold"}</span>
+                            </button>
+
+                            {/* No-Show Button */}
+                            <button
+                              type="button"
+                              onClick={() => handleFinalizeNoShow(ticket)}
+                              style={{
+                                background: isDark ? "rgba(239, 68, 68, 0.12)" : "#FEF2F2",
+                                border: "1px solid #EF4444",
+                                color: "#DC2626",
+                                padding: "6px 10px",
+                                borderRadius: "8px",
+                                fontSize: "11.5px",
+                                fontWeight: 700,
+                                cursor: "pointer",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                              }}
+                              title="Mark as absent / No-Show"
+                            >
+                              <UserX size={12} />
+                              <span>{isHi ? "अनुपस्थित" : "No-Show"}</span>
+                            </button>
+
+                            {/* Transfer Button */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTransferTicket(ticket);
+                                setTransferTargetDept("");
+                                setTransferNotes("");
+                              }}
+                              style={{
+                                background: isDark ? "#1E293B" : "#F1F5F9",
+                                border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
+                                color: textColor,
+                                padding: "6px 10px",
+                                borderRadius: "8px",
+                                fontSize: "11.5px",
+                                fontWeight: 700,
+                                cursor: "pointer",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                              }}
+                              title="Transfer patient to another department"
+                            >
+                              <Send size={12} />
+                              <span>{isHi ? "ट्रांसफर" : "Transfer"}</span>
+                            </button>
+
+                            {/* Load into Workstation */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedServingTicket(ticket);
+                                setActiveTab("workstation");
+                                showToast(isHi ? `टोकन #${ticket.ticket_id} को वर्कस्टेशन में लोड किया गया` : `Loaded #${ticket.ticket_id} into workstation`, "info");
+                              }}
+                              style={{
+                                background: "transparent",
+                                border: "1px dashed #0284C7",
+                                color: "#0284C7",
+                                padding: "6px 10px",
+                                borderRadius: "8px",
+                                fontSize: "11px",
+                                fontWeight: 800,
+                                cursor: "pointer",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                              }}
+                              title="Open in Imaging Workstation tab"
+                            >
+                              <Scan size={12} />
+                              <span>{isHi ? "वर्कस्टेशन में खोलें" : "Workstation"}</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Row 2: Clinical Prep Checklist Accordion / Capsule */}
+                        <div
+                          style={{
+                            background: isDark ? "#0F172A" : "#FFFFFF",
+                            border: isPrepDone ? "1px solid #0284C7" : (isDark ? "1px solid #1E293B" : "1px solid #E2E8F0"),
+                            borderRadius: "10px",
+                            padding: "8px 12px",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            flexWrap: "wrap",
+                            gap: "8px",
+                          }}
+                        >
+                          {/* Checklist Items list */}
+                          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", flex: 1 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                              <span style={{ fontSize: "11px", fontWeight: 800, color: isPrepDone ? "#0284C7" : "#475569" }}>
+                                {isPrepDone ? (isHi ? "तैयारी सत्यापित:" : "Prep verified:") : (isHi ? "तैयारी चेकलिस्ट:" : "Prep checklist:")}
+                              </span>
+                            </div>
+
+                            {prepItems.map((item) => {
+                              const isChecked = Boolean(pState.items?.[item.id] || isPrepDone);
+                              return (
+                                <label
+                                  key={item.id}
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "5px",
+                                    cursor: "pointer",
+                                    fontSize: "11px",
+                                    fontWeight: isChecked ? 700 : 600,
+                                    color: isChecked ? (isDark ? "#38BDF8" : "#0369A1") : (item.isWarning ? "#EF4444" : textColor),
+                                    background: isChecked ? (isDark ? "rgba(2, 132, 199, 0.15)" : "#E0F2FE") : (isDark ? "#1E293B" : "#F1F5F9"),
+                                    padding: "3px 8px",
+                                    borderRadius: "6px",
+                                    border: isChecked ? "1px solid #0284C7" : "1px solid transparent",
+                                    userSelect: "none",
+                                  }}
+                                  title={item.hint}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={() => togglePrepItem(patientKey, item.id)}
+                                    style={{ cursor: "pointer", width: "12px", height: "12px", accentColor: "#0284C7" }}
+                                  />
+                                  <span>{item.tag || item.label}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+
+                          {/* "Mark Prep Done" Toggle Button */}
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                            {isPrepDone ? (
+                              <button
+                                type="button"
+                                onClick={() => setPatientPrepDone(patientKey, false)}
+                                style={{
+                                  background: "#E0F2FE",
+                                  border: "1px solid #0284C7",
+                                  color: "#0369A1",
+                                  padding: "3px 10px",
+                                  borderRadius: "6px",
+                                  fontSize: "10.5px",
+                                  fontWeight: 800,
+                                  cursor: "pointer",
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "4px",
+                                }}
+                                title="Click to edit or uncheck prep"
+                              >
+                                <Check size={12} />
+                                <span>{isHi ? "तैयारी पूर्ण" : "Prep done"}</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setPatientPrepDone(patientKey, true)}
+                                style={{
+                                  background: "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)",
+                                  color: "#FFFFFF",
+                                  border: "none",
+                                  padding: "4px 10px",
+                                  borderRadius: "6px",
+                                  fontSize: "10.5px",
+                                  fontWeight: 800,
+                                  cursor: "pointer",
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "4px",
+                                  boxShadow: "0 1px 4px rgba(2, 132, 199, 0.3)",
+                                }}
+                                title="Verify all fasting, contrast, metal screening checks"
+                              >
+                                <Check size={12} />
+                                <span>{isHi ? "तैयारी पूर्ण करें (Mark Prep Done)" : "Mark Prep Done"}</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 4. SUB-VIEW 2: TODAY'S APPOINTMENTS (GROUPED BY TIME SLOT) */}
+          {queueSubView === "appointments" && (
+            <div
+              style={{
+                background: "var(--rad-card-bg, #FFFFFF)",
+                border: "var(--rad-card-border, #E2E8F0)",
+                borderRadius: "16px",
+                padding: "16px 18px",
+                boxShadow: isDark ? "0 8px 24px rgba(0,0,0,0.3)" : "0 4px 16px rgba(0,0,0,0.03)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px", flexWrap: "wrap", gap: "8px" }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: "15px", fontWeight: 900, color: textColor, display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span>{isHi ? "आज की शेड्यूल्ड रेडियोलॉजी अपॉइंटमेंट्स" : "Today's Scheduled Imaging Appointments"}</span>
+                    <span style={{ fontSize: "11px", fontWeight: 800, padding: "2px 8px", borderRadius: "12px", background: isDark ? "rgba(99, 102, 241, 0.2)" : "#E0F2FE", color: "#0284C7" }}>
+                      {todayAppointmentsFiltered.length} {isHi ? "अपॉइंटमेंट्स" : "Bookings"}
+                    </span>
+                  </h3>
+                  <p style={{ margin: "2px 0 0 0", fontSize: "11.5px", color: mutedText }}>
+                    {isHi
+                      ? "समय स्लॉट वार समूहीकृत • मैन्युअल चेक-इन, रद्दीकरण एवं विलंबित मरीज़ मार्कर"
+                      : "Grouped by time slot • Manual check-in to live queue, cancellation & late arrival markers"}
+                  </p>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <button
+                    type="button"
+                    onClick={() => fetchRadiologyAppointments(true)}
+                    style={{
+                      padding: "5px 12px",
+                      borderRadius: "8px",
+                      background: isDark ? "#1E293B" : "#F1F5F9",
+                      border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
+                      color: textColor,
+                      fontSize: "11.5px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "4px",
+                    }}
+                  >
+                    <RefreshCw size={12} className={appointmentsLoading ? "spin-icon" : ""} />
+                    <span>{isHi ? "रीलोड" : "Reload"}</span>
+                  </button>
+                </div>
+              </div>
+
+              {appointmentsLoading ? (
+                <div style={{ textAlign: "center", padding: "40px 0", color: "#0284C7" }}>
+                  <RefreshCw size={24} className="spin-icon" style={{ margin: "0 auto 8px auto" }} />
+                  <div style={{ fontSize: "13px", fontWeight: 700 }}>{isHi ? "अपॉइंटमेंट्स लोड हो रही हैं..." : "Loading appointments..."}</div>
+                </div>
+              ) : Object.keys(appointmentsBySlot).length === 0 ? (
+                <div style={{ textAlign: "center", padding: "40px 10px", color: mutedText }}>
+                  <Calendar size={40} style={{ opacity: 0.3, margin: "0 auto 10px auto" }} />
+                  <div style={{ fontSize: "14px", fontWeight: 800, color: textColor }}>
+                    {isHi ? "आज के लिए कोई अपॉइंटमेंट नहीं मिली" : "No appointments scheduled for today matching filters"}
+                  </div>
+                  <div style={{ fontSize: "12px", color: mutedText, marginTop: "4px" }}>
+                    {queueSearchQuery || queueModalityFilter !== "all"
+                      ? (isHi ? "फ़िल्टर साफ़ करके पुनः प्रयास करें" : "Try resetting your search query or modality filter")
+                      : (isHi ? "नए अपॉइंटमेंट्स ऑनलाइन पोर्टल के माध्यम से बुक किए जा सकते हैं" : "New appointments booked via patient portal will appear here")}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                  {Object.entries(appointmentsBySlot).map(([slotKey, slotApts]) => (
+                    <div
+                      key={slotKey}
+                      style={{
+                        background: isDark ? "#0F172A" : "#F8FAFC",
+                        border: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0",
+                        borderRadius: "14px",
+                        padding: "12px",
+                      }}
+                    >
+                      {/* Slot Header Banner */}
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          marginBottom: "10px",
+                          paddingBottom: "8px",
                           borderBottom: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0",
                         }}
                       >
-                        <td style={{ padding: "6px 10px", color: mutedText }}>
-                          {item.created_at ? new Date(item.created_at).toLocaleDateString() : "Recent"}
-                        </td>
-                        <td style={{ padding: "6px 10px", fontWeight: 800, color: "#0284C7", fontFamily: "monospace" }}>
-                          #{item.ticket_id || "-"}
-                        </td>
-                        <td style={{ padding: "6px 10px", fontWeight: 700, color: textColor }}>
-                          {item.patient_name || item.name || "Patient"}
-                        </td>
-                        <td style={{ padding: "6px 10px" }}>
-                          {item.age || 30}y / {item.gender || "M"}
-                        </td>
-                        <td style={{ padding: "6px 10px", fontWeight: 600 }}>
-                          {radRep?.modality ? `${radRep.modality} - ${radRep.body_part}` : item.medical_condition || item.service_category || "Radiology"}
-                        </td>
-                        <td style={{ padding: "6px 10px", textAlign: "center" }}>
-                          <span
-                            style={{
-                              fontSize: "10px",
-                              fontWeight: 800,
-                              padding: "2px 8px",
-                              borderRadius: "9999px",
-                              background: "#ECFDF5",
-                              color: "#059669",
-                              border: "1px solid rgba(16, 185, 129, 0.3)",
-                            }}
-                          >
-                            VERIFIED
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                          <span style={{ fontSize: "13px", fontWeight: 900, color: isDark ? "#38BDF8" : "#0284C7" }}>
+                            {slotKey}
                           </span>
-                        </td>
-                        <td style={{ padding: "6px 10px", textAlign: "center" }}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              printRadiologyReportSlip(
-                                {
-                                  patient_name: item.patient_name || item.name,
-                                  age: item.age || 30,
-                                  gender: item.gender || "M",
-                                  phone: item.phone || "",
-                                  ticket_id: item.ticket_id,
-                                  referring_doctor: parsedRx?.doctor_name || "Attending Physician",
-                                  modality: radRep?.modality || "X-Ray",
-                                  body_part: radRep?.body_part || "Chest",
-                                  view_projection: radRep?.view || "PA View",
-                                  contrast: radRep?.contrast || "None",
-                                  laterality: radRep?.laterality || "N/A",
-                                  priority: radRep?.priority || "Routine",
-                                  technologist: radRep?.technologist || "Radiology Technologist",
-                                  equipment: radRep?.equipment || "Diagnostic Imaging Unit",
-                                  dose: radRep?.dose || "",
-                                  clinical_indication: radRep?.clinical_indication || item.medical_condition || "Imaging investigation",
-                                  technique: radRep?.technique || "Standard protocol",
-                                  findings: radRep?.findings || "Normal study. No significant abnormality.",
-                                  impression: radRep?.impression || "Unremarkable imaging examination.",
-                                  radiologist_name: radRep?.radiologist_name || radiologistName,
-                                  verified_at: radRep?.verified_at || new Date().toISOString(),
-                                  images: radRep?.images || [],
-                                  hospital_name: brandName,
-                                },
-                                language,
-                                hospitalBranding
-                              );
-                            }}
-                            style={{
-                              background: isDark ? "rgba(2, 132, 199, 0.15)" : "#E0F2FE",
-                              border: "1px solid #0284C7",
-                              color: "#0284C7",
-                              padding: "4px 10px",
-                              borderRadius: "6px",
-                              fontSize: "11px",
-                              fontWeight: 800,
-                              cursor: "pointer",
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: "4px",
-                              transition: "all 0.15s ease",
-                            }}
-                          >
-                            <Printer size={12} />
-                            <span>{isHi ? "प्रिंट" : "Print"}</span>
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                          <span style={{ fontSize: "11px", fontWeight: 700, color: mutedText }}>
+                            ({slotApts.length} {slotApts.length === 1 ? (isHi ? "अपॉइंटमेंट" : "Appointment") : (isHi ? "अपॉइंटमेंट्स" : "Appointments")})
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Appointments Cards inside slot */}
+                      <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                        {slotApts.map((apt) => {
+                          const rawStatus = (apt.status || "booked").toLowerCase();
+                          const isCheckedIn = rawStatus === "checked_in" || Boolean(apt.ticket_id && rawStatus !== "cancelled" && rawStatus !== "expired");
+                          const isCancelled = rawStatus === "cancelled";
+                          const isExpired = rawStatus === "expired";
+                          const isLate = isAppointmentLate(apt);
+                          const isCheckinOpen = !isCheckedIn && !isCancelled && !isExpired;
+
+                          const patientKey = `apt_${apt.appointment_id}`;
+                          const pState = prepState[patientKey] || { items: {}, prepDone: false };
+                          const isPrepDone = Boolean(pState.prepDone);
+                          const prepItems = getPrepChecklistItems(apt);
+                          const mod = detectItemModality(apt);
+                          const bodyP = detectItemBodyPart(apt);
+
+                          return (
+                            <div
+                              key={apt.appointment_id}
+                              style={{
+                                background: isCheckedIn
+                                  ? (isDark ? "rgba(2, 132, 199, 0.08)" : "#F0F9FF")
+                                  : isLate
+                                    ? (isDark ? "rgba(239, 68, 68, 0.08)" : "#FEF2F2")
+                                    : (isDark ? "#0F172A" : "#FFFFFF"),
+                                border: isCheckedIn
+                                  ? "1px solid #0284C7"
+                                  : isLate
+                                    ? "1.5px solid #EF4444"
+                                    : (isDark ? "1px solid #1E293B" : "1px solid #E2E8F0"),
+                                borderRadius: "12px",
+                                padding: "10px 14px",
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: "8px",
+                              }}
+                            >
+                              <div
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  alignItems: "center",
+                                  flexWrap: "wrap",
+                                  gap: "8px",
+                                }}
+                              >
+                                {/* Left: Info */}
+                                <div>
+                                  <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                                    <span style={{ fontSize: "11px", fontWeight: 800, color: "#0284C7", fontFamily: "monospace" }}>
+                                      #{apt.appointment_id}
+                                    </span>
+                                    <span style={{ fontWeight: 800, fontSize: "13.5px", color: textColor }}>
+                                      {apt.patient_name || apt.name || "Patient"}
+                                    </span>
+                                    <span style={{ fontSize: "11.5px", color: mutedText }}>
+                                      {apt.age ? `${apt.age}y / ` : ""}{apt.gender || "M"}
+                                    </span>
+                                    {apt.phone && (
+                                      <span style={{ fontSize: "11.5px", color: mutedText }}>
+                                        • {apt.phone}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "4px", flexWrap: "wrap" }}>
+                                    <span
+                                      style={{
+                                        fontSize: "10.5px",
+                                        fontWeight: 800,
+                                        padding: "1px 6px",
+                                        borderRadius: "5px",
+                                        background: isDark ? "rgba(56, 189, 248, 0.15)" : "#E0F2FE",
+                                        color: isDark ? "#38BDF8" : "#0284C7",
+                                        border: "1px solid rgba(56, 189, 248, 0.3)",
+                                      }}
+                                    >
+                                      {mod} • {bodyP}
+                                    </span>
+
+                                    {/* Status Chip */}
+                                    <span
+                                      style={{
+                                        fontSize: "10px",
+                                        fontWeight: 800,
+                                        padding: "2px 8px",
+                                        borderRadius: "9999px",
+                                        background: isCheckedIn
+                                          ? "#E0F2FE"
+                                          : isCancelled
+                                            ? "#F1F5F9"
+                                            : isExpired
+                                              ? "#FEF2F2"
+                                              : "#F1F5F9",
+                                        color: isCheckedIn
+                                          ? "#0369A1"
+                                          : isCancelled
+                                            ? "#64748B"
+                                            : isExpired
+                                              ? "#DC2626"
+                                              : "#334155",
+                                        border: isCheckedIn
+                                          ? "1px solid #BAE6FD"
+                                          : isCancelled
+                                            ? "1px solid #CBD5E1"
+                                            : isExpired
+                                              ? "1px solid #FECACA"
+                                              : "1px solid #CBD5E1",
+                                      }}
+                                    >
+                                      {isCheckedIn
+                                        ? `Checked in (#${apt.ticket_id || ""})`
+                                        : isCancelled
+                                          ? "Cancelled"
+                                          : isExpired
+                                            ? "Expired"
+                                            : isCheckinOpen
+                                              ? "Check-in Open"
+                                              : "Booked"}
+                                    </span>
+
+                                    {/* Late Marker */}
+                                    {isLate && (
+                                      <span
+                                        style={{
+                                          fontSize: "10px",
+                                          fontWeight: 900,
+                                          padding: "2px 7px",
+                                          borderRadius: "9999px",
+                                          background: "#EF4444",
+                                          color: "#FFFFFF",
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          gap: "3px",
+                                          boxShadow: "0 1px 4px rgba(239, 68, 68, 0.3)",
+                                        }}
+                                      >
+                                        <AlertTriangle size={11} color="#DC2626" />
+                                        <span>{isHi ? "विलंबित मरीज़ (Late)" : "LATE / OVERDUE"}</span>
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Right: Check-in & Cancel Actions */}
+                                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                  {!isCheckedIn && !isCancelled && !isExpired && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCheckInAppointment(apt.appointment_id)}
+                                        style={{
+                                          background: "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)",
+                                          color: "#FFFFFF",
+                                          border: "none",
+                                          padding: "6px 12px",
+                                          borderRadius: "8px",
+                                          fontSize: "11.5px",
+                                          fontWeight: 800,
+                                          cursor: "pointer",
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          gap: "4px",
+                                          boxShadow: "0 2px 6px rgba(2, 132, 199, 0.25)",
+                                        }}
+                                        title="Issue queue token and check-in patient"
+                                      >
+                                        <CheckCircle2 size={13} />
+                                        <span>{isHi ? "चेक-इन करें" : "Check-In"}</span>
+                                      </button>
+
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCancelAppointment(apt.appointment_id)}
+                                        style={{
+                                          background: isDark ? "rgba(239, 68, 68, 0.12)" : "#FEF2F2",
+                                          border: "1px solid #EF4444",
+                                          color: "#DC2626",
+                                          padding: "6px 10px",
+                                          borderRadius: "8px",
+                                          fontSize: "11px",
+                                          fontWeight: 700,
+                                          cursor: "pointer",
+                                        }}
+                                        title="Cancel scheduled appointment"
+                                      >
+                                        {isHi ? "रद्द करें" : "Cancel"}
+                                      </button>
+                                    </>
+                                  )}
+
+                                  {isCheckedIn && (
+                                    <span
+                                      style={{
+                                        fontSize: "11px",
+                                        color: "#0284C7",
+                                        fontWeight: 800,
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: "4px",
+                                      }}
+                                    >
+                                      <CheckCircle2 size={14} />
+                                      <span>{isHi ? `कतार में सक्रिय (#${apt.ticket_id || ""})` : `In Live Queue (#${apt.ticket_id || ""})`}</span>
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Prep Checklist Capsule on Appointment Card */}
+                              <div
+                                style={{
+                                  background: isDark ? "#0F172A" : "#F8FAFC",
+                                  border: isPrepDone ? "1px solid #0284C7" : (isDark ? "1px solid #1E293B" : "1px solid #E2E8F0"),
+                                  borderRadius: "8px",
+                                  padding: "6px 10px",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
+                                  flexWrap: "wrap",
+                                  gap: "6px",
+                                }}
+                              >
+                                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", flex: 1 }}>
+                                  <span style={{ fontSize: "10.5px", fontWeight: 800, color: isPrepDone ? "#0284C7" : "#475569" }}>
+                                    {isPrepDone ? (isHi ? "तैयारी सत्यापित:" : "Prep verified:") : (isHi ? "तैयारी चेकलिस्ट:" : "Prep checklist:")}
+                                  </span>
+                                  {prepItems.map((item) => {
+                                    const isChecked = Boolean(pState.items?.[item.id] || isPrepDone);
+                                    return (
+                                      <label
+                                        key={item.id}
+                                        style={{
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          gap: "4px",
+                                          cursor: "pointer",
+                                          fontSize: "10.5px",
+                                          fontWeight: isChecked ? 700 : 600,
+                                          color: isChecked ? "#0284C7" : mutedText,
+                                          background: isChecked ? (isDark ? "rgba(2, 132, 199, 0.15)" : "#E0F2FE") : "transparent",
+                                          padding: "2px 6px",
+                                          borderRadius: "4px",
+                                          border: isChecked ? "1px solid #0284C7" : "none",
+                                        }}
+                                        title={item.hint}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={isChecked}
+                                          onChange={() => togglePrepItem(patientKey, item.id)}
+                                          style={{ cursor: "pointer", width: "11px", height: "11px", accentColor: "#0284C7" }}
+                                        />
+                                        <span>{item.tag || item.label}</span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+
+                                <div>
+                                  {isPrepDone ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => setPatientPrepDone(patientKey, false)}
+                                      style={{
+                                        background: "transparent",
+                                        border: "none",
+                                        color: "#0284C7",
+                                        fontSize: "10.5px",
+                                        fontWeight: 800,
+                                        cursor: "pointer",
+                                      }}
+                                    >
+                                      {isHi ? "पूर्ण" : "Prep done"}
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => setPatientPrepDone(patientKey, true)}
+                                      style={{
+                                        background: isDark ? "rgba(2, 132, 199, 0.2)" : "#E0F2FE",
+                                        border: "1px solid #0284C7",
+                                        color: "#0369A1",
+                                        padding: "2px 8px",
+                                        borderRadius: "5px",
+                                        fontSize: "10px",
+                                        fontWeight: 800,
+                                        cursor: "pointer",
+                                      }}
+                                    >
+                                      {isHi ? "तैयारी सत्यापित करें" : "Mark prep done"}
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 5. MODAL: DEDICATED QUEUE TICKET TRANSFER */}
+          {transferTicket && (
+            <div
+              style={{
+                position: "fixed",
+                inset: 0,
+                background: "rgba(15, 23, 42, 0.75)",
+                backdropFilter: "blur(4px)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                zIndex: 9999,
+                padding: "16px",
+              }}
+              onClick={() => setTransferTicket(null)}
+            >
+              <div
+                style={{
+                  background: cardBg,
+                  border: cardBorder,
+                  borderRadius: "16px",
+                  padding: "20px 24px",
+                  maxWidth: "460px",
+                  width: "100%",
+                  boxShadow: "0 20px 40px rgba(0,0,0,0.35)",
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
+                  <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 900, color: textColor }}>
+                    {isHi ? "मरीज़ को अन्य विभाग में स्थानांतरित करें" : "Transfer Queue Patient"}
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setTransferTicket(null)}
+                    style={{ background: "none", border: "none", color: mutedText, fontSize: "16px", cursor: "pointer" }}
+                  ><X size={15} /></button>
+                </div>
+
+                <div style={{ padding: "10px 12px", borderRadius: "10px", background: isDark ? "#0F172A" : "#F0F9FF", border: "1px solid #BAE6FD", marginBottom: "14px" }}>
+                  <div style={{ fontWeight: 800, fontSize: "13px", color: "#0284C7" }}>
+                    #{transferTicket.ticket_id} • {transferTicket.name || transferTicket.patient_name}
+                  </div>
+                  <div style={{ fontSize: "11.5px", color: mutedText, marginTop: "2px" }}>
+                    {isHi ? "वर्तमान विभाग: रेडियोलॉजी / इमेजिंग" : "Current: Radiology & Diagnostic Imaging"}
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: "12px" }}>
+                  <label style={{ fontSize: "12px", fontWeight: 800, display: "block", marginBottom: "6px", color: textColor }}>
+                    {isHi ? "गंतव्य विभाग चुनें:" : "Select Destination Department:"}
+                  </label>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "8px" }}>
+                    {availableRouteDepartments.map((dept) => {
+                      const isSel = transferTargetDept === dept.id;
+                      return (
+                        <button
+                          key={dept.id}
+                          type="button"
+                          onClick={() => setTransferTargetDept(dept.id)}
+                          style={{
+                            padding: "8px 10px",
+                            borderRadius: "8px",
+                            fontSize: "11.5px",
+                            fontWeight: isSel ? 800 : 600,
+                            background: isSel ? "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)" : (isDark ? "#1E293B" : "#F8FAFC"),
+                            border: isSel ? "1.5px solid #38BDF8" : (isDark ? "1px solid #334155" : "1px solid #CBD5E1"),
+                            color: isSel ? "#FFFFFF" : textColor,
+                            cursor: "pointer",
+                            textAlign: "left",
+                          }}
+                        >
+                          {isHi ? dept.labelHi : dept.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: "16px" }}>
+                  <label style={{ fontSize: "12px", fontWeight: 800, display: "block", marginBottom: "6px", color: textColor }}>
+                    {isHi ? "स्थानांतरण टिप्पणी (वैकल्पिक):" : "Transfer Notes (Optional):"}
+                  </label>
+                  <input
+                    type="text"
+                    placeholder={isHi ? "जैसे: स्कैन पूर्ण, परामर्श हेतु वापस भेजा जा रहा है" : "e.g. Scan done, routed back for clinical consultation"}
+                    value={transferNotes}
+                    onChange={(e) => setTransferNotes(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      borderRadius: "8px",
+                      border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
+                      background: isDark ? "#0F172A" : "#FFFFFF",
+                      color: textColor,
+                      fontSize: "12px",
+                      outline: "none",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+                  <button
+                    type="button"
+                    onClick={() => setTransferTicket(null)}
+                    style={{
+                      padding: "8px 14px",
+                      borderRadius: "8px",
+                      border: isDark ? "1px solid #475569" : "1px solid #CBD5E1",
+                      background: "transparent",
+                      color: mutedText,
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {isHi ? "रद्द करें" : "Cancel"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!transferTargetDept || isTransferringQueueTicket}
+                    onClick={handleExecuteQueueTransfer}
+                    style={{
+                      padding: "8px 16px",
+                      borderRadius: "8px",
+                      border: "none",
+                      background: transferTargetDept ? "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)" : (isDark ? "#334155" : "#E2E8F0"),
+                      color: transferTargetDept ? "#FFFFFF" : "#94A3B8",
+                      fontSize: "12px",
+                      fontWeight: 800,
+                      cursor: transferTargetDept ? "pointer" : "not-allowed",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "5px",
+                    }}
+                  >
+                    <Send size={13} />
+                    <span>{isTransferringQueueTicket ? (isHi ? "स्थानांतरण..." : "Transferring...") : (isHi ? "स्थानांतरित करें" : "Transfer Patient")}</span>
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -3903,7 +5874,7 @@ export default function RadiologyPage({
                 type="button"
                 onClick={handleExportExcel}
                 style={{
-                  background: "linear-gradient(135deg, #10B981 0%, #059669 100%)",
+                  background: "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)",
                   color: "#FFFFFF",
                   border: "none",
                   padding: "6px 14px",
@@ -3915,13 +5886,136 @@ export default function RadiologyPage({
                   alignItems: "center",
                   gap: "5px",
                   marginLeft: "4px",
-                  boxShadow: "0 2px 10px rgba(16, 185, 129, 0.3)",
+                  boxShadow: "0 2px 10px rgba(2, 132, 199, 0.3)",
                   transition: "all 0.15s ease",
                 }}
               >
                 <Download size={14} />
                 <span>{isHi ? "Excel निर्यात" : "Export Excel"}</span>
               </button>
+            </div>
+          </div>
+
+          {/* Secondary Controls Bar: Status Filter Pills + Search */}
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: "12px",
+              padding: "8px 12px",
+              background: isDark ? "rgba(15, 23, 42, 0.6)" : "#F8FAFC",
+              borderRadius: "12px",
+              border: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0",
+              flexWrap: "wrap",
+              gap: "10px",
+            }}
+          >
+            {/* Status Filter Chips */}
+            <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+              <span style={{ fontSize: "11px", fontWeight: 800, color: mutedText, marginRight: "4px" }}>
+                {isHi ? "स्थिति:" : "Status:"}
+              </span>
+
+              {[
+                { id: "all", label: isHi ? "सभी" : "All", count: historyCounts.all, color: "#0284C7" },
+                { id: "completed", label: isHi ? "पूर्ण" : "Completed", count: historyCounts.completed, color: "#0369A1" },
+                { id: "cancelled", label: isHi ? "रद्द" : "Cancelled", count: historyCounts.cancelled, color: "#DC2626" },
+                { id: "no_show", label: isHi ? "अनुपस्थित" : "No-Show", count: historyCounts.noShow, color: "#475569" },
+              ].map((pill) => {
+                const isActive = historyStatusFilter === pill.id;
+                return (
+                  <button
+                    key={pill.id}
+                    type="button"
+                    onClick={() => setHistoryStatusFilter(pill.id)}
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: "8px",
+                      fontSize: "11px",
+                      fontWeight: 800,
+                      cursor: "pointer",
+                      border: isActive
+                        ? `1.5px solid ${pill.color}`
+                        : isDark
+                        ? "1px solid #334155"
+                        : "1px solid #CBD5E1",
+                      background: isActive
+                        ? (isDark ? "rgba(255, 255, 255, 0.08)" : "#FFFFFF")
+                        : "transparent",
+                      color: isActive ? pill.color : mutedText,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "5px",
+                      transition: "all 0.15s ease",
+                      boxShadow: isActive ? "0 1px 4px rgba(0,0,0,0.06)" : "none",
+                    }}
+                  >
+                    <span>{pill.label}</span>
+                    <span
+                      style={{
+                        fontSize: "10px",
+                        fontWeight: 900,
+                        padding: "1px 5px",
+                        borderRadius: "9999px",
+                        background: isActive ? pill.color : (isDark ? "#334155" : "#E2E8F0"),
+                        color: isActive ? "#FFFFFF" : mutedText,
+                      }}
+                    >
+                      {pill.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Search Input */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                background: isDark ? "#0F172A" : "#FFFFFF",
+                border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
+                borderRadius: "8px",
+                padding: "4px 10px",
+                minWidth: "220px",
+                maxWidth: "320px",
+                flex: "1 1 auto",
+              }}
+            >
+              <Search size={13} style={{ color: mutedText, marginRight: "6px", flexShrink: 0 }} />
+              <input
+                type="text"
+                value={archiveSearch}
+                onChange={(e) => setArchiveSearch(e.target.value)}
+                placeholder={isHi ? "नाम, टोकन, फोन या कारण..." : "Filter by name, token, phone, reason..."}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  color: textColor,
+                  fontSize: "11.5px",
+                  outline: "none",
+                  width: "100%",
+                }}
+              />
+              {archiveSearch && (
+                <button
+                  type="button"
+                  onClick={() => setArchiveSearch("")}
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    color: mutedText,
+                    cursor: "pointer",
+                    padding: 0,
+                    display: "flex",
+                    alignItems: "center",
+                  }}
+                  title="Clear search"
+                >
+                  <X size={12} />
+                </button>
+              )}
             </div>
           </div>
 
@@ -3934,7 +6028,7 @@ export default function RadiologyPage({
             <div style={{ overflowX: "auto", borderRadius: "12px", border: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
                 <thead>
-                  <tr style={{ background: isDark ? "#131D31" : "#F1F5F9", borderBottom: isDark ? "1.5px solid #1E293B" : "1.5px solid #E2E8F0" }}>
+                  <tr style={{ background: isDark ? "#0F172A" : "#F1F5F9", borderBottom: isDark ? "1.5px solid #1E293B" : "1.5px solid #E2E8F0" }}>
                     <th style={{ padding: "8px 10px", textAlign: "left", fontWeight: 800, color: isDark ? "#94A3B8" : "#475569" }}>#</th>
                     <th style={{ padding: "8px 10px", textAlign: "left", fontWeight: 800, color: isDark ? "#94A3B8" : "#475569" }}>{isHi ? "दिनांक व समय" : "Date & Time"}</th>
                     <th style={{ padding: "8px 10px", textAlign: "left", fontWeight: 800, color: isDark ? "#94A3B8" : "#475569" }}>{isHi ? "टोकन #" : "Token #"}</th>
@@ -3952,92 +6046,248 @@ export default function RadiologyPage({
                       parsedRx = typeof item.prescription_notes === "object" ? item.prescription_notes : JSON.parse(item.prescription_notes);
                     } catch (_) { }
                     const radRep = parsedRx?.radiology_report;
+                    const rawSt = String(item.status || "completed").toLowerCase();
+                    const isCancelled = rawSt === "cancelled" || rawSt === "canceled";
+                    const isNoShow = rawSt === "no_show" || rawSt === "noshow" || rawSt === "expired";
+                    const isServing = rawSt === "serving" || rawSt === "in_progress";
+                    const isWaiting = rawSt === "waiting" || rawSt === "queued";
 
                     return (
-                      <tr key={idx} style={{ borderBottom: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0" }}>
+                      <tr
+                        key={idx}
+                        style={{
+                          borderBottom: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0",
+                          background: isCancelled
+                            ? (isDark ? "rgba(239, 68, 68, 0.05)" : "rgba(254, 242, 242, 0.6)")
+                            : isNoShow
+                            ? (isDark ? "rgba(245, 158, 11, 0.04)" : "rgba(255, 251, 235, 0.5)")
+                            : "transparent",
+                          opacity: isCancelled ? 0.92 : 1,
+                        }}
+                      >
                         <td style={{ padding: "6px 10px", color: mutedText }}>{idx + 1}</td>
                         <td style={{ padding: "6px 10px", color: mutedText }}>
-                          {item.created_at ? new Date(item.created_at).toLocaleString() : "-"}
+                          <div>{item.created_at ? new Date(item.created_at).toLocaleString() : "-"}</div>
+                          {isCancelled && item.cancelled_at && (
+                            <div style={{ fontSize: "10px", color: "#DC2626", marginTop: "2px", fontWeight: 600 }}>
+                              {isHi ? "रद्द: " : "Cancelled: "}{new Date(item.cancelled_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                            </div>
+                          )}
                         </td>
-                        <td style={{ padding: "6px 10px", fontWeight: 800, color: "#0284C7", fontFamily: "monospace" }}>
+                        <td style={{ padding: "6px 10px", fontWeight: 800, color: isCancelled ? "#94A3B8" : "#0284C7", fontFamily: "monospace" }}>
                           #{item.ticket_id || "-"}
                         </td>
                         <td style={{ padding: "6px 10px", fontWeight: 700, color: textColor }}>
-                          {item.patient_name || item.name || "Patient"}
+                          <div style={{ textDecoration: isCancelled ? "line-through" : "none", color: isCancelled ? (isDark ? "#94A3B8" : "#64748B") : textColor }}>
+                            {item.patient_name || item.name || "Patient"}
+                          </div>
+                          {item.phone && (
+                            <div style={{ fontSize: "10.5px", color: mutedText, fontWeight: 500 }}>
+                              {item.phone}
+                            </div>
+                          )}
                         </td>
-                        <td style={{ padding: "6px 10px" }}>
+                        <td style={{ padding: "6px 10px", color: mutedText }}>
                           {item.age || 30}y / {item.gender || "M"}
                         </td>
                         <td style={{ padding: "6px 10px", fontWeight: 600 }}>
-                          {radRep?.modality ? `${radRep.modality} - ${radRep.body_part}` : item.medical_condition || item.service_category || "Radiology"}
-                        </td>
-                        <td style={{ padding: "6px 10px", textAlign: "center" }}>
-                          <span
-                            style={{
-                              fontSize: "10px",
-                              fontWeight: 800,
-                              padding: "2px 8px",
-                              borderRadius: "9999px",
-                              background: "#ECFDF5",
-                              color: "#059669",
-                              border: "1px solid rgba(16, 185, 129, 0.3)",
-                            }}
-                          >
-                            COMPLETED
+                          <span style={{ textDecoration: isCancelled ? "line-through" : "none", color: isCancelled ? mutedText : textColor }}>
+                            {radRep?.modality ? `${radRep.modality} - ${radRep.body_part}` : item.medical_condition || item.service_category || "Radiology"}
                           </span>
                         </td>
                         <td style={{ padding: "6px 10px", textAlign: "center" }}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              printRadiologyReportSlip(
-                                {
-                                  patient_name: item.patient_name || item.name,
-                                  age: item.age || 30,
-                                  gender: item.gender || "M",
-                                  phone: item.phone || "",
-                                  ticket_id: item.ticket_id,
-                                  referring_doctor: parsedRx?.doctor_name || "Attending Physician",
-                                  modality: radRep?.modality || "X-Ray",
-                                  body_part: radRep?.body_part || "Chest",
-                                  view_projection: radRep?.view || "PA View",
-                                  contrast: radRep?.contrast || "None",
-                                  laterality: radRep?.laterality || "N/A",
-                                  priority: radRep?.priority || "Routine",
-                                  technologist: radRep?.technologist || "Radiology Technologist",
-                                  equipment: radRep?.equipment || "Diagnostic Imaging Unit",
-                                  dose: radRep?.dose || "",
-                                  clinical_indication: radRep?.clinical_indication || item.medical_condition || "Imaging investigation",
-                                  technique: radRep?.technique || "Standard protocol",
-                                  findings: radRep?.findings || "Normal study. No significant abnormality.",
-                                  impression: radRep?.impression || "Unremarkable imaging examination.",
-                                  radiologist_name: radRep?.radiologist_name || radiologistName,
-                                  verified_at: radRep?.verified_at || new Date().toISOString(),
-                                  images: radRep?.images || [],
-                                  hospital_name: brandName,
-                                },
-                                language,
-                                hospitalBranding
-                              );
-                            }}
-                            style={{
-                              background: isDark ? "rgba(2, 132, 199, 0.15)" : "#E0F2FE",
-                              border: "1px solid #0284C7",
-                              color: "#0284C7",
-                              padding: "4px 10px",
-                              borderRadius: "6px",
-                              fontSize: "11px",
-                              fontWeight: 800,
-                              cursor: "pointer",
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: "4px",
-                              transition: "all 0.15s ease",
-                            }}
-                          >
-                            <Printer size={12} />
-                            <span>{isHi ? "प्रिंट" : "Print"}</span>
-                          </button>
+                          {isCancelled ? (
+                            <div style={{ display: "inline-flex", flexDirection: "column", alignItems: "center" }}>
+                              <span
+                                style={{
+                                  fontSize: "10px",
+                                  fontWeight: 800,
+                                  padding: "2px 8px",
+                                  borderRadius: "9999px",
+                                  background: isDark ? "rgba(239, 68, 68, 0.18)" : "#FEE2E2",
+                                  color: "#DC2626",
+                                  border: "1px solid rgba(239, 68, 68, 0.4)",
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "4px",
+                                }}
+                                title={item.cancellation_reason ? `Reason: ${item.cancellation_reason}` : (isHi ? "रद्द किया गया टोकन" : "Cancelled Ticket")}
+                              >
+                                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#DC2626" }} />
+                                {isHi ? "रद्द (Cancelled)" : "Cancelled"}
+                              </span>
+                              {item.cancellation_reason && (
+                                <span
+                                  style={{
+                                    fontSize: "9.5px",
+                                    color: "#DC2626",
+                                    marginTop: "2px",
+                                    maxWidth: "140px",
+                                    whiteSpace: "nowrap",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                  }}
+                                  title={item.cancellation_reason}
+                                >
+                                  {item.cancellation_reason}
+                                </span>
+                              )}
+                            </div>
+                          ) : isNoShow ? (
+                            <span
+                              style={{
+                                fontSize: "10px",
+                                fontWeight: 800,
+                                padding: "2px 8px",
+                                borderRadius: "9999px",
+                                background: isDark ? "rgba(100, 116, 139, 0.18)" : "#F1F5F9",
+                                color: "#475569",
+                                border: "1px solid rgba(100, 116, 139, 0.4)",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                              }}
+                            >
+                              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#475569" }} />
+                              {isHi ? "अनुपस्थित (No-Show)" : "No-Show"}
+                            </span>
+                          ) : isServing ? (
+                            <span
+                              style={{
+                                fontSize: "10px",
+                                fontWeight: 800,
+                                padding: "2px 8px",
+                                borderRadius: "9999px",
+                                background: isDark ? "rgba(2, 132, 199, 0.18)" : "#E0F2FE",
+                                color: "#2563EB",
+                                border: "1px solid rgba(2, 132, 199, 0.4)",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                              }}
+                            >
+                              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#2563EB" }} />
+                              {isHi ? "प्रक्रियाधीन" : "Serving"}
+                            </span>
+                          ) : isWaiting ? (
+                            <span
+                              style={{
+                                fontSize: "10px",
+                                fontWeight: 800,
+                                padding: "2px 8px",
+                                borderRadius: "9999px",
+                                background: isDark ? "rgba(2, 132, 199, 0.18)" : "#E0F2FE",
+                                color: "#0369A1",
+                                border: "1px solid rgba(2, 132, 199, 0.4)",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                              }}
+                            >
+                              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#0369A1" }} />
+                              {isHi ? "प्रतीक्षारत" : "Waiting"}
+                            </span>
+                          ) : (
+                            <span
+                              style={{
+                                fontSize: "10px",
+                                fontWeight: 800,
+                                padding: "2px 8px",
+                                borderRadius: "9999px",
+                                background: "#E0F2FE",
+                                color: "#0369A1",
+                                border: "1px solid rgba(2, 132, 199, 0.3)",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                              }}
+                            >
+                              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#0369A1" }} />
+                              {isHi ? "पूर्ण (Completed)" : "Completed"}
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ padding: "6px 10px", textAlign: "center" }}>
+                          {isCancelled ? (
+                            <span
+                              style={{
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                color: isDark ? "#EF4444" : "#DC2626",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                fontStyle: "italic",
+                              }}
+                              title={item.cancellation_reason || (isHi ? "यह टिकट रद्द कर दिया गया था" : "Ticket was cancelled")}
+                            >
+                              <XCircle size={12} />
+                              <span>{isHi ? "रद्द (रिपोर्ट नहीं)" : "Cancelled (No Report)"}</span>
+                            </span>
+                          ) : isNoShow ? (
+                            <span
+                              style={{
+                                fontSize: "11px",
+                                fontWeight: 600,
+                                color: mutedText,
+                                fontStyle: "italic",
+                              }}
+                            >
+                              {isHi ? "अनुपस्थित" : "No-Show"}
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                printRadiologyReportSlip(
+                                  {
+                                    patient_name: item.patient_name || item.name,
+                                    age: item.age || 30,
+                                    gender: item.gender || "M",
+                                    phone: item.phone || "",
+                                    ticket_id: item.ticket_id,
+                                    referring_doctor: parsedRx?.doctor_name || "Attending Physician",
+                                    modality: radRep?.modality || "X-Ray",
+                                    body_part: radRep?.body_part || "Chest",
+                                    view_projection: radRep?.view || "PA View",
+                                    contrast: radRep?.contrast || "None",
+                                    laterality: radRep?.laterality || "N/A",
+                                    priority: radRep?.priority || "Routine",
+                                    technologist: radRep?.technologist || "Radiology Technologist",
+                                    equipment: radRep?.equipment || "Diagnostic Imaging Unit",
+                                    dose: radRep?.dose || "",
+                                    clinical_indication: radRep?.clinical_indication || item.medical_condition || "Imaging investigation",
+                                    technique: radRep?.technique || "Standard protocol",
+                                    findings: radRep?.findings || "Normal study. No significant abnormality.",
+                                    impression: radRep?.impression || "Unremarkable imaging examination.",
+                                    radiologist_name: radRep?.radiologist_name || radiologistName,
+                                    verified_at: radRep?.verified_at || new Date().toISOString(),
+                                    images: radRep?.images || [],
+                                    hospital_name: brandName,
+                                  },
+                                  language,
+                                  hospitalBranding
+                                );
+                              }}
+                              style={{
+                                background: isDark ? "rgba(2, 132, 199, 0.15)" : "#E0F2FE",
+                                border: "1px solid #0284C7",
+                                color: "#0284C7",
+                                padding: "4px 10px",
+                                borderRadius: "6px",
+                                fontSize: "11px",
+                                fontWeight: 800,
+                                cursor: "pointer",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                transition: "all 0.15s ease",
+                              }}
+                            >
+                              <Printer size={12} />
+                              <span>{isHi ? "प्रिंट" : "Print"}</span>
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );
@@ -4121,7 +6371,7 @@ export default function RadiologyPage({
                 color: isDark ? "#38BDF8" : "#0369A1",
                 fontWeight: 700,
               }}>
-                {isHi ? "📌 संदर्भ चिकित्सक: " : "📌 Referring Doctor: "}
+                {isHi ? "संदर्भ चिकित्सक: " : "Referring Doctor: "}
                 {parsedDoctorRx?.doctor_name || "—"} ({parsedDoctorRx?.doctor_department || activeServingTicket?.transferred_from_dept || "General"})
               </div>
             )}
@@ -4158,7 +6408,7 @@ export default function RadiologyPage({
                       boxShadow: isSelected ? "0 3px 10px rgba(2, 132, 199, 0.3)" : "none",
                     }}
                   >
-                    {isSelected ? "✓ " : ""}{isHi ? dept.labelHi : dept.label}
+                    {isHi ? dept.labelHi : dept.label}
                   </button>
                 );
               })}

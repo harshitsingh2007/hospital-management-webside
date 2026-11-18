@@ -1408,8 +1408,8 @@ export default function App() {
           setActiveTicket((prev) => ({ ...prev, ...data.ticket, status: newStatus }));
         }
 
-        // Play audio chime & voice announcement on Dedicated Waiting Room Kiosk TV and Staff Portal Desk
-        if (activePageRef.current === "kiosk" || activePageRef.current === "staff") {
+        // Play audio chime & voice announcement on Dedicated Waiting Room Kiosk TV
+        if (activePageRef.current === "kiosk") {
           playChimeSound();
           announceTicketVoice(data.ticket, languageRef.current || "en");
         }
@@ -1418,7 +1418,7 @@ export default function App() {
 
     socket.on("ticket_announced", (data) => {
       if (data && data.ticket) {
-        if (activePageRef.current === "kiosk" || activePageRef.current === "staff") {
+        if (activePageRef.current === "kiosk") {
           playChimeSound();
           announceTicketVoice(data.ticket, languageRef.current || "en");
         }
@@ -1427,7 +1427,7 @@ export default function App() {
 
     socket.on("ticket_called", (data) => {
       if (data && data.ticket) {
-        if (activePageRef.current === "kiosk" || activePageRef.current === "staff") {
+        if (activePageRef.current === "kiosk") {
           playChimeSound();
           announceTicketVoice(data.ticket, languageRef.current || "en");
         }

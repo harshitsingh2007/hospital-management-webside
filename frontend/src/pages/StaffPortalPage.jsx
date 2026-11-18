@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { API_BASE, HOSPITAL_CONFIG } from "../config/hospitalConfig";
 import { t, getCategoryLabel, getStatusLabel, formatCleanText, SYMPTOM_OPTIONS } from "../utils/i18n";
-import { announceTicketVoice } from "../utils/voiceSynthesizer";
 import { printTokenPass } from "../utils/printPassHelper";
 import Footer from "../components/common/Footer";
 import {
@@ -343,11 +342,10 @@ export default function StaffPortalPage({
         const dept = ticket.service_category || ticket.department || "Pathology / Lab";
         setAnnouncementMsg(
           isHi
-            ? `🔊 लाउडस्पीकर प्रसारण: टोकन #${tId} (${pName}) को ${dept} विभाग में बुलाया गया!`
-            : `🔊 Loudspeaker Announcement: Token #${tId} (${pName}) called to ${dept}!`
+            ? `टोकन #${tId} (${pName}) को ${dept} विभाग में बुलाया गया`
+            : `Token #${tId} (${pName}) called to ${dept} on waiting-room display`
         );
         setTimeout(() => setAnnouncementMsg(""), 5000);
-        announceTicketVoice(ticket, language);
       }
       handleRealtimeUpdate(data);
     };
@@ -543,9 +541,6 @@ export default function StaffPortalPage({
         fetchLiveQueueData();
         if (refreshData) refreshData();
         broadcastLiveQueueChange("ticket_created", { ticket: data.ticket, appointment_id: aptId });
-        if (data.ticket) {
-          announceTicketVoice(data.ticket, language);
-        }
       } else {
         showFeedback(data.message || data.detail || (isHi ? "चेक-इन विफल रहा। कृपया अपॉइंटमेंट स्थिति जांचें।" : "Check-in failed. Please verify appointment status."), "error");
       }
@@ -999,7 +994,6 @@ export default function StaffPortalPage({
             "success"
           );
         }
-        announceTicketVoice(data.ticket, language);
 
         // Sync with patient portal state in real time
         try {
@@ -1080,11 +1074,10 @@ export default function StaffPortalPage({
     }
   };
 
-  // 7. Loudspeaker Announcement Handler
+  // 7. Send to Waiting-Room Display Kiosk
   const handleAnnounceTicket = (ticket) => {
     if (!ticket) return;
-    announceTicketVoice(ticket, language);
-    setAnnouncementMsg(isHi ? `टोकन #${ticket.ticket_id} लाउडस्पीकर पर प्रसारित किया गया` : `Announced Token #${ticket.ticket_id} on public PA speaker.`);
+    setAnnouncementMsg(isHi ? `टोकन #${ticket.ticket_id} प्रतीक्षालय डिस्प्ले पर भेजा गया` : `Sent Token #${ticket.ticket_id} to waiting-room display.`);
     setTimeout(() => setAnnouncementMsg(""), 3500);
 
     // Call backend announcement endpoint to sync Kiosks
@@ -3738,7 +3731,7 @@ export default function StaffPortalPage({
                   }}
                 >
                   <Volume2 size={16} />
-                  <span>{isHi ? "लाउडस्पीकर कॉल" : "PA Announce"}</span>
+                  <span>{isHi ? "डिस्प्ले पर बुलाएं" : "Call on display"}</span>
                 </button>
               </div>
             </div>
@@ -4339,7 +4332,7 @@ export default function StaffPortalPage({
                                   alignItems: "center",
                                   gap: "4px",
                                 }}
-                                title={isHi ? "लाउडस्पीकर उद्घोषणा" : "Broadcast Voice Chime on PA Speaker"}
+                                title={isHi ? "प्रतीक्षालय डिस्प्ले पर भेजें" : "Call on waiting-room display"}
                               >
                                 <Volume2 size={13} />
                               </button>

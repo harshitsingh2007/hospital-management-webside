@@ -611,8 +611,8 @@ export default function DoctorPage({
 
       const msg =
         language === "hi"
-          ? `टोकन #${tid} (${ticket.name}) की कॉल संख्या ${currentCnt} प्रसारित की गई!`
-          : `Broadcasted Announcement #${currentCnt} for Token #${tid} (${ticket.name})!`;
+          ? `टोकन #${tid} (${ticket.name}) को प्रतीक्षालय डिस्प्ले पर भेजा गया (कॉल ${currentCnt})`
+          : `Called Token #${tid} (${ticket.name}) on waiting-room display (Call #${currentCnt})`;
       setAnnounceFeedbackMsg(msg);
       setTimeout(() => setAnnounceFeedbackMsg(""), 3500);
       showToast(msg, "info");
@@ -2633,7 +2633,7 @@ export default function DoctorPage({
                                 type="button"
                                 onClick={() => handleReAnnounce(ticket)}
                                 style={announceBtnStyle}
-                                title="Broadcast Re-Announcement to Patient Portal & Audio Speakers"
+                                title={language === "hi" ? "प्रतीक्षालय डिस्प्ले पर पुनः भेजें" : "Call on waiting-room display"}
                               >
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                                   <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
