@@ -1589,7 +1589,14 @@ export default function RadiologyPage({
     if (!effectiveHospitalCode) return;
     if (isInitial) setAppointmentsLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/v1/plugin/appointments/tenant/${encodeURIComponent(effectiveHospitalCode)}`);
+      const headers = { "Content-Type": "application/json" };
+      if (currentUser?.email) headers["X-User-Email"] = currentUser.email;
+      try {
+        const token = localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || currentUser?.token;
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+      } catch (_) { }
+
+      const res = await fetch(`${API_BASE}/api/v1/plugin/appointments/tenant/${encodeURIComponent(effectiveHospitalCode)}`, { headers });
       const data = await res.json();
       if (res.ok && (data.status === "success" || Array.isArray(data.appointments))) {
         setAppointmentsList(Array.isArray(data.appointments) ? data.appointments : []);
@@ -1599,7 +1606,7 @@ export default function RadiologyPage({
     } finally {
       if (isInitial) setAppointmentsLoading(false);
     }
-  }, [effectiveHospitalCode]);
+  }, [effectiveHospitalCode, currentUser]);
 
   useEffect(() => {
     fetchRadiologyAppointments(true);

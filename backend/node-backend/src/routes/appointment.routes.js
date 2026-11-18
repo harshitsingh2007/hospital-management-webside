@@ -12,7 +12,8 @@ const {
   getTenantAppointmentsEndpoint,
   cancelAppointmentEndpoint,
 } = require("../controllers/appointment.controller");
-const { optionalAuth } = require("../middleware/auth");
+const { optionalAuth, authenticate } = require("../middleware/auth");
+const { hospitalIsolation } = require("../middleware/hospitalIsolation");
 
 const router = express.Router();
 
@@ -21,6 +22,6 @@ router.post("/plugin/appointments/check-in", optionalAuth, checkInAppointmentEnd
 router.post("/plugin/appointments/:appointment_id/cancel", optionalAuth, cancelAppointmentEndpoint);
 router.post("/plugin/appointments/cancel", optionalAuth, cancelAppointmentEndpoint);
 router.get("/plugin/appointments/user/:email", optionalAuth, getUserAppointmentsEndpoint);
-router.get("/plugin/appointments/tenant/:tenant_id", optionalAuth, getTenantAppointmentsEndpoint);
+router.get("/plugin/appointments/tenant/:tenant_id", authenticate, hospitalIsolation("tenant_id"), getTenantAppointmentsEndpoint);
 
 module.exports = router;
