@@ -716,6 +716,51 @@ async function cancelAppointment(appointmentId, reason = "Patient requested canc
 }
 
 /**
+ * Mark an appointment completed.
+ */
+async function completeAppointment(appointmentId, reason = "Appointment completed by desk") {
+  const cleanId = String(appointmentId || "").trim();
+  const apt = await prisma.appointments.findUnique({
+    where: { appointment_id: cleanId },
+    include: { hospitals: true, tickets: true, departments: true },
+  });
+
+  if (!apt) {
+    const err = new Error(`Appointment '${cleanId}' not found.`);
+    err.status = 404;
+    throw err;
+  }
+
+  const updatedApt = await prisma.appointments.update({
+    where: { appointment_id: cleanId },
+    data: {
+      status: "completed",
+      updated_at: new Date(),
+    },
+    include: {
+      hospitals: true,
+      patients: true,
+      departments: true,
+    },
+  });
+
+  await prisma.appointment_status_history.create({
+    data: {
+      appointment_id: cleanId,
+      old_status: apt.status,
+      new_status: "completed",
+      reason: reason || "Completed by pharmacy desk",
+    },
+  }).catch(() => {});
+
+  return {
+    ...updatedApt,
+    department_name: updatedApt.departments?.name || updatedApt.service_category,
+    department: updatedApt.departments?.name || updatedApt.service_category,
+  };
+}
+
+/**
  * Retrieves appointments for a given hospital tenant.
  */
 async function getTenantAppointments(tenantId, department = null, activeOnly = false) {
@@ -794,4 +839,5 @@ module.exports = {
   getUserAppointments,
   getTenantAppointments,
   cancelAppointment,
+  completeAppointment,
 };

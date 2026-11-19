@@ -2,10 +2,12 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { API_BASE, HOSPITAL_CONFIG } from "../config/hospitalConfig";
 import { printPrescriptionSlip } from "../utils/printPassHelper";
+import { apiFetch } from "../utils/apiFetch";
 import Footer from "../components/common/Footer";
 import {
   Pill,
   CheckCircle2,
+  CheckCircle,
   Clock,
   Printer,
   Volume2,
@@ -21,6 +23,7 @@ import {
   Info,
   History,
   Calendar,
+  CalendarCheck,
   Download,
   Eye,
   Phone,
@@ -29,10 +32,22 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Filter,
   RotateCcw,
   AlertTriangle,
-  ShieldAlert
+  ShieldAlert,
+  Pause,
+  Play,
+  Plus,
+  Sliders,
+  Activity,
+  UserX,
+  X,
+  ArrowUpRight,
+  MessageSquare,
+  Send,
+  FlaskConical
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -752,7 +767,7 @@ export default function PharmacyPage({
     },
   ];
 
-  // Active Workspace Tab: "dispensing" | "archive" | "history"
+  // Active Workspace Tab: "dispensing" | "queue" | "history"
   const [activeTab, setActiveTab] = useState("dispensing");
 
   // Patient Visit History Section State
@@ -1595,6 +1610,15 @@ export default function PharmacyPage({
     return fromServing || null;
   }, [servingTickets]);
 
+  // Held tickets specifically for pharmacy
+  const pharmacyHeldTickets = useMemo(() => {
+    return (heldTickets || []).filter((t) => {
+      const cat = (t.service_category || "").toLowerCase();
+      const dept = (t.department_name || t.department || "").toLowerCase();
+      return cat === "pharmacy" || dept === "pharmacy" || cat.includes("pharm");
+    });
+  }, [heldTickets]);
+
   // Selected ticket being actively dispensed at the counter
   const [activeServingTicket, setActiveServingTicket] = useState(null);
 
@@ -1830,6 +1854,617 @@ export default function PharmacyPage({
         String(t.phone || "").toLowerCase().includes(q)
     );
   }, [pharmacyQueue, searchQuery]);
+
+  // =========================================================================
+  // QUEUE & APPOINTMENTS MANAGER STATE & LOGIC
+  // =========================================================================
+  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
+  useEffect(() => {
+    const timer = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const [queueSubView, setQueueSubView] = useState("queue"); // "queue" | "appointments"
+  const [queueCategoryFilter, setQueueCategoryFilter] = useState("all");
+  const [queueStatusFilter, setQueueStatusFilter] = useState("all");
+  const [queuePriorityFilter, setQueuePriorityFilter] = useState("all");
+  const [queueSearchQuery, setQueueSearchQuery] = useState("");
+  const [appointmentDateFilter, setAppointmentDateFilter] = useState("today"); // "today" | "all"
+
+  // Booked Appointments State & Data Fetching
+  const [appointmentsList, setAppointmentsList] = useState([]);
+  const [appointmentsLoading, setAppointmentsLoading] = useState(false);
+
+  const fetchPharmacyAppointments = useCallback(async (isInitial = false) => {
+    if (!effectiveHospitalCode) return;
+    if (isInitial) setAppointmentsLoading(true);
+    try {
+      const res = await apiFetch(`${API_BASE}/api/v1/plugin/appointments/tenant/${encodeURIComponent(effectiveHospitalCode)}`);
+      const data = await res.json();
+      if (res.ok && (data.status === "success" || Array.isArray(data.appointments))) {
+        setAppointmentsList(Array.isArray(data.appointments) ? data.appointments : []);
+      }
+    } catch (e) {
+      console.error("Error fetching pharmacy appointments:", e);
+    } finally {
+      if (isInitial) setAppointmentsLoading(false);
+    }
+  }, [effectiveHospitalCode]);
+
+  useEffect(() => {
+    fetchPharmacyAppointments(true);
+  }, [fetchPharmacyAppointments]);
+
+  // Real-time synchronization via Socket.IO
+  useEffect(() => {
+    if (!socketRef || !socketRef.current) return;
+    const s = socketRef.current;
+    const onSync = () => {
+      fetchPharmacyAppointments();
+      if (refreshData) refreshData();
+    };
+
+    s.on("ticket_created", onSync);
+    s.on("ticket_updated", onSync);
+    s.on("ticket_transferred", onSync);
+    s.on("ticket_completed", onSync);
+    s.on("ticket_cancelled", onSync);
+    s.on("ticket_hold", onSync);
+    s.on("ticket_recalled", onSync);
+    s.on("appointment_booked", onSync);
+    s.on("appointment_cancelled", onSync);
+    s.on("appointment_completed", onSync);
+    s.on("appointment_checked_in", onSync);
+    s.on("queue_updated", onSync);
+
+    return () => {
+      s.off("ticket_created", onSync);
+      s.off("ticket_updated", onSync);
+      s.off("ticket_transferred", onSync);
+      s.off("ticket_completed", onSync);
+      s.off("ticket_cancelled", onSync);
+      s.off("ticket_hold", onSync);
+      s.off("ticket_recalled", onSync);
+      s.off("appointment_booked", onSync);
+      s.off("appointment_cancelled", onSync);
+      s.off("appointment_completed", onSync);
+      s.off("appointment_checked_in", onSync);
+      s.off("queue_updated", onSync);
+    };
+  }, [socketRef, fetchPharmacyAppointments, refreshData]);
+
+  // Handle Manual Check-In from Appointments (Converts to Live Queue Ticket)
+  const handleCheckInAppointment = async (aptId) => {
+    if (!aptId) return;
+    try {
+      const res = await apiFetch(`${API_BASE}/api/v1/plugin/appointments/check-in`, {
+        method: "POST",
+        body: { appointment_id: aptId },
+      });
+      const data = await res.json();
+      if (res.ok && data.status === "success") {
+        showToast(
+          isHi
+            ? `टोकन #${data.ticket?.ticket_id || ""} चेक-इन सफल।`
+            : `Checked in successfully. Token #${data.ticket?.ticket_id || ""} issued.`,
+          "success"
+        );
+        fetchPharmacyAppointments();
+        if (refreshData) refreshData();
+      } else {
+        showToast(data.message || data.detail || (isHi ? "चेक-इन विफल रहा" : "Check-in failed"), "error");
+      }
+    } catch (e) {
+      showToast(isHi ? `चेक-इन त्रुटि: ${e.message}` : `Error during check-in: ${e.message}`, "error");
+    }
+  };
+
+  // Handle Mark Completed for Appointment
+  const handleCompleteAppointment = async (aptId) => {
+    if (!aptId) return;
+    try {
+      const res = await apiFetch(`${API_BASE}/api/v1/plugin/appointments/${aptId}/complete`, {
+        method: "POST",
+        body: { notes: "Completed at pharmacy dispensing counter" },
+      });
+      const data = await res.json();
+      if (res.ok && data.status === "success") {
+        showToast(isHi ? "अपॉइंटमेंट पूर्ण चिह्नित किया गया।" : "Appointment marked as completed.", "success");
+        fetchPharmacyAppointments();
+        if (refreshData) refreshData();
+      } else {
+        showToast(data.message || (isHi ? "अपॉइंटमेंट पूर्ण करने में विफलता" : "Failed to complete appointment"), "error");
+      }
+    } catch (e) {
+      showToast(`Error: ${e.message}`, "error");
+    }
+  };
+
+  // Handle Cancel Appointment
+  const handleCancelAppointment = async (aptId) => {
+    if (!aptId) return;
+    if (!window.confirm(isHi ? `क्या आप वाकई अपॉइंटमेंट #${aptId} को रद्द करना चाहते हैं?` : `Are you sure you want to cancel appointment #${aptId}?`)) {
+      return;
+    }
+    try {
+      const res = await apiFetch(`${API_BASE}/api/v1/plugin/appointments/${aptId}/cancel`, {
+        method: "POST",
+        body: { reason: "Cancelled by pharmacy counter" },
+      });
+      const data = await res.json();
+      if (res.ok && data.status === "success") {
+        showToast(isHi ? "अपॉइंटमेंट रद्द किया गया।" : "Appointment cancelled.", "info");
+        fetchPharmacyAppointments();
+        if (refreshData) refreshData();
+      } else {
+        showToast(data.message || (isHi ? "रद्द करने में विफलता" : "Failed to cancel appointment"), "error");
+      }
+    } catch (e) {
+      showToast(`Error: ${e.message}`, "error");
+    }
+  };
+
+  // SMS Reminder for Scheduled Appointment
+  const handleSendSmsReminder = async (apt) => {
+    if (!apt) return;
+    const phone = apt.phone || apt.patient_phone || "";
+    const pName = apt.patient_name || apt.name || "Patient";
+
+    showToast(
+      isHi
+        ? `${pName} (${phone || "रजिस्टर्ड मोबाइल"}) को एसएमएस अनुस्मारक भेजा गया।`
+        : `SMS reminder dispatched to ${pName} (${phone || "Registered Mobile"}).`,
+      "success"
+    );
+  };
+
+  // Quick Ticket Actions: Hold, Recall, No-Show, Cancel, Serve
+  const handleHold = async (ticket) => {
+    if (!ticket) return;
+    try {
+      await apiFetch(`${API_BASE}/api/v1/plugin/hold-ticket`, {
+        method: "POST",
+        body: {
+          tenant_id: effectiveHospitalCode,
+          ticket_id: ticket.ticket_id,
+          grace_minutes: 10,
+        },
+      });
+      if (socketRef && socketRef.current) {
+        socketRef.current.emit("hold_ticket", {
+          tenant_id: effectiveHospitalCode,
+          ticket_id: ticket.ticket_id,
+          grace_minutes: 10,
+        });
+      }
+      if (activeServingTicket && activeServingTicket.ticket_id === ticket.ticket_id) {
+        setActiveServingTicket(null);
+      }
+      showToast(
+        isHi
+          ? `टोकन #${ticket.ticket_id} को 10 मिनट होल्ड पर रखा गया।`
+          : `Token #${ticket.ticket_id} placed on 10-minute hold.`,
+        "info"
+      );
+      if (refreshData) refreshData();
+    } catch (e) {
+      showToast(`Error holding ticket: ${e.message}`, "error");
+    }
+  };
+
+  const handleRecallHeld = async (ticket) => {
+    if (!ticket) return;
+    try {
+      const mode = activeServingTicket ? "queue" : "serving";
+      await apiFetch(`${API_BASE}/api/v1/plugin/recall-ticket`, {
+        method: "POST",
+        body: {
+          tenant_id: effectiveHospitalCode,
+          ticket_id: ticket.ticket_id,
+          doctor_id: currentUser?.id,
+          doctor_name: currentUser?.name || currentUser?.username || "Head Pharmacist",
+          doctor_email: currentUser?.email,
+          target_mode: mode,
+        },
+      });
+      if (socketRef && socketRef.current) {
+        socketRef.current.emit("recall_ticket", {
+          tenant_id: effectiveHospitalCode,
+          ticket_id: ticket.ticket_id,
+          doctor_id: currentUser?.id,
+          user_name: currentUser?.name || currentUser?.username || "Head Pharmacist",
+          target_mode: mode,
+        });
+      }
+      showToast(
+        isHi
+          ? `टोकन #${ticket.ticket_id} वापस कतार में शामिल किया गया।`
+          : `Recalled #${ticket.ticket_id} back into active queue.`,
+        "success"
+      );
+      if (refreshData) refreshData();
+    } catch (e) {
+      showToast(`Error recalling ticket: ${e.message}`, "error");
+    }
+  };
+
+  const handleFinalizeNoShow = async (ticket) => {
+    if (!ticket) return;
+    try {
+      await apiFetch(`${API_BASE}/api/v1/plugin/no-show`, {
+        method: "POST",
+        body: {
+          tenant_id: effectiveHospitalCode,
+          ticket_id: ticket.ticket_id,
+          reason: "Patient absent after 10-min grace period",
+        },
+      });
+      if (socketRef && socketRef.current) {
+        socketRef.current.emit("no_show", {
+          tenant_id: effectiveHospitalCode,
+          ticket_id: ticket.ticket_id,
+        });
+      }
+      if (activeServingTicket && activeServingTicket.ticket_id === ticket.ticket_id) {
+        setActiveServingTicket(null);
+      }
+      showToast(
+        isHi
+          ? `टोकन #${ticket.ticket_id} अनुपस्थित (No-Show) चिह्नित किया गया।`
+          : `Token #${ticket.ticket_id} marked as absent / No-Show.`,
+        "info"
+      );
+      if (refreshData) refreshData();
+    } catch (e) {
+      showToast(`Error marking no-show: ${e.message}`, "error");
+    }
+  };
+
+  const handleCancelTicket = async (ticket) => {
+    if (!ticket) return;
+    if (!window.confirm(isHi ? `क्या आप वाकई टोकन #${ticket.ticket_id} को रद्द करना चाहते हैं?` : `Are you sure you want to cancel ticket #${ticket.ticket_id}?`)) {
+      return;
+    }
+    try {
+      await apiFetch(`${API_BASE}/api/v1/plugin/tickets/${ticket.ticket_id}/cancel`, {
+        method: "POST",
+        body: { reason: "Cancelled by pharmacy staff" },
+      });
+      if (socketRef && socketRef.current) {
+        socketRef.current.emit("cancel_ticket", {
+          tenant_id: effectiveHospitalCode,
+          ticket_id: ticket.ticket_id,
+        });
+      }
+      if (activeServingTicket && activeServingTicket.ticket_id === ticket.ticket_id) {
+        setActiveServingTicket(null);
+      }
+      showToast(isHi ? `टोकन #${ticket.ticket_id} रद्द कर दिया गया।` : `Token #${ticket.ticket_id} cancelled.`, "info");
+      if (refreshData) refreshData();
+    } catch (e) {
+      showToast(`Error cancelling ticket: ${e.message}`, "error");
+    }
+  };
+
+  const handleServeFromQueue = (ticket) => {
+    if (!ticket) return;
+    setActiveServingTicket(ticket);
+    setActiveTab("dispensing");
+    showToast(
+      isHi
+        ? `टोकन #${ticket.ticket_id} (${ticket.name}) काउंटर पर लोड किया गया`
+        : `Token #${ticket.ticket_id} (${ticket.name}) loaded at dispensing counter`,
+      "info"
+    );
+  };
+
+  // Helper to categorize items for pharmacy
+  const detectPharmacyItemCategory = useCallback((item) => {
+    if (!item) return "General OPD";
+    const pNotes = typeof item.prescription_notes === "object" ? JSON.stringify(item.prescription_notes || {}) : (item.prescription_notes || "");
+    const text = `${item.service_category || ""} ${item.medical_condition || ""} ${item.department_name || ""} ${item.department || ""} ${pNotes} ${item.notes || ""} ${item.reason || ""}`.toLowerCase();
+    const p = Number(item.priority_level || item.priority || 3);
+    if (p === 1 || text.includes("emergency") || text.includes("trauma") || text.includes("icu") || text.includes("stat")) return "Emergency";
+    if (text.includes("refill") || text.includes("chronic") || text.includes("diabet") || text.includes("hypertens") || text.includes("bp") || text.includes("cardiac")) return "Chronic / Refill";
+    if (text.includes("urgent") || text.includes("acute") || text.includes("fever") || text.includes("infection") || text.includes("pain") || text.includes("antibiotic")) return "Acute / Urgent";
+    return "General OPD";
+  }, []);
+
+  // Check if an appointment's slot has passed
+  const isAppointmentLate = useCallback((apt) => {
+    const rawStatus = (apt.status || "booked").toLowerCase();
+    if (rawStatus === "checked_in" || rawStatus === "cancelled" || rawStatus === "completed") return false;
+    const slot = apt.time_slot || apt.appointment_time || "";
+    const timeMatch = slot.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+    if (!timeMatch) return false;
+    let hours = parseInt(timeMatch[1], 10);
+    const minutes = parseInt(timeMatch[2], 10);
+    const ampm = timeMatch[3];
+    if (ampm) {
+      if (ampm.toUpperCase() === "PM" && hours < 12) hours += 12;
+      if (ampm.toUpperCase() === "AM" && hours === 12) hours = 0;
+    }
+    const now = new Date();
+    const slotDate = new Date();
+    slotDate.setHours(hours, minutes, 0, 0);
+    return now > slotDate;
+  }, []);
+
+  // Filtered & Sorted Live Queue (Emergency P1 first, then serving, then wait time)
+  const combinedLiveQueue = useMemo(() => {
+    const map = new Map();
+    // 1. Currently Serving
+    if (activeServingTicket) {
+      map.set(activeServingTicket.ticket_id, { ...activeServingTicket, _queueCategory: "serving" });
+    } else if (pharmacyServing) {
+      map.set(pharmacyServing.ticket_id, { ...pharmacyServing, _queueCategory: "serving" });
+    }
+    // 2. On Hold
+    (pharmacyHeldTickets || []).forEach((t) => {
+      map.set(t.ticket_id, { ...t, _queueCategory: "on_hold" });
+    });
+    // 3. Waiting Queue
+    (pharmacyQueue || []).forEach((t) => {
+      if (!map.has(t.ticket_id)) {
+        map.set(t.ticket_id, { ...t, _queueCategory: "waiting" });
+      }
+    });
+
+    const list = Array.from(map.values());
+
+    return list.filter((ticket) => {
+      // Category filter
+      if (queueCategoryFilter !== "all") {
+        const cat = detectPharmacyItemCategory(ticket);
+        if (cat !== queueCategoryFilter) return false;
+      }
+
+      // Status filter
+      if (queueStatusFilter !== "all") {
+        if (queueStatusFilter === "waiting" && ticket._queueCategory !== "waiting") return false;
+        if (queueStatusFilter === "serving" && ticket._queueCategory !== "serving") return false;
+        if (queueStatusFilter === "on_hold" && ticket._queueCategory !== "on_hold") return false;
+      }
+
+      // Priority filter
+      if (queuePriorityFilter !== "all") {
+        const p = Number(ticket.priority_level || ticket.priority || 3);
+        if (queuePriorityFilter === "emergency" && p !== 1) return false;
+        if (queuePriorityFilter === "urgent" && p !== 2) return false;
+        if (queuePriorityFilter === "routine" && p !== 3 && p !== 2 && p !== 1) return false;
+      }
+
+      // Search query
+      if (queueSearchQuery.trim()) {
+        const q = queueSearchQuery.toLowerCase();
+        const name = String(ticket.name || ticket.patient_name || "").toLowerCase();
+        const phone = String(ticket.phone || "").toLowerCase();
+        const tid = String(ticket.ticket_id || "").toLowerCase();
+        if (!name.includes(q) && !phone.includes(q) && !tid.includes(q)) return false;
+      }
+
+      return true;
+    }).sort((a, b) => {
+      // Serving ticket always top
+      if (a._queueCategory === "serving" && b._queueCategory !== "serving") return -1;
+      if (b._queueCategory === "serving" && a._queueCategory !== "serving") return 1;
+
+      // Emergency (P1) first
+      const pa = Number(a.priority_level || a.priority || 3);
+      const pb = Number(b.priority_level || b.priority || 3);
+      if (pa !== pb) return pa - pb;
+
+      // Longest wait time (earliest join timestamp)
+      const parseJoin = (t) => {
+        if (!t) return 0;
+        if (t.join_timestamp) {
+          const num = Number(t.join_timestamp);
+          if (!isNaN(num) && num > 0) return num > 1e11 ? num / 1000 : num;
+        }
+        if (t.created_at) {
+          const time = new Date(t.created_at).getTime();
+          if (!isNaN(time)) return time / 1000;
+        }
+        return 0;
+      };
+      return parseJoin(a) - parseJoin(b);
+    });
+  }, [activeServingTicket, pharmacyServing, pharmacyHeldTickets, pharmacyQueue, queueCategoryFilter, queueStatusFilter, queuePriorityFilter, queueSearchQuery, detectPharmacyItemCategory]);
+
+  // Appointments Filtering & Grouping
+  const todayDateStr = useMemo(() => getLocalDateStr(new Date()), [getLocalDateStr]);
+
+  const isPharmacyAppointment = useCallback((apt) => {
+    if (!apt) return false;
+    const cat = String(apt.service_category || apt.department || apt.department_name || "").toLowerCase();
+    const pNotes = typeof apt.prescription_notes === "object" ? JSON.stringify(apt.prescription_notes || {}) : (apt.prescription_notes || "");
+    const text = `${cat} ${pNotes} ${apt.notes || ""} ${apt.reason || ""}`.toLowerCase();
+    return cat.includes("pharm") || text.includes("pharm") || text.includes("dispens") || text.includes("medicine");
+  }, []);
+
+  const todayPharmacyAppointments = useMemo(() => {
+    return appointmentsList.filter((apt) => {
+      // 1. Department match: only pharmacy / medicine
+      if (!isPharmacyAppointment(apt)) return false;
+
+      // 2. Date match: only today
+      const aptDate = apt.appointment_date
+        ? String(apt.appointment_date).split("T")[0]
+        : (apt.appointment_time ? String(apt.appointment_time).split("T")[0] : "");
+      return !aptDate || aptDate === todayDateStr;
+    });
+  }, [appointmentsList, isPharmacyAppointment, todayDateStr]);
+
+  const filteredAppointments = useMemo(() => {
+    return appointmentsList.filter((apt) => {
+      // 1. Department match: only pharmacy
+      if (!isPharmacyAppointment(apt)) return false;
+
+      // 2. Date filter
+      if (appointmentDateFilter === "today") {
+        const aptDate = apt.appointment_date
+          ? String(apt.appointment_date).split("T")[0]
+          : (apt.appointment_time ? String(apt.appointment_time).split("T")[0] : "");
+        if (aptDate && aptDate !== todayDateStr) return false;
+      }
+
+      // 3. Category filter
+      if (queueCategoryFilter !== "all") {
+        const cat = detectPharmacyItemCategory(apt);
+        if (cat !== queueCategoryFilter) return false;
+      }
+
+      // 4. Status filter
+      if (queueStatusFilter !== "all") {
+        const s = (apt.status || "booked").toLowerCase();
+        if (queueStatusFilter === "waiting" && s !== "booked" && s !== "check_in_available") return false;
+        if (queueStatusFilter === "checked_in" && s !== "checked_in") return false;
+        if (queueStatusFilter === "booked" && s !== "booked") return false;
+        if (queueStatusFilter === "completed" && s !== "completed") return false;
+        if (queueStatusFilter === "expired" && s !== "expired") return false;
+        if (queueStatusFilter === "cancelled" && s !== "cancelled") return false;
+      }
+
+      // 5. Priority filter
+      if (queuePriorityFilter !== "all") {
+        const p = Number(apt.priority_level || apt.priority || 3);
+        if (queuePriorityFilter === "emergency" && p !== 1) return false;
+        if (queuePriorityFilter === "urgent" && p !== 2) return false;
+        if (queuePriorityFilter === "routine" && p !== 3 && p !== 2 && p !== 1) return false;
+      }
+
+      // 6. Search query
+      if (queueSearchQuery.trim()) {
+        const q = queueSearchQuery.toLowerCase();
+        const name = String(apt.patient_name || apt.name || "").toLowerCase();
+        const phone = String(apt.phone || "").toLowerCase();
+        const id = String(apt.appointment_id || apt.ticket_id || "").toLowerCase();
+        if (!name.includes(q) && !phone.includes(q) && !id.includes(q)) return false;
+      }
+
+      return true;
+    });
+  }, [appointmentsList, isPharmacyAppointment, appointmentDateFilter, todayDateStr, queueCategoryFilter, queueStatusFilter, queuePriorityFilter, queueSearchQuery, detectPharmacyItemCategory]);
+
+  const appointmentsBySlot = useMemo(() => {
+    const groups = {};
+    filteredAppointments.forEach((apt) => {
+      const slot = apt.time_slot || apt.formatted_appointment_time || apt.appointment_time || "General Pharmacy Slot";
+      if (!groups[slot]) groups[slot] = [];
+      groups[slot].push(apt);
+    });
+    return groups;
+  }, [filteredAppointments]);
+
+  // Dynamic 8 Summary Strip Metrics (Computed from live queue, appointments & visits)
+  const waitingMetric = Array.isArray(pharmacyQueue) ? pharmacyQueue.length : 0;
+  const servingMetric = activeServingTicket || pharmacyServing ? 1 : 0;
+  const heldMetric = Array.isArray(pharmacyHeldTickets) ? pharmacyHeldTickets.length : 0;
+
+  const bookedTodayMetric = useMemo(() => {
+    return todayPharmacyAppointments.filter((a) => {
+      const s = (a.status || "booked").toLowerCase();
+      return s === "booked" || s === "confirmed" || s === "scheduled" || s === "check_in_available";
+    }).length;
+  }, [todayPharmacyAppointments]);
+
+  const checkedInMetric = useMemo(() => {
+    return todayPharmacyAppointments.filter((a) => {
+      const s = (a.status || "").toLowerCase();
+      return s === "checked_in" || Boolean(a.ticket_id);
+    }).length;
+  }, [todayPharmacyAppointments]);
+
+  const noShowExpiredMetric = useMemo(() => {
+    return todayPharmacyAppointments.filter((a) => {
+      const s = (a.status || "").toLowerCase();
+      return s === "no_show" || s === "expired" || s === "cancelled";
+    }).length;
+  }, [todayPharmacyAppointments]);
+
+  // Real-time Average Wait Time (Minutes)
+  const avgWaitMinutes = useMemo(() => {
+    if (Array.isArray(pharmacyQueue) && pharmacyQueue.length > 0) {
+      const totalSec = pharmacyQueue.reduce((acc, t) => {
+        const rawJoin = t.join_timestamp
+          ? (Number(t.join_timestamp) > 1e11 ? Number(t.join_timestamp) / 1000 : Number(t.join_timestamp))
+          : (t.created_at ? new Date(t.created_at).getTime() / 1000 : nowSec);
+        const joinSec = isNaN(rawJoin) ? nowSec : rawJoin;
+        return acc + Math.max(0, nowSec - joinSec);
+      }, 0);
+      return Math.max(1, Math.round(totalSec / pharmacyQueue.length / 60));
+    }
+    if (analytics?.average_wait_time !== undefined && analytics?.average_wait_time !== null && Number(analytics.average_wait_time) > 0) {
+      return Math.round(Number(analytics.average_wait_time));
+    }
+    return 0;
+  }, [pharmacyQueue, nowSec, analytics]);
+
+  // Real-time Average Dispense Time (Minutes)
+  const avgDispenseMinutes = useMemo(() => {
+    // 1. Calculate from patient visits completed today
+    const todayStr = getLocalDateStr(new Date());
+    const completedToday = (patientVisits || []).filter((v) => {
+      const vDate = v.queue_date || (v.created_at ? String(v.created_at).split("T")[0] : "");
+      return vDate === todayStr && (v.status === "completed" || Boolean(v.dispensed_at));
+    });
+
+    if (completedToday.length > 0) {
+      let totalDurationSec = 0;
+      let countWithDuration = 0;
+      completedToday.forEach((v) => {
+        const start = v.serve_timestamp || v.called_at || v.created_at;
+        const end = v.dispensed_at || v.completed_at || v.updated_at;
+        if (start && end) {
+          const s = new Date(start).getTime();
+          const e = new Date(end).getTime();
+          const diffSec = (e - s) / 1000;
+          if (diffSec > 0 && diffSec < 7200) {
+            totalDurationSec += diffSec;
+            countWithDuration++;
+          }
+        }
+      });
+      if (countWithDuration > 0) {
+        return Math.max(1, Math.round(totalDurationSec / countWithDuration / 60));
+      }
+    }
+
+    // 2. Check analytics from server
+    if (analytics?.avg_service_time || analytics?.average_service_time) {
+      const val = Math.round(Number(analytics.avg_service_time || analytics.average_service_time) / 60);
+      if (val > 0) return val;
+    }
+
+    return 0;
+  }, [patientVisits, getLocalDateStr, analytics]);
+
+  // Real-time Dispensed Today Count
+  const dispensedTodayCount = useMemo(() => {
+    const todayStr = getLocalDateStr(new Date());
+    const fromVisits = (patientVisits || []).filter((v) => {
+      const vDate = v.queue_date || (v.created_at ? String(v.created_at).split("T")[0] : "");
+      return vDate === todayStr && (v.status === "completed" || Boolean(v.dispensed_at));
+    }).length;
+
+    if (fromVisits > 0) return fromVisits;
+    if (analytics?.completed_today !== undefined && analytics?.completed_today !== null) {
+      return Number(analytics.completed_today) || 0;
+    }
+    return 0;
+  }, [patientVisits, getLocalDateStr, analytics]);
+
+  // Real-time Turnaround Time Display
+  const avgTurnaroundFormatted = useMemo(() => {
+    if (avgDispenseMinutes > 0) {
+      return `~${avgDispenseMinutes} min`;
+    }
+    if (analytics?.average_service_time || analytics?.avg_service_time) {
+      const mins = Math.round(Number(analytics.average_service_time || analytics.avg_service_time) / 60);
+      if (mins > 0) return `~${mins} min`;
+    }
+    return "0 min";
+  }, [avgDispenseMinutes, analytics]);
 
   // Color Tokens (Unified Clinical Ocean Blue & Slate Palette)
   const pageBg = isDark ? "#070B14" : "#F8FAFC";
@@ -2381,7 +3016,7 @@ export default function PharmacyPage({
               <CheckCircle2 size={16} color="#34D399" />
             </div>
             <div style={{ fontSize: "28px", fontWeight: 900, marginTop: "4px" }}>
-              {analytics?.completed_today || 18}
+              {dispensedTodayCount}
             </div>
             <div style={{ fontSize: "11px", opacity: 0.8, marginTop: "2px" }}>
               {isHi ? "मरीजों को दवाएं वितरित" : "Prescriptions Fulfilled"}
@@ -2396,7 +3031,7 @@ export default function PharmacyPage({
               <Sparkles size={16} color="#FBBF24" />
             </div>
             <div style={{ fontSize: "28px", fontWeight: 900, marginTop: "4px" }}>
-              ~3.8 min
+              {avgTurnaroundFormatted}
             </div>
             <div style={{ fontSize: "11px", opacity: 0.8, marginTop: "2px" }}>
               {isHi ? "दवा सत्यापन व पैकेजिंग" : "Pick, Pack & Counsel"}
@@ -2495,17 +3130,28 @@ export default function PharmacyPage({
           </span>
         </button>
 
+        {/* Tab 2: Queue & Appointments */}
         <button
-          onClick={() => setActiveTab("archive")}
-          className={`tab-button-modern ${activeTab === "archive" ? "active" : "inactive"}`}
+          type="button"
+          onClick={() => setActiveTab("queue")}
+          className={`tab-button-modern ${activeTab === "queue" ? "active" : "inactive"}`}
         >
           <div className="tab-icon-wrapper">
-            <FileText size={18} />
+            <CalendarCheck size={18} />
           </div>
           <div style={{ flex: 1 }}>
-            <div className="tab-title-text">{isHi ? "दवा वितरण अभिलेख व खोज" : "Prescription Lookup & Audit"}</div>
-            <span className="tab-sub-text">{isHi ? "अस्पताल के सभी पर्चों का ऑडिट" : "Search & Reprint Dispensed Rx"}</span>
+            <div className="tab-title-text">{isHi ? "कतार एवं अपॉइंटमेंट्स" : "Queue & Appointments"}</div>
+            <span className="tab-sub-text">{isHi ? "लाइव कतार व शेड्यूल्ड अपॉइंटमेंट्स" : "Live Queue & Booked Appointments"}</span>
           </div>
+          <span
+            className="tab-count-badge"
+            style={{
+              background: activeTab === "queue" ? "rgba(255,255,255,0.25)" : (isDark ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE"),
+              color: activeTab === "queue" ? "#FFFFFF" : "#0284C7",
+            }}
+          >
+            {combinedLiveQueue.length}
+          </span>
         </button>
 
         <button
@@ -3119,142 +3765,1393 @@ export default function PharmacyPage({
         </div>
       )}
 
-      {/* Tab 2: Prescription Lookup & Audit Archive */}
-      {activeTab === "archive" && (
-        <div style={{ background: cardBg, border: cardBorder, borderRadius: "18px", padding: "24px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px", flexWrap: "wrap", gap: "12px" }}>
-            <div>
-              <h3 style={{ margin: 0, fontSize: "17px", fontWeight: 800, color: textColor }}>
-                {isHi ? "दवा वितरण अभिलेख व प्रिस्क्रिप्शन खोज" : "Prescription Lookup & Dispense Audit Archive"}
-              </h3>
-              <p style={{ margin: "4px 0 0 0", fontSize: "12px", color: mutedText }}>
-                {isHi ? "अस्पताल के सभी सक्रिय एवं पूर्ण पर्चों का त्वरित ऑडिट एवं पुनः प्रिंट।" : "Search and inspect all active, transferred, and dispensed prescriptions across the hospital."}
-              </p>
+      {/* Tab 2: Queue & Appointments Manager */}
+      {activeTab === "queue" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+          {/* 1. SUMMARY STRIP (8 METRICS) */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
+              gap: "10px",
+            }}
+          >
+            {/* 1. Waiting */}
+            <div
+              style={{
+                background: cardBg,
+                border: cardBorder,
+                borderRadius: "14px",
+                padding: "10px 14px",
+                boxShadow: isDark ? "0 4px 14px rgba(0,0,0,0.25)" : "0 2px 6px rgba(0,0,0,0.02)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase" }}>
+                  {isHi ? "प्रतीक्षारत" : "Waiting"}
+                </span>
+                <Clock size={14} color="#0284C7" />
+              </div>
+              <div style={{ fontSize: "22px", fontWeight: 900, color: "#0284C7", marginTop: "4px", lineHeight: "1" }}>
+                {waitingMetric}
+              </div>
+              <div style={{ fontSize: "10.5px", color: mutedText, marginTop: "4px" }}>
+                {isHi ? "कतार में सक्रिय मरीज़" : "Active in live queue"}
+              </div>
             </div>
 
-            <div style={{ display: "flex", gap: "10px" }}>
-              <input
-                type="text"
-                placeholder={isHi ? "टोकन # या मरीज खोजें..." : "Search by Token # or patient name..."}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+            {/* 2. Serving */}
+            <div
+              style={{
+                background: cardBg,
+                border: cardBorder,
+                borderRadius: "14px",
+                padding: "10px 14px",
+                boxShadow: isDark ? "0 4px 14px rgba(0,0,0,0.25)" : "0 2px 6px rgba(0,0,0,0.02)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase" }}>
+                  {isHi ? "वितरण जारी" : "Serving"}
+                </span>
+                <Pill size={14} color="#0284C7" />
+              </div>
+              <div style={{ fontSize: "22px", fontWeight: 900, color: "#0C2340", marginTop: "4px", lineHeight: "1" }}>
+                {servingMetric}
+              </div>
+              <div style={{ fontSize: "10.5px", color: mutedText, marginTop: "4px" }}>
+                {activeServingTicket ? `#${activeServingTicket.ticket_id} (${activeServingTicket.name})` : (isHi ? "काउंटर तैयार है" : "Counter ready")}
+              </div>
+            </div>
+
+            {/* 3. On Hold */}
+            <div
+              style={{
+                background: cardBg,
+                border: cardBorder,
+                borderRadius: "14px",
+                padding: "10px 14px",
+                boxShadow: isDark ? "0 4px 14px rgba(0,0,0,0.25)" : "0 2px 6px rgba(0,0,0,0.02)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase" }}>
+                  {isHi ? "होल्ड पर" : "On Hold"}
+                </span>
+                <Pause size={14} color="#64748B" />
+              </div>
+              <div style={{ fontSize: "22px", fontWeight: 900, color: "#64748B", marginTop: "4px", lineHeight: "1" }}>
+                {heldMetric}
+              </div>
+              <div style={{ fontSize: "10.5px", color: mutedText, marginTop: "4px" }}>
+                {isHi ? "10 मिनट ग्रेस विंडो" : "10-min grace window"}
+              </div>
+            </div>
+
+            {/* 4. Booked Today */}
+            <div
+              style={{
+                background: cardBg,
+                border: cardBorder,
+                borderRadius: "14px",
+                padding: "10px 14px",
+                boxShadow: isDark ? "0 4px 14px rgba(0,0,0,0.25)" : "0 2px 6px rgba(0,0,0,0.02)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase" }}>
+                  {isHi ? "आज बुक" : "Booked Today"}
+                </span>
+                <Calendar size={14} color="#0284C7" />
+              </div>
+              <div style={{ fontSize: "22px", fontWeight: 900, color: "#0284C7", marginTop: "4px", lineHeight: "1" }}>
+                {bookedTodayMetric}
+              </div>
+              <div style={{ fontSize: "10.5px", color: mutedText, marginTop: "4px" }}>
+                {isHi ? "शेड्यूल्ड अपॉइंटमेंट्स" : "Scheduled bookings"}
+              </div>
+            </div>
+
+            {/* 5. Checked In */}
+            <div
+              style={{
+                background: cardBg,
+                border: cardBorder,
+                borderRadius: "14px",
+                padding: "10px 14px",
+                boxShadow: isDark ? "0 4px 14px rgba(0,0,0,0.25)" : "0 2px 6px rgba(0,0,0,0.02)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase" }}>
+                  {isHi ? "चेक-इन पूर्ण" : "Checked In"}
+                </span>
+                <CheckCircle2 size={14} color="#0369A1" />
+              </div>
+              <div style={{ fontSize: "22px", fontWeight: 900, color: "#0369A1", marginTop: "4px", lineHeight: "1" }}>
+                {checkedInMetric}
+              </div>
+              <div style={{ fontSize: "10.5px", color: mutedText, marginTop: "4px" }}>
+                {isHi ? "टोकन जारी / कतार में" : "Issued token / in queue"}
+              </div>
+            </div>
+
+            {/* 6. No-Show / Expired */}
+            <div
+              style={{
+                background: cardBg,
+                border: cardBorder,
+                borderRadius: "14px",
+                padding: "10px 14px",
+                boxShadow: isDark ? "0 4px 14px rgba(0,0,0,0.25)" : "0 2px 6px rgba(0,0,0,0.02)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase" }}>
+                  {isHi ? "अनुपस्थित/समाप्त" : "No-Show / Exp."}
+                </span>
+                <UserX size={14} color="#EF4444" />
+              </div>
+              <div style={{ fontSize: "22px", fontWeight: 900, color: "#EF4444", marginTop: "4px", lineHeight: "1" }}>
+                {noShowExpiredMetric}
+              </div>
+              <div style={{ fontSize: "10.5px", color: mutedText, marginTop: "4px" }}>
+                {isHi ? "अनुपस्थित / समय समाप्त" : "Missed or expired slots"}
+              </div>
+            </div>
+
+            {/* 7. Average Wait */}
+            <div
+              style={{
+                background: cardBg,
+                border: cardBorder,
+                borderRadius: "14px",
+                padding: "10px 14px",
+                boxShadow: isDark ? "0 4px 14px rgba(0,0,0,0.25)" : "0 2px 6px rgba(0,0,0,0.02)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase" }}>
+                  {isHi ? "औसत प्रतीक्षा" : "Avg. Wait"}
+                </span>
+                <Sliders size={14} color="#0284C7" />
+              </div>
+              <div style={{ fontSize: "22px", fontWeight: 900, color: "#0284C7", marginTop: "4px", lineHeight: "1" }}>
+                {avgWaitMinutes > 0 ? `~${avgWaitMinutes}m` : "0m"}
+              </div>
+              <div style={{ fontSize: "10.5px", color: mutedText, marginTop: "4px" }}>
+                {isHi ? "वर्तमान कतार विलंब" : "Live queue wait time"}
+              </div>
+            </div>
+
+            {/* 8. Average Dispense Time */}
+            <div
+              style={{
+                background: cardBg,
+                border: cardBorder,
+                borderRadius: "14px",
+                padding: "10px 14px",
+                boxShadow: isDark ? "0 4px 14px rgba(0,0,0,0.25)" : "0 2px 6px rgba(0,0,0,0.02)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "11px", fontWeight: 700, color: mutedText, textTransform: "uppercase" }}>
+                  {isHi ? "औसत वितरण" : "Avg. Dispense"}
+                </span>
+                <Activity size={14} color="#0284C7" />
+              </div>
+              <div style={{ fontSize: "22px", fontWeight: 900, color: "#0284C7", marginTop: "4px", lineHeight: "1" }}>
+                {avgDispenseMinutes > 0 ? `~${avgDispenseMinutes}m` : "0m"}
+              </div>
+              <div style={{ fontSize: "10.5px", color: mutedText, marginTop: "4px" }}>
+                {isHi ? "मानक वितरण प्रोटोकॉल" : "Standard dispense protocol"}
+              </div>
+            </div>
+          </div>
+
+          {/* 2. SUB-VIEW CONTROLS & FILTERS BAR */}
+          <div
+            style={{
+              background: cardBg,
+              border: cardBorder,
+              borderRadius: "16px",
+              padding: "14px 16px",
+              boxShadow: isDark ? "0 8px 24px rgba(0,0,0,0.3)" : "0 4px 16px rgba(0,0,0,0.03)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "12px",
+            }}
+          >
+            {/* Top Row: Sub-view Switcher & Quick Actions */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: "12px",
+              }}
+            >
+              {/* Segmented Sub-view Switcher */}
+              <div
                 style={{
-                  padding: "8px 14px",
-                  borderRadius: "10px",
-                  border: cardBorder,
-                  background: isDark ? "#1E293B" : "#F8FAFC",
-                  color: textColor,
-                  fontSize: "12.5px",
-                  outline: "none",
-                }}
-              />
-              <button
-                onClick={refreshData}
-                style={{
-                  background: cardBg,
-                  border: cardBorder,
-                  color: textColor,
-                  borderRadius: "10px",
-                  padding: "8px 12px",
-                  fontSize: "12px",
-                  fontWeight: 700,
-                  cursor: "pointer",
                   display: "inline-flex",
-                  alignItems: "center",
-                  gap: "6px",
+                  background: isDark ? "#0F172A" : "#F1F5F9",
+                  padding: "4px",
+                  borderRadius: "12px",
+                  border: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0",
+                  gap: "4px",
                 }}
               >
-                <RefreshCw size={13} />
-                <span>{isHi ? "रिफ्रेश" : "Refresh"}</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setQueueSubView("queue")}
+                  style={{
+                    padding: "7px 16px",
+                    borderRadius: "9px",
+                    border: "none",
+                    fontSize: "12.5px",
+                    fontWeight: queueSubView === "queue" ? 800 : 700,
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "7px",
+                    background: queueSubView === "queue" ? "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)" : "transparent",
+                    color: queueSubView === "queue" ? "#FFFFFF" : mutedText,
+                    boxShadow: queueSubView === "queue" ? "0 2px 8px rgba(2, 132, 199, 0.3)" : "none",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: queueSubView === "queue" ? "#BAE6FD" : "#94A3B8", display: "inline-block" }} />
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                    <Activity size={13} /> {isHi ? "लाइव कतार" : "Live Queue"}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: "10.5px",
+                      padding: "1px 6px",
+                      borderRadius: "10px",
+                      background: queueSubView === "queue" ? "rgba(255,255,255,0.25)" : (isDark ? "#1E293B" : "#E2E8F0"),
+                      color: queueSubView === "queue" ? "#FFFFFF" : mutedText,
+                      fontWeight: 800,
+                    }}
+                  >
+                    {combinedLiveQueue.length}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setQueueSubView("appointments")}
+                  style={{
+                    padding: "7px 16px",
+                    borderRadius: "9px",
+                    border: "none",
+                    fontSize: "12.5px",
+                    fontWeight: queueSubView === "appointments" ? 800 : 700,
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "7px",
+                    background: queueSubView === "appointments" ? "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)" : "transparent",
+                    color: queueSubView === "appointments" ? "#FFFFFF" : mutedText,
+                    boxShadow: queueSubView === "appointments" ? "0 2px 8px rgba(2, 132, 199, 0.3)" : "none",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  <CalendarCheck size={14} />
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                    {isHi ? "आज की अपॉइंटमेंट्स" : "Today's Appointments"}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: "10.5px",
+                      padding: "1px 6px",
+                      borderRadius: "10px",
+                      background: queueSubView === "appointments" ? "rgba(255,255,255,0.25)" : (isDark ? "#1E293B" : "#E2E8F0"),
+                      color: queueSubView === "appointments" ? "#FFFFFF" : mutedText,
+                      fontWeight: 800,
+                    }}
+                  >
+                    {filteredAppointments.length}
+                  </span>
+                </button>
+              </div>
+
+              {/* Quick Actions: Call Next + Refresh */}
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    fetchPharmacyAppointments();
+                    if (refreshData) refreshData();
+                    showToast(isHi ? "कतार व अपॉइंटमेंट्स रीफ्रेश हुए" : "Queue & appointments refreshed", "info");
+                  }}
+                  style={{
+                    background: cardBg,
+                    border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
+                    color: textColor,
+                    padding: "7px 12px",
+                    borderRadius: "10px",
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "5px",
+                  }}
+                  title="Refresh Queue & Appointments"
+                >
+                  <RefreshCw size={13} />
+                  <span>{isHi ? "रीफ्रेश" : "Refresh"}</span>
+                </button>
+
+                {Array.isArray(pharmacyQueue) && pharmacyQueue.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleCallNextPatient}
+                    disabled={callingNext}
+                    style={{
+                      background: "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)",
+                      color: "#FFFFFF",
+                      border: "none",
+                      padding: "7px 14px",
+                      borderRadius: "10px",
+                      fontSize: "12.5px",
+                      fontWeight: 800,
+                      cursor: callingNext ? "not-allowed" : "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      boxShadow: "0 2px 8px rgba(2, 132, 199, 0.3)",
+                      opacity: callingNext ? 0.7 : 1,
+                    }}
+                  >
+                    <Volume2 size={14} className={callingNext ? "spin-icon" : ""} />
+                    <span>{callingNext ? (isHi ? "कॉल जारी है..." : "Calling...") : (isHi ? "अगला मरीज़ बुलाएं" : "Call Next Patient")}</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Bottom Row: Filters Strip (Category Chips + Priority + Status + Search) */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                flexWrap: "wrap",
+                gap: "10px",
+                borderTop: isDark ? "1px solid #1E293B" : "1px solid #F1F5F9",
+                paddingTop: "10px",
+              }}
+            >
+              {/* Category Chips */}
+              <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                <span style={{ fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", marginRight: "2px" }}>
+                  {isHi ? "श्रेणी:" : "Category:"}
+                </span>
+                {[
+                  { id: "all", label: isHi ? "सभी" : "All" },
+                  { id: "Chronic / Refill", label: isHi ? "क्रोनिक / रिफिल" : "Chronic / Refill" },
+                  { id: "Acute / Urgent", label: isHi ? "एक्यूट / अर्जेंट" : "Acute / Urgent" },
+                  { id: "General OPD", label: isHi ? "सामान्य ओपीडी" : "General OPD" },
+                  { id: "Emergency", label: isHi ? "आपातकाल" : "Emergency" },
+                ].map((cat) => {
+                  const isSelected = queueCategoryFilter === cat.id;
+                  return (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => setQueueCategoryFilter(cat.id)}
+                      style={{
+                        padding: "4px 10px",
+                        borderRadius: "8px",
+                        fontSize: "11.5px",
+                        fontWeight: isSelected ? 800 : 700,
+                        cursor: "pointer",
+                        border: isSelected ? "1.5px solid #0284C7" : (isDark ? "1px solid #334155" : "1px solid #E2E8F0"),
+                        background: isSelected
+                          ? (isDark ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE")
+                          : (isDark ? "#0F172A" : "#F8FAFC"),
+                        color: isSelected ? "#0284C7" : mutedText,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "5px",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      <span>{cat.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Priority & Status Selectors + Search Input */}
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                {/* Priority Filter */}
+                <select
+                  value={queuePriorityFilter}
+                  onChange={(e) => setQueuePriorityFilter(e.target.value)}
+                  style={{
+                    padding: "5px 8px",
+                    borderRadius: "8px",
+                    fontSize: "11.5px",
+                    fontWeight: 700,
+                    border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
+                    background: isDark ? "#0F172A" : "#FFFFFF",
+                    color: textColor,
+                    outline: "none",
+                  }}
+                >
+                  <option value="all">{isHi ? "प्राथमिकता: सभी" : "Priority: All"}</option>
+                  <option value="emergency">{isHi ? "आपातकालीन (Emergency)" : "Emergency (P1)"}</option>
+                  <option value="urgent">{isHi ? "अत्यावश्यक (Urgent)" : "Urgent (P2)"}</option>
+                  <option value="routine">{isHi ? "सामान्य (Routine)" : "Routine (P3)"}</option>
+                </select>
+
+                {/* Status Filter */}
+                <select
+                  value={queueStatusFilter}
+                  onChange={(e) => setQueueStatusFilter(e.target.value)}
+                  style={{
+                    padding: "5px 8px",
+                    borderRadius: "8px",
+                    fontSize: "11.5px",
+                    fontWeight: 700,
+                    border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
+                    background: isDark ? "#0F172A" : "#FFFFFF",
+                    color: textColor,
+                    outline: "none",
+                  }}
+                >
+                  <option value="all">{isHi ? "स्थिति: सभी" : "Status: All"}</option>
+                  {queueSubView === "queue" ? (
+                    <>
+                      <option value="waiting">{isHi ? "प्रतीक्षारत (Waiting)" : "Waiting in Queue"}</option>
+                      <option value="serving">{isHi ? "वितरण जारी (Serving)" : "Currently Serving"}</option>
+                      <option value="on_hold">{isHi ? "होल्ड पर (On Hold)" : "On 10-min Hold"}</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="booked">{isHi ? "आरक्षित (Booked)" : "Booked / Scheduled"}</option>
+                      <option value="checked_in">{isHi ? "चेक-इन पूर्ण (Checked In)" : "Checked In"}</option>
+                      <option value="completed">{isHi ? "पूर्ण (Completed)" : "Completed"}</option>
+                      <option value="expired">{isHi ? "समय समाप्त (Expired)" : "Expired Slots"}</option>
+                      <option value="cancelled">{isHi ? "रद्द (Cancelled)" : "Cancelled"}</option>
+                    </>
+                  )}
+                </select>
+
+                {/* Date Filter (for Appointments view) */}
+                {queueSubView === "appointments" && (
+                  <select
+                    value={appointmentDateFilter}
+                    onChange={(e) => setAppointmentDateFilter(e.target.value)}
+                    style={{
+                      padding: "5px 8px",
+                      borderRadius: "8px",
+                      fontSize: "11.5px",
+                      fontWeight: 700,
+                      border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
+                      background: isDark ? "#0F172A" : "#FFFFFF",
+                      color: textColor,
+                      outline: "none",
+                    }}
+                  >
+                    <option value="today">{isHi ? "आज (Today)" : "Today's Appointments"}</option>
+                    <option value="all">{isHi ? "सभी तिथियां (All)" : "All Dates"}</option>
+                  </select>
+                )}
+
+                {/* Search Box */}
+                <div style={{ position: "relative", minWidth: "200px" }}>
+                  <Search size={13} style={{ position: "absolute", left: "9px", top: "8px", color: mutedText }} />
+                  <input
+                    type="text"
+                    placeholder={isHi ? "नाम, टोकन, फ़ोन खोजें..." : "Search name, token or phone..."}
+                    value={queueSearchQuery}
+                    onChange={(e) => setQueueSearchQuery(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "5px 10px 5px 28px",
+                      borderRadius: "8px",
+                      border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
+                      background: isDark ? "#0F172A" : "#F8FAFC",
+                      color: textColor,
+                      fontSize: "11.5px",
+                      outline: "none",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  {queueSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setQueueSearchQuery("")}
+                      style={{
+                        position: "absolute",
+                        right: "6px",
+                        top: "6px",
+                        background: "none",
+                        border: "none",
+                        color: mutedText,
+                        cursor: "pointer",
+                      }}
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12.5px" }}>
-              <thead>
-                <tr style={{ background: isDark ? "#1E293B" : "#F1F5F9", borderBottom: cardBorder }}>
-                  <th style={{ padding: "10px 12px", textAlign: "left", fontWeight: 800, color: mutedText }}>TOKEN #</th>
-                  <th style={{ padding: "10px 12px", textAlign: "left", fontWeight: 800, color: mutedText }}>PATIENT NAME</th>
-                  <th style={{ padding: "10px 12px", textAlign: "left", fontWeight: 800, color: mutedText }}>DOCTOR</th>
-                  <th style={{ padding: "10px 12px", textAlign: "left", fontWeight: 800, color: mutedText }}>MEDICINES</th>
-                  <th style={{ padding: "10px 12px", textAlign: "left", fontWeight: 800, color: mutedText }}>STATUS</th>
-                  <th style={{ padding: "10px 12px", textAlign: "right", fontWeight: 800, color: mutedText }}>ACTIONS</th>
-                </tr>
-              </thead>
-              <tbody>
-                {queueSnapshot.map((t, idx) => {
-                  const parsed = parseRxNotes(t);
-                  const medList = Array.isArray(parsed?.medicines) ? parsed.medicines : [];
-                  const isPharma = (t.service_category || "").toLowerCase() === "pharmacy";
+          {/* 3. SUB-VIEW 1: LIVE QUEUE LIST */}
+          {queueSubView === "queue" && (
+            <div
+              style={{
+                background: cardBg,
+                border: cardBorder,
+                borderRadius: "16px",
+                padding: "16px 18px",
+                boxShadow: isDark ? "0 8px 24px rgba(0,0,0,0.3)" : "0 4px 16px rgba(0,0,0,0.03)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px", flexWrap: "wrap", gap: "8px" }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: "15px", fontWeight: 900, color: textColor, display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span>{isHi ? "लाइव फार्मेसी कतार स्ट्रीम" : "Live Pharmacy & Dispensing Queue"}</span>
+                    <span style={{ fontSize: "11px", fontWeight: 800, padding: "2px 8px", borderRadius: "12px", background: isDark ? "rgba(2, 132, 199, 0.2)" : "#E0F2FE", color: "#0284C7" }}>
+                      {combinedLiveQueue.length} {isHi ? "मरीज़" : "Patients"}
+                    </span>
+                  </h3>
+                  <p style={{ margin: "2px 0 0 0", fontSize: "11.5px", color: mutedText }}>
+                    {isHi
+                      ? "आपातकालीन ट्राइएज वरीयता क्रम में क्रमबद्ध • लाइव प्रतीक्षा टाइमर व त्वरित वितरण क्रियाएं"
+                      : "Sorted emergency first, then by wait time • Live wait timer & prescription quick actions"}
+                  </p>
+                </div>
 
-                  return (
-                    <tr key={t.ticket_id || idx} style={{ borderBottom: isDark ? "1px solid #1E293B" : "1px solid #F1F5F9" }}>
-                      <td style={{ padding: "10px 12px", fontWeight: 800, color: highlightPrimary, fontFamily: "monospace" }}>
-                        #{t.ticket_id}
-                      </td>
-                      <td style={{ padding: "10px 12px", fontWeight: 700, color: textColor }}>
-                        {t.name}
-                        <div style={{ fontSize: "11px", color: mutedText }}>{t.age}y / {t.gender}</div>
-                      </td>
-                      <td style={{ padding: "10px 12px", color: mutedText }}>
-                        {parsed?.doctor_name || "Physician"}
-                      </td>
-                      <td style={{ padding: "10px 12px", color: textColor }}>
-                        {medList.length > 0 ? (
-                          <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
-                            {medList.slice(0, 3).map((m, mIdx) => (
-                              <span key={mIdx} style={{ background: isDark ? "rgba(2, 132, 199, 0.2)" : "#F0F9FF", color: "#0284C7", padding: "1px 6px", borderRadius: "4px", fontSize: "10.5px", fontWeight: 700 }}>
-                                {m.name}
-                              </span>
-                            ))}
-                            {medList.length > 3 && <span style={{ fontSize: "10.5px", color: mutedText }}>+{medList.length - 3}</span>}
-                          </div>
-                        ) : (
-                          <span style={{ color: mutedText, fontSize: "11px" }}>No meds listed</span>
-                        )}
-                      </td>
-                      <td style={{ padding: "10px 12px" }}>
-                        <span
+                <div style={{ fontSize: "11px", fontWeight: 700, color: mutedText, display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                    <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#EF4444" }} /> {isHi ? "आपातकाल" : "Emergency (P1)"}
+                  </span>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                    <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#64748B" }} /> {isHi ? "अत्यावश्यक" : "Urgent (P2)"}
+                  </span>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                    <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#0284C7" }} /> {isHi ? "सामान्य" : "Routine (P3)"}
+                  </span>
+                </div>
+              </div>
+
+              {combinedLiveQueue.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "40px 10px", color: mutedText }}>
+                  <Pill size={40} style={{ opacity: 0.3, margin: "0 auto 10px auto" }} />
+                  <div style={{ fontSize: "14px", fontWeight: 800, color: textColor }}>
+                    {isHi ? "कतार में कोई मरीज़ नहीं है" : "No patients in live pharmacy queue"}
+                  </div>
+                  <div style={{ fontSize: "12px", color: mutedText, marginTop: "4px" }}>
+                    {queueSearchQuery || queueCategoryFilter !== "all" || queuePriorityFilter !== "all"
+                      ? (isHi ? "फ़िल्टर बदलकर देखें" : "Try clearing filters to see waiting patients")
+                      : (isHi ? "जब मरीज़ चेक-इन करेंगे तो यहाँ प्रदर्शित होंगे" : "Patients will appear here automatically when checked in")}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                  {combinedLiveQueue.map((ticket) => {
+                    const parsed = parseRxNotes(ticket) || {};
+                    const medList = Array.isArray(parsed.medicines) ? parsed.medicines : [];
+                    const cat = detectPharmacyItemCategory(ticket);
+                    const isEmergency = Number(ticket.priority_level || ticket.priority) === 1;
+                    const isUrgent = Number(ticket.priority_level || ticket.priority) === 2;
+                    const isServing = ticket._queueCategory === "serving";
+                    const isHeld = ticket._queueCategory === "on_hold";
+
+                    // Wait Time Calculation
+                    const rawJoin = ticket.join_timestamp
+                      ? (Number(ticket.join_timestamp) > 1e11 ? Number(ticket.join_timestamp) / 1000 : Number(ticket.join_timestamp))
+                      : (ticket.created_at ? new Date(ticket.created_at).getTime() / 1000 : nowSec);
+                    const joinSec = isNaN(rawJoin) ? nowSec : rawJoin;
+                    const elapsedSec = Math.max(0, nowSec - joinSec);
+                    const elapsedMin = Math.floor(elapsedSec / 60);
+                    const elapsedRemSec = Math.floor(elapsedSec % 60);
+                    const isOverdueWait = elapsedMin >= 30;
+                    const isModerateWait = elapsedMin >= 15;
+
+                    // Referring Doctor
+                    const docRef = parsed.doctor_name ? `${parsed.doctor_name} (${parsed.doctor_department || "OPD"})` : (ticket.department_name || "General OPD");
+
+                    return (
+                      <div
+                        key={ticket.ticket_id}
+                        style={{
+                          background: isServing
+                            ? (isDark ? "rgba(2, 132, 199, 0.08)" : "#F0F9FF")
+                            : isHeld
+                              ? (isDark ? "rgba(100, 116, 139, 0.08)" : "#F1F5F9")
+                              : isEmergency
+                                ? (isDark ? "rgba(239, 68, 68, 0.08)" : "#FEF2F2")
+                                : (isDark ? "#0F172A" : "#F8FAFC"),
+                          border: isServing
+                            ? "1.5px solid #0284C7"
+                            : isHeld
+                              ? "1.5px solid #64748B"
+                              : isEmergency
+                                ? "1.5px solid #EF4444"
+                                : (isDark ? "1px solid #1E293B" : "1px solid #E2E8F0"),
+                          borderRadius: "14px",
+                          padding: "12px 14px",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "10px",
+                          transition: "all 0.15s ease",
+                        }}
+                      >
+                        {/* Row 1: Token, Demographics & Action Buttons */}
+                        <div
                           style={{
-                            padding: "2px 8px",
-                            borderRadius: "6px",
-                            fontSize: "10.5px",
-                            fontWeight: 800,
-                            background: isPharma ? (isDark ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE") : (isDark ? "#334155" : "#E2E8F0"),
-                            color: isPharma ? "#0284C7" : mutedText,
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "flex-start",
+                            flexWrap: "wrap",
+                            gap: "10px",
                           }}
                         >
-                          {t.status.toUpperCase()} {isPharma ? "• PHARMACY" : ""}
-                        </span>
-                      </td>
-                      <td style={{ padding: "10px 12px", textAlign: "right" }}>
-                        <div style={{ display: "flex", justifyContent: "flex-end", gap: "6px" }}>
-                          <button
-                            type="button"
-                            onClick={() => handlePrintFullPrescription(t)}
-                            style={{
-                              padding: "4px 8px",
-                              borderRadius: "6px",
-                              border: "none",
-                              background: "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)",
-                              color: "#FFFFFF",
-                              fontSize: "11px",
-                              fontWeight: 700,
-                              cursor: "pointer",
-                              boxShadow: "0 2px 6px rgba(2, 132, 199, 0.25)",
-                            }}
-                          >
-                            Rx
-                          </button>
+                          {/* Left: Token & Patient Info */}
+                          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                            <div
+                              style={{
+                                padding: "6px 12px",
+                                borderRadius: "10px",
+                                background: isEmergency ? "#EF4444" : isUrgent ? "#64748B" : "#0284C7",
+                                color: "#FFFFFF",
+                                fontWeight: 900,
+                                fontSize: "14px",
+                                letterSpacing: "-0.2px",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                boxShadow: isEmergency ? "0 2px 10px rgba(239, 68, 68, 0.4)" : "none",
+                              }}
+                            >
+                              <span>#{ticket.ticket_id}</span>
+                            </div>
+
+                            <div>
+                              <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                                <span style={{ fontWeight: 800, fontSize: "14px", color: textColor }}>
+                                  {ticket.name || ticket.patient_name || "Patient"}
+                                </span>
+                                <span style={{ fontSize: "12px", color: mutedText, fontWeight: 600 }}>
+                                  {ticket.age || 30}y / {ticket.gender || "M"}
+                                </span>
+                                {ticket.phone && (
+                                  <span style={{ fontSize: "11.5px", color: mutedText }}>
+                                    • {ticket.phone}
+                                  </span>
+                                )}
+                              </div>
+
+                              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "3px", flexWrap: "wrap" }}>
+                                <span
+                                  style={{
+                                    fontSize: "11px",
+                                    fontWeight: 800,
+                                    padding: "2px 8px",
+                                    borderRadius: "6px",
+                                    background: isDark ? "rgba(2, 132, 199, 0.15)" : "#E0F2FE",
+                                    color: "#0284C7",
+                                    border: "1px solid rgba(2, 132, 199, 0.3)",
+                                  }}
+                                >
+                                  {cat}
+                                </span>
+
+                                <span style={{ fontSize: "11px", color: mutedText, display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                                  <Stethoscope size={11} />
+                                  <span>{isHi ? "रेफरल:" : "Ref:"} {docRef}</span>
+                                </span>
+
+                                {/* Priority Badge */}
+                                <span
+                                  style={{
+                                    fontSize: "10px",
+                                    fontWeight: 900,
+                                    padding: "2px 7px",
+                                    borderRadius: "9999px",
+                                    background: isEmergency ? "#FEE2E2" : isUrgent ? "#F1F5F9" : "#EFF6FF",
+                                    color: isEmergency ? "#DC2626" : isUrgent ? "#475569" : "#0284C7",
+                                    border: isEmergency ? "1px solid #FECACA" : isUrgent ? "1px solid #CBD5E1" : "1px solid #BAE6FD",
+                                  }}
+                                >
+                                  {isEmergency ? (isHi ? "आपातकालीन" : "Emergency (P1)") : isUrgent ? (isHi ? "अत्यावश्यक" : "Urgent (P2)") : (isHi ? "सामान्य" : "Routine (P3)")}
+                                </span>
+
+                                {/* Status Badge */}
+                                {isServing ? (
+                                  <span style={{ fontSize: "10.5px", fontWeight: 800, padding: "2px 8px", borderRadius: "6px", background: "#0284C7", color: "#FFFFFF" }}>
+                                    {isHi ? "वितरण जारी" : "Serving"}
+                                  </span>
+                                ) : isHeld ? (
+                                  <span style={{ fontSize: "10.5px", fontWeight: 800, padding: "2px 8px", borderRadius: "6px", background: "#64748B", color: "#FFFFFF" }}>
+                                    {isHi ? "होल्ड (10 मिनट)" : "On Hold"}
+                                  </span>
+                                ) : (
+                                  <span style={{ fontSize: "10.5px", fontWeight: 800, padding: "2px 8px", borderRadius: "6px", background: isDark ? "rgba(2, 132, 199, 0.15)" : "#E0F2FE", color: "#0284C7", border: "1px solid rgba(2, 132, 199, 0.3)" }}>
+                                    {isHi ? "प्रतीक्षारत" : "Waiting"}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Right: Wait Timer & Quick Action Buttons */}
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                            {/* Live Wait Timer */}
+                            <div
+                              style={{
+                                padding: "4px 10px",
+                                borderRadius: "8px",
+                                background: isOverdueWait
+                                  ? (isDark ? "rgba(239, 68, 68, 0.2)" : "#FEE2E2")
+                                  : isModerateWait
+                                    ? (isDark ? "rgba(100, 116, 139, 0.2)" : "#F1F5F9")
+                                    : (isDark ? "rgba(2, 132, 199, 0.15)" : "#E0F2FE"),
+                                color: isOverdueWait ? "#DC2626" : isModerateWait ? "#475569" : "#0284C7",
+                                border: isOverdueWait ? "1px solid #FECACA" : isModerateWait ? "1px solid #CBD5E1" : "1px solid #BAE6FD",
+                                fontSize: "11.5px",
+                                fontWeight: 800,
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                fontVariantNumeric: "tabular-nums",
+                              }}
+                              title={isHi ? `प्रतीक्षा समय: ${elapsedMin} मिनट ${elapsedRemSec} सेकंड` : `Live Waiting Duration: ${elapsedMin}m ${elapsedRemSec}s`}
+                            >
+                              <Clock size={12} />
+                              <span>{isHi ? "प्रतीक्षा:" : "Wait:"} {elapsedMin}m {elapsedRemSec}s</span>
+                            </div>
+
+                            {/* Serve / Dispense Button */}
+                            <button
+                              type="button"
+                              onClick={() => handleServeFromQueue(ticket)}
+                              style={{
+                                background: "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)",
+                                color: "#FFFFFF",
+                                border: "none",
+                                padding: "6px 12px",
+                                borderRadius: "8px",
+                                fontSize: "11.5px",
+                                fontWeight: 800,
+                                cursor: "pointer",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "5px",
+                                boxShadow: "0 2px 6px rgba(2, 132, 199, 0.25)",
+                              }}
+                              title="Load patient into active dispensing counter"
+                            >
+                              <Pill size={13} />
+                              <span>{isHi ? "दवा वितरण" : "Serve / Dispense"}</span>
+                            </button>
+
+                            {/* Hold / Recall Button */}
+                            {isHeld ? (
+                              <button
+                                type="button"
+                                onClick={() => handleRecallHeld(ticket)}
+                                style={{
+                                  background: "#0284C7",
+                                  border: "none",
+                                  color: "#FFFFFF",
+                                  padding: "6px 10px",
+                                  borderRadius: "8px",
+                                  fontSize: "11.5px",
+                                  fontWeight: 700,
+                                  cursor: "pointer",
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "4px",
+                                }}
+                                title="Recall ticket back to active queue"
+                              >
+                                <Play size={12} />
+                                <span>{isHi ? "रिकॉल" : "Recall"}</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleHold(ticket)}
+                                style={{
+                                  background: isDark ? "#1E293B" : "#F1F5F9",
+                                  border: "1px solid #64748B",
+                                  color: "#475569",
+                                  padding: "6px 10px",
+                                  borderRadius: "8px",
+                                  fontSize: "11.5px",
+                                  fontWeight: 700,
+                                  cursor: "pointer",
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "4px",
+                                }}
+                                title="Place on 10-minute hold"
+                              >
+                                <Pause size={12} />
+                                <span>{isHi ? "होल्ड" : "Hold"}</span>
+                              </button>
+                            )}
+
+                            {/* Complete Button */}
+                            <button
+                              type="button"
+                              onClick={() => handleCompleteDispensing(ticket)}
+                              disabled={completingTicket}
+                              style={{
+                                background: isDark ? "rgba(16, 185, 129, 0.15)" : "#ECFDF5",
+                                border: "1px solid #10B981",
+                                color: "#059669",
+                                padding: "6px 10px",
+                                borderRadius: "8px",
+                                fontSize: "11.5px",
+                                fontWeight: 700,
+                                cursor: "pointer",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                              }}
+                              title="Mark dispensing completed"
+                            >
+                              <CheckCircle2 size={12} />
+                              <span>{isHi ? "पूर्ण" : "Complete"}</span>
+                            </button>
+
+                            {/* No-Show Button */}
+                            <button
+                              type="button"
+                              onClick={() => handleFinalizeNoShow(ticket)}
+                              style={{
+                                background: isDark ? "rgba(239, 68, 68, 0.12)" : "#FEF2F2",
+                                border: "1px solid #EF4444",
+                                color: "#DC2626",
+                                padding: "6px 10px",
+                                borderRadius: "8px",
+                                fontSize: "11.5px",
+                                fontWeight: 700,
+                                cursor: "pointer",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                              }}
+                              title="Mark as absent / No-Show"
+                            >
+                              <UserX size={12} />
+                              <span>{isHi ? "अनुपस्थित" : "No-Show"}</span>
+                            </button>
+
+                            {/* Cancel Button */}
+                            <button
+                              type="button"
+                              onClick={() => handleCancelTicket(ticket)}
+                              style={{
+                                background: isDark ? "#1E293B" : "#F1F5F9",
+                                border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
+                                color: mutedText,
+                                padding: "6px 8px",
+                                borderRadius: "8px",
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                cursor: "pointer",
+                              }}
+                              title="Cancel ticket"
+                            >
+                              <X size={12} />
+                            </button>
+
+                            {/* Re-announce to Waiting Room Kiosk */}
+                            <button
+                              type="button"
+                              onClick={() => handleReAnnounce(ticket)}
+                              style={{
+                                background: isDark ? "#1E293B" : "#F1F5F9",
+                                border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
+                                color: textColor,
+                                padding: "6px 8px",
+                                borderRadius: "8px",
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                cursor: "pointer",
+                              }}
+                              title="Broadcast to waiting room kiosk display"
+                            >
+                              <Volume2 size={12} />
+                            </button>
+
+                            {/* Print Prescription Slip */}
+                            <button
+                              type="button"
+                              onClick={() => handlePrintFullPrescription(ticket)}
+                              style={{
+                                background: isDark ? "#1E293B" : "#F1F5F9",
+                                border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
+                                color: textColor,
+                                padding: "6px 10px",
+                                borderRadius: "8px",
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                cursor: "pointer",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                              }}
+                              title="Print doctor prescription slip"
+                            >
+                              <Printer size={12} />
+                              <span>Rx</span>
+                            </button>
+                          </div>
                         </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+
+                        {/* Row 2: Medicines Preview */}
+                        <div
+                          style={{
+                            background: isDark ? "#0F172A" : "#FFFFFF",
+                            border: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0",
+                            borderRadius: "10px",
+                            padding: "8px 12px",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            flexWrap: "wrap",
+                            gap: "8px",
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", flex: 1 }}>
+                            <span style={{ fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase" }}>
+                              {isHi ? "दवाएं:" : "Prescribed Meds:"}
+                            </span>
+                            {medList.length > 0 ? (
+                              medList.map((m, mIdx) => (
+                                <span
+                                  key={mIdx}
+                                  style={{
+                                    fontSize: "11px",
+                                    fontWeight: 700,
+                                    padding: "2px 7px",
+                                    borderRadius: "5px",
+                                    background: isDark ? "rgba(2, 132, 199, 0.15)" : "#E0F2FE",
+                                    color: "#0284C7",
+                                    border: "1px solid rgba(2, 132, 199, 0.25)",
+                                  }}
+                                >
+                                  {m.name || m.medicine} {m.dosage ? `(${m.dosage})` : ""}
+                                </span>
+                              ))
+                            ) : (
+                              <span style={{ fontSize: "11.5px", color: mutedText, fontStyle: "italic" }}>
+                                {parsed.advice || (isHi ? "कोई दवा विवरण नहीं" : "No structured medication items listed")}
+                              </span>
+                            )}
+                          </div>
+
+                          {parsed.notes && (
+                            <div style={{ fontSize: "11px", color: mutedText }}>
+                              <strong>Note:</strong> {parsed.notes}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 4. SUB-VIEW 2: TODAY'S APPOINTMENTS (GROUPED BY TIME SLOT) */}
+          {queueSubView === "appointments" && (
+            <div
+              style={{
+                background: cardBg,
+                border: cardBorder,
+                borderRadius: "16px",
+                padding: "16px 18px",
+                boxShadow: isDark ? "0 8px 24px rgba(0,0,0,0.3)" : "0 4px 16px rgba(0,0,0,0.03)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px", flexWrap: "wrap", gap: "8px" }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: "15px", fontWeight: 900, color: textColor, display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span>{isHi ? "शेड्यूल्ड फार्मेसी अपॉइंटमेंट्स" : "Today's Booked Pharmacy Appointments"}</span>
+                    <span style={{ fontSize: "11px", fontWeight: 800, padding: "2px 8px", borderRadius: "12px", background: isDark ? "rgba(2, 132, 199, 0.2)" : "#E0F2FE", color: "#0284C7" }}>
+                      {filteredAppointments.length} {isHi ? "अपॉइंटमेंट्स" : "Bookings"}
+                    </span>
+                  </h3>
+                  <p style={{ margin: "2px 0 0 0", fontSize: "11.5px", color: mutedText }}>
+                    {isHi
+                      ? "समय स्लॉट वार समूहीकृत • मैन्युअल चेक-इन (कतार टोकन जारी), पूर्ण, रद्दीकरण एवं एसएमएस"
+                      : "Grouped by time slot • Manual check-in (convert to queue ticket), complete, cancel & SMS"}
+                  </p>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <button
+                    type="button"
+                    onClick={() => fetchPharmacyAppointments(true)}
+                    style={{
+                      padding: "5px 12px",
+                      borderRadius: "8px",
+                      background: isDark ? "#1E293B" : "#F1F5F9",
+                      border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
+                      color: textColor,
+                      fontSize: "11.5px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "4px",
+                    }}
+                  >
+                    <RefreshCw size={12} className={appointmentsLoading ? "spin-icon" : ""} />
+                    <span>{isHi ? "रीलोड" : "Reload"}</span>
+                  </button>
+                </div>
+              </div>
+
+              {appointmentsLoading ? (
+                <div style={{ textAlign: "center", padding: "40px 0", color: "#0284C7" }}>
+                  <RefreshCw size={24} className="spin-icon" style={{ margin: "0 auto 8px auto" }} />
+                  <div style={{ fontSize: "13px", fontWeight: 700 }}>{isHi ? "अपॉइंटमेंट्स लोड हो रही हैं..." : "Loading appointments..."}</div>
+                </div>
+              ) : Object.keys(appointmentsBySlot).length === 0 ? (
+                <div style={{ textAlign: "center", padding: "40px 10px", color: mutedText }}>
+                  <Calendar size={40} style={{ opacity: 0.3, margin: "0 auto 10px auto" }} />
+                  <div style={{ fontSize: "14px", fontWeight: 800, color: textColor }}>
+                    {isHi ? "कोई अपॉइंटमेंट नहीं मिली" : "No appointments scheduled matching filters"}
+                  </div>
+                  <div style={{ fontSize: "12px", color: mutedText, marginTop: "4px" }}>
+                    {queueSearchQuery || queueCategoryFilter !== "all"
+                      ? (isHi ? "फ़िल्टर साफ़ करके पुनः प्रयास करें" : "Try resetting your search query or category filter")
+                      : (isHi ? "अपॉइंटमेंट ऑनलाइन या रिसेप्शन से दर्ज होने पर यहाँ दिखाई देंगे" : "Scheduled appointments will appear here automatically")}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                  {Object.entries(appointmentsBySlot).map(([slotKey, slotApts]) => (
+                    <div
+                      key={slotKey}
+                      style={{
+                        background: isDark ? "#0F172A" : "#F8FAFC",
+                        border: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0",
+                        borderRadius: "14px",
+                        padding: "12px",
+                      }}
+                    >
+                      {/* Slot Header Banner */}
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          marginBottom: "10px",
+                          paddingBottom: "8px",
+                          borderBottom: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0",
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                          <span style={{ fontSize: "13px", fontWeight: 900, color: "#0284C7" }}>
+                            {slotKey}
+                          </span>
+                          <span style={{ fontSize: "11px", fontWeight: 700, color: mutedText }}>
+                            ({slotApts.length} {slotApts.length === 1 ? (isHi ? "अपॉइंटमेंट" : "Appointment") : (isHi ? "अपॉइंटमेंट्स" : "Appointments")})
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Appointments inside slot */}
+                      <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                        {slotApts.map((apt) => {
+                          const rawStatus = (apt.status || "booked").toLowerCase();
+                          const isCheckedIn = rawStatus === "checked_in" || Boolean(apt.ticket_id && rawStatus !== "cancelled" && rawStatus !== "expired");
+                          const isCompleted = rawStatus === "completed";
+                          const isCancelled = rawStatus === "cancelled";
+                          const isExpired = rawStatus === "expired";
+                          const isLate = isAppointmentLate(apt);
+                          const isCheckinOpen = !isCheckedIn && !isCompleted && !isCancelled && !isExpired;
+                          const cat = detectPharmacyItemCategory(apt);
+
+                          return (
+                            <div
+                              key={apt.appointment_id}
+                              style={{
+                                background: isCheckedIn
+                                  ? (isDark ? "rgba(2, 132, 199, 0.08)" : "#F0F9FF")
+                                  : isLate
+                                    ? (isDark ? "rgba(239, 68, 68, 0.08)" : "#FEF2F2")
+                                    : (isDark ? "#0F172A" : "#FFFFFF"),
+                                border: isCheckedIn
+                                  ? "1px solid #0284C7"
+                                  : isLate
+                                    ? "1.5px solid #EF4444"
+                                    : (isDark ? "1px solid #1E293B" : "1px solid #E2E8F0"),
+                                borderRadius: "12px",
+                                padding: "10px 14px",
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: "8px",
+                              }}
+                            >
+                              <div
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  alignItems: "center",
+                                  flexWrap: "wrap",
+                                  gap: "8px",
+                                }}
+                              >
+                                {/* Left demographics */}
+                                <div>
+                                  <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                                    <span style={{ fontSize: "11px", fontWeight: 800, color: "#0284C7", fontFamily: "monospace" }}>
+                                      #{apt.appointment_id}
+                                    </span>
+                                    <span style={{ fontWeight: 800, fontSize: "13.5px", color: textColor }}>
+                                      {apt.patient_name || apt.name || "Patient"}
+                                    </span>
+                                    <span style={{ fontSize: "11.5px", color: mutedText }}>
+                                      {apt.age ? `${apt.age}y / ` : ""}{apt.gender || "M"}
+                                    </span>
+                                    {apt.phone && (
+                                      <span style={{ fontSize: "11.5px", color: mutedText }}>
+                                        • {apt.phone}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "4px", flexWrap: "wrap" }}>
+                                    <span
+                                      style={{
+                                        fontSize: "10.5px",
+                                        fontWeight: 800,
+                                        padding: "1px 6px",
+                                        borderRadius: "5px",
+                                        background: isDark ? "rgba(2, 132, 199, 0.15)" : "#E0F2FE",
+                                        color: "#0284C7",
+                                        border: "1px solid rgba(2, 132, 199, 0.3)",
+                                      }}
+                                    >
+                                      {cat} • {apt.doctor_name || apt.department || "Pharmacy"}
+                                    </span>
+
+                                    {/* Status Chip */}
+                                    <span
+                                      style={{
+                                        fontSize: "10px",
+                                        fontWeight: 800,
+                                        padding: "2px 8px",
+                                        borderRadius: "9999px",
+                                        background: isCheckedIn
+                                          ? "#E0F2FE"
+                                          : isCompleted
+                                            ? "#ECFDF5"
+                                            : isCancelled
+                                              ? "#F1F5F9"
+                                              : isExpired
+                                                ? "#FEF2F2"
+                                                : "#F1F5F9",
+                                        color: isCheckedIn
+                                          ? "#0369A1"
+                                          : isCompleted
+                                            ? "#059669"
+                                            : isCancelled
+                                              ? "#64748B"
+                                              : isExpired
+                                                ? "#DC2626"
+                                                : "#334155",
+                                        border: isCheckedIn
+                                          ? "1px solid #BAE6FD"
+                                          : isCompleted
+                                            ? "1px solid #A7F3D0"
+                                            : isCancelled
+                                              ? "1px solid #CBD5E1"
+                                              : isExpired
+                                                ? "1px solid #FECACA"
+                                                : "1px solid #CBD5E1",
+                                      }}
+                                    >
+                                      {isCheckedIn
+                                        ? `Checked In (#${apt.ticket_id || ""})`
+                                        : isCompleted
+                                          ? "Completed"
+                                          : isCancelled
+                                            ? "Cancelled"
+                                            : isExpired
+                                              ? "Expired"
+                                              : isCheckinOpen
+                                                ? "Check-in Open"
+                                                : "Booked"}
+                                    </span>
+
+                                    {/* Late Marker */}
+                                    {isLate && (
+                                      <span
+                                        style={{
+                                          fontSize: "10px",
+                                          fontWeight: 900,
+                                          padding: "2px 7px",
+                                          borderRadius: "9999px",
+                                          background: "#EF4444",
+                                          color: "#FFFFFF",
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          gap: "3px",
+                                          boxShadow: "0 1px 4px rgba(239, 68, 68, 0.3)",
+                                        }}
+                                      >
+                                        <AlertTriangle size={11} color="#DC2626" />
+                                        <span>{isHi ? "विलंबित मरीज़ (Late)" : "LATE / OVERDUE"}</span>
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Right actions: Check-in, Mark Completed, Cancel, SMS Reminder */}
+                                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                  {/* SMS Reminder Button */}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSendSmsReminder(apt)}
+                                    style={{
+                                      background: isDark ? "#1E293B" : "#F1F5F9",
+                                      border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
+                                      color: textColor,
+                                      padding: "6px 10px",
+                                      borderRadius: "8px",
+                                      fontSize: "11px",
+                                      fontWeight: 700,
+                                      cursor: "pointer",
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: "4px",
+                                    }}
+                                    title="Send SMS appointment reminder to patient phone"
+                                  >
+                                    <Phone size={12} />
+                                    <span>{isHi ? "एसएमएस" : "SMS"}</span>
+                                  </button>
+
+                                  {!isCheckedIn && !isCompleted && !isCancelled && !isExpired && (
+                                    <>
+                                      {/* Check-In (Convert to Queue Ticket) */}
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCheckInAppointment(apt.appointment_id)}
+                                        style={{
+                                          background: "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)",
+                                          color: "#FFFFFF",
+                                          border: "none",
+                                          padding: "6px 12px",
+                                          borderRadius: "8px",
+                                          fontSize: "11.5px",
+                                          fontWeight: 800,
+                                          cursor: "pointer",
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          gap: "4px",
+                                          boxShadow: "0 2px 6px rgba(2, 132, 199, 0.25)",
+                                        }}
+                                        title="Issue queue token and check-in patient"
+                                      >
+                                        <CheckCircle2 size={13} />
+                                        <span>{isHi ? "चेक-इन करें" : "Check-In"}</span>
+                                      </button>
+
+                                      {/* Mark Completed */}
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCompleteAppointment(apt.appointment_id)}
+                                        style={{
+                                          background: isDark ? "rgba(16, 185, 129, 0.15)" : "#ECFDF5",
+                                          border: "1px solid #10B981",
+                                          color: "#059669",
+                                          padding: "6px 10px",
+                                          borderRadius: "8px",
+                                          fontSize: "11px",
+                                          fontWeight: 700,
+                                          cursor: "pointer",
+                                        }}
+                                        title="Mark appointment as completed"
+                                      >
+                                        {isHi ? "पूर्ण" : "Complete"}
+                                      </button>
+
+                                      {/* Cancel */}
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCancelAppointment(apt.appointment_id)}
+                                        style={{
+                                          background: isDark ? "rgba(239, 68, 68, 0.12)" : "#FEF2F2",
+                                          border: "1px solid #EF4444",
+                                          color: "#DC2626",
+                                          padding: "6px 10px",
+                                          borderRadius: "8px",
+                                          fontSize: "11px",
+                                          fontWeight: 700,
+                                          cursor: "pointer",
+                                        }}
+                                        title="Cancel scheduled appointment"
+                                      >
+                                        {isHi ? "रद्द करें" : "Cancel"}
+                                      </button>
+                                    </>
+                                  )}
+
+                                  {isCheckedIn && (
+                                    <span
+                                      style={{
+                                        fontSize: "11px",
+                                        color: "#0284C7",
+                                        fontWeight: 800,
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: "4px",
+                                      }}
+                                    >
+                                      <CheckCircle2 size={14} />
+                                      <span>{isHi ? `कतार में सक्रिय (#${apt.ticket_id || ""})` : `In Live Queue (#${apt.ticket_id || ""})`}</span>
+                                    </span>
+                                  )}
+
+                                  {isCompleted && (
+                                    <span
+                                      style={{
+                                        fontSize: "11px",
+                                        color: "#059669",
+                                        fontWeight: 800,
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: "4px",
+                                      }}
+                                    >
+                                      <CheckCircle2 size={14} />
+                                      <span>{isHi ? "विज़िट पूर्ण" : "Completed"}</span>
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 

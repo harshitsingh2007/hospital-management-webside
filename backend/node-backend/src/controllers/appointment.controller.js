@@ -13,6 +13,7 @@ const {
   getUserAppointments,
   getTenantAppointments,
   cancelAppointment,
+  completeAppointment,
 } = require("../services/appointmentService");
 const { verifyFamilyMemberOwnership, resolveOrCreateFamilyMember } = require("../services/familyService");
 const { getIo, broadcastQueueUpdate } = require("../socket");
@@ -270,10 +271,38 @@ async function cancelAppointmentEndpoint(req, res, next) {
   }
 }
 
+async function completeAppointmentEndpoint(req, res, next) {
+  try {
+    const aptId = req.params.appointment_id || req.body?.appointment_id;
+    const reason = req.body?.reason || "Appointment completed by desk";
+
+    if (!aptId) {
+      return res.status(400).json({ status: "error", message: "Appointment ID is required." });
+    }
+
+    const result = await completeAppointment(aptId, reason);
+
+    const io = getIo();
+    if (io) {
+      io.emit("appointment_updated", { appointment_id: aptId, status: "completed", reason });
+      io.emit("queue_updated", { timestamp: new Date().toISOString() });
+    }
+
+    return res.status(200).json({
+      status: "success",
+      message: `Appointment ${aptId} marked as completed.`,
+      appointment: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   bookAppointmentEndpoint,
   checkInAppointmentEndpoint,
   getUserAppointmentsEndpoint,
   getTenantAppointmentsEndpoint,
   cancelAppointmentEndpoint,
+  completeAppointmentEndpoint,
 };

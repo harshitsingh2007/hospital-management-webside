@@ -1209,66 +1209,140 @@ export default function PathologyPage({
   };
 
   // Historical Records & Date Filtering
-  const [historyDateFilter, setHistoryDateFilter] = useState("today"); // "today" | "yesterday" | "date" | "all"
+  const [historyDateFilter, setHistoryDateFilter] = useState("all"); // Default to "all" so lab records display immediately
   const [customFilterDate, setCustomFilterDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [historySearchTerm, setHistorySearchTerm] = useState("");
   const [historicalReports, setHistoricalReports] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historyError, setHistoryError] = useState(null);
 
   const fetchHistoricalReports = useCallback(async () => {
+    if (!effectiveHospitalCode) return;
     setLoadingHistory(true);
+    setHistoryError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/v1/patient-history?hospital_id=${effectiveHospitalCode}`);
+      const headers = { "Content-Type": "application/json" };
+      if (currentUser?.email) headers["X-User-Email"] = currentUser.email;
+      try {
+        const token = localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || currentUser?.token;
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+      } catch (_) { }
+
+      const res = await fetch(`${API_BASE}/api/v1/hospitals/${effectiveHospitalCode}/visits?limit=500`, {
+        headers,
+      });
+
+      if (res.status === 401 || res.status === 403) {
+        setHistoryError(
+          isHi
+            ? "अनुमति अस्वीकृत (403): आपके पास इस अस्पताल के लैब विज़िट रिकॉर्ड देखने की अनुमति नहीं है।"
+            : "Permission Denied (403): You do not have permission to view visit records for this hospital."
+        );
+        setHistoricalReports([]);
+        return;
+      }
+
+      if (!res.ok) {
+        let errMsg = isHi ? `त्रुटि ${res.status}: लैब रिकॉर्ड लोड करने में विफल` : `Error ${res.status}: Failed to load lab visits`;
+        try {
+          const errData = await res.json();
+          if (errData?.message) errMsg = errData.message;
+        } catch (_) { }
+        setHistoryError(errMsg);
+        setHistoricalReports([]);
+        return;
+      }
+
       const data = await res.json();
-      if (data && Array.isArray(data.visits)) {
-        setHistoricalReports(data.visits);
+      if (data && (data.status === "success" || Array.isArray(data.visits))) {
+        setHistoricalReports(Array.isArray(data.visits) ? data.visits : []);
+        setHistoryError(null);
       } else {
         setHistoricalReports([]);
       }
     } catch (e) {
-      console.log("History fetch error:", e);
+      console.error("History fetch error:", e);
+      setHistoryError(isHi ? "नेटवर्क त्रुटि: सर्वर से कनेक्ट नहीं हो सका।" : "Network error: Unable to connect to server.");
+      setHistoricalReports([]);
     } finally {
       setLoadingHistory(false);
     }
-  }, [effectiveHospitalCode]);
+  }, [effectiveHospitalCode, currentUser?.email, currentUser?.token, isHi]);
 
+  // Fetch on mount and when hospital changes
   useEffect(() => {
-    if (activeTab === "history") {
-      fetchHistoricalReports();
-    }
-  }, [activeTab, fetchHistoricalReports]);
+    fetchHistoricalReports();
+  }, [fetchHistoricalReports]);
 
-  // Filtered Historical Records (Requirement 1 & 2: Moved search input into History, date filter, status, reprint)
+  // All Pathology & Diagnostic Laboratory Visits
+  const allLabVisits = useMemo(() => {
+    return historicalReports.filter((item) => {
+      const dept = (item.department || item.department_name || "").toLowerCase();
+      const deptCode = (item.dept_code || "").toLowerCase();
+      const cat = (item.service_category || "").toLowerCase();
+      const med = (item.medical_condition || "").toLowerCase();
+      const inStages = Array.isArray(item.transfer_stages) && item.transfer_stages.some((s) => {
+        const sd = (s.department || "").toLowerCase();
+        const sc = (s.dept_code || "").toLowerCase();
+        return sd.includes("lab") || sd.includes("path") || sc.includes("lab") || sc.includes("path");
+      });
+      return (
+        dept.includes("lab") ||
+        dept.includes("path") ||
+        deptCode.includes("lab") ||
+        deptCode.includes("path") ||
+        cat.includes("lab") ||
+        cat.includes("path") ||
+        med.includes("lab") ||
+        med.includes("path") ||
+        Boolean(item.test_panel_name) ||
+        inStages ||
+        (item.prescription_notes && typeof item.prescription_notes === "string" && item.prescription_notes.includes("lab_report"))
+      );
+    });
+  }, [historicalReports]);
+
+  // Date counts breakdown for pill badges and empty state
+  const dateCounts = useMemo(() => {
+    const todayStr = new Date().toISOString().split("T")[0];
+    const yestDate = new Date();
+    yestDate.setDate(yestDate.getDate() - 1);
+    const yestStr = yestDate.toISOString().split("T")[0];
+
+    let today = 0;
+    let yesterday = 0;
+    let custom = 0;
+
+    allLabVisits.forEach((item) => {
+      const itemDate = item.queue_date || (item.created_at ? item.created_at.split("T")[0] : "");
+      if (itemDate === todayStr) today++;
+      if (itemDate === yestStr) yesterday++;
+      if (itemDate === customFilterDate) custom++;
+    });
+
+    return {
+      all: allLabVisits.length,
+      today,
+      yesterday,
+      custom,
+    };
+  }, [allLabVisits, customFilterDate]);
+
+  // Filtered Historical Records based on user selection
   const filteredHistory = useMemo(() => {
     const todayStr = new Date().toISOString().split("T")[0];
     const yestDate = new Date();
     yestDate.setDate(yestDate.getDate() - 1);
     const yestStr = yestDate.toISOString().split("T")[0];
 
-    return historicalReports.filter((item) => {
-      // 1. Department check (only pathology / lab records)
-      const dept = (item.department || item.department_name || "").toLowerCase();
-      const cat = (item.service_category || "").toLowerCase();
-      const med = (item.medical_condition || "").toLowerCase();
-      const isLab =
-        dept.includes("lab") ||
-        dept.includes("path") ||
-        cat.includes("lab") ||
-        cat.includes("path") ||
-        med.includes("lab") ||
-        med.includes("path") ||
-        item.test_panel_name ||
-        (item.prescription_notes && typeof item.prescription_notes === "string" && item.prescription_notes.includes("lab_report"));
-
-      if (!isLab) return false;
-
-      // 2. Date Filtering
+    return allLabVisits.filter((item) => {
+      // 1. Date Filtering
       const itemDate = item.queue_date || (item.created_at ? item.created_at.split("T")[0] : "");
       if (historyDateFilter === "today" && itemDate && itemDate !== todayStr) return false;
       if (historyDateFilter === "yesterday" && itemDate && itemDate !== yestStr) return false;
       if (historyDateFilter === "date" && itemDate && itemDate !== customFilterDate) return false;
 
-      // 3. Search query (Patient Name, Token, Phone, Test Panel)
+      // 2. Search query (Patient Name, Token, Phone, Test Panel)
       if (historySearchTerm.trim()) {
         const q = historySearchTerm.toLowerCase();
         const pName = (item.patient_name || item.name || "").toLowerCase();
@@ -1282,7 +1356,7 @@ export default function PathologyPage({
 
       return true;
     });
-  }, [historicalReports, historyDateFilter, customFilterDate, historySearchTerm]);
+  }, [allLabVisits, historyDateFilter, customFilterDate, historySearchTerm]);
 
   // Excel Export Handler
   const handleExportExcel = () => {
@@ -1856,20 +1930,74 @@ export default function PathologyPage({
       return s === "no_show" || s === "expired" || s === "cancelled";
     }).length;
   }, [todayAppointments]);
+  // Real-time Dynamic Average Wait Time (Minutes)
   const avgWaitMinutes = useMemo(() => {
-    if (!Array.isArray(pathologyQueue) || pathologyQueue.length === 0) return 10;
-    let totalSec = 0;
-    pathologyQueue.forEach((t) => {
-      const rawJoin = t.join_timestamp
-        ? (Number(t.join_timestamp) > 1e11 ? Number(t.join_timestamp) / 1000 : Number(t.join_timestamp))
-        : (t.created_at ? new Date(t.created_at).getTime() / 1000 : nowSec - 600);
-      const validJoin = isNaN(rawJoin) ? nowSec - 600 : rawJoin;
-      totalSec += Math.max(0, nowSec - validJoin);
+    if (Array.isArray(pathologyQueue) && pathologyQueue.length > 0) {
+      const totalSec = pathologyQueue.reduce((acc, t) => {
+        const rawJoin = t.join_timestamp
+          ? (Number(t.join_timestamp) > 1e11 ? Number(t.join_timestamp) / 1000 : Number(t.join_timestamp))
+          : (t.created_at ? new Date(t.created_at).getTime() / 1000 : nowSec);
+        const joinSec = isNaN(rawJoin) ? nowSec : rawJoin;
+        return acc + Math.max(0, nowSec - joinSec);
+      }, 0);
+      return Math.max(1, Math.round(totalSec / pathologyQueue.length / 60));
+    }
+    if (analytics?.average_wait_time !== undefined && analytics?.average_wait_time !== null && Number(analytics.average_wait_time) > 0) {
+      return Math.round(Number(analytics.average_wait_time));
+    }
+    return 0;
+  }, [pathologyQueue, nowSec, analytics]);
+
+  // Real-time Dynamic Average Test Duration (Minutes)
+  const avgTestTimeMinutes = useMemo(() => {
+    const completedLab = (allLabVisits || []).filter((v) => {
+      const s = String(v.status || "").toLowerCase();
+      return s === "completed" || Boolean(v.serve_end_time) || Boolean(v.completed_at);
     });
-    const mins = Math.round((totalSec / pathologyQueue.length) / 60);
-    return !isNaN(mins) && mins > 0 ? mins : 10;
-  }, [pathologyQueue, nowSec]);
-  const avgTestTimeMinutes = 12;
+
+    if (completedLab.length > 0) {
+      let totalDurationSec = 0;
+      let countWithDuration = 0;
+      completedLab.forEach((v) => {
+        const start = v.serve_start_time || v.serve_timestamp || v.called_at || v.created_at;
+        const end = v.serve_end_time || v.completed_at || v.updated_at;
+        if (start && end) {
+          const s = new Date(start).getTime();
+          const e = new Date(end).getTime();
+          const diffSec = (e - s) / 1000;
+          if (diffSec > 0 && diffSec < 7200) {
+            totalDurationSec += diffSec;
+            countWithDuration++;
+          }
+        } else if (v.service_duration_minutes && Number(v.service_duration_minutes) > 0) {
+          totalDurationSec += Number(v.service_duration_minutes) * 60;
+          countWithDuration++;
+        }
+      });
+      if (countWithDuration > 0) {
+        return Math.max(1, Math.round(totalDurationSec / countWithDuration / 60));
+      }
+    }
+
+    if (analytics?.avg_service_time || analytics?.average_service_time) {
+      const val = Math.round(Number(analytics.avg_service_time || analytics.average_service_time) / 60);
+      if (val > 0) return val;
+    }
+
+    return 0;
+  }, [allLabVisits, analytics]);
+
+  // Real-time Dynamic Turnaround Time for Hero Card
+  const avgTurnaroundFormatted = useMemo(() => {
+    if (avgTestTimeMinutes > 0) {
+      return `~${avgTestTimeMinutes} min`;
+    }
+    if (analytics?.average_service_time || analytics?.avg_service_time) {
+      const mins = Math.round(Number(analytics.average_service_time || analytics.avg_service_time) / 60);
+      if (mins > 0) return `~${mins} min`;
+    }
+    return "0 min";
+  }, [avgTestTimeMinutes, analytics]);
 
   return (
     <div
@@ -1895,28 +2023,35 @@ export default function PathologyPage({
       }}
     >
       <style>{`
+        .pathology-portal-wrapper {
+          width: 100%;
+          max-width: 100%;
+          box-sizing: border-box;
+          overflow-x: hidden;
+        }
+
         .pathology-portal-wrapper * {
           font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          box-sizing: border-box;
         }
 
         .pathology-portal-wrapper .user-dashboard-footer {
-          margin-top: 16px !important;
-          margin-bottom: 0px !important;
-          padding-top: 16px !important;
-          padding-bottom: 16px !important;
+          margin-top: 14px !important;
+          padding-top: 10px !important;
+          padding-bottom: 4px !important;
         }
 
-        /* Executive Dark-Navy Clinical Hero Container */
+        /* Executive Dark-Navy Clinical Hero Container matching Pharmacy reference */
         .pathology-hero-container {
           background: radial-gradient(circle at 10% 15%, rgba(2, 132, 199, 0.28) 0%, transparent 45%),
                       radial-gradient(circle at 90% 85%, rgba(56, 189, 248, 0.18) 0%, transparent 50%),
-                      linear-gradient(135deg, #0C2340 0%, #0F172A 60%, #1E293B 100%);
+                      linear-gradient(135deg, #090F1E 0%, #0F172A 60%, #162447 100%);
           border: 1px solid rgba(56, 189, 248, 0.25);
-          border-radius: 20px;
-          padding: 20px 24px;
+          border-radius: 28px;
+          padding: 26px 30px;
           color: #FFFFFF;
-          box-shadow: 0 16px 36px -12px rgba(15, 23, 42, 0.35), 0 0 0 1px rgba(56, 189, 248, 0.18);
-          margin-bottom: 16px;
+          box-shadow: 0 20px 45px -12px rgba(15, 23, 42, 0.35), 0 0 0 1px rgba(56, 189, 248, 0.18);
+          margin-bottom: 24px;
           position: relative;
           overflow: visible;
           z-index: 50;
@@ -1925,23 +2060,21 @@ export default function PathologyPage({
         .pathology-hero-kpi-grid {
           display: grid;
           grid-template-columns: repeat(4, 1fr);
-          gap: 12px;
-          margin-top: 14px;
+          gap: 14px;
+          margin-top: 22px;
           border-top: 1px solid rgba(255, 255, 255, 0.12);
-          padding-top: 12px;
+          padding-top: 18px;
         }
 
         @media (max-width: 960px) {
           .pathology-hero-kpi-grid {
             grid-template-columns: repeat(2, 1fr);
-            gap: 10px;
           }
         }
 
         @media (max-width: 540px) {
           .pathology-hero-kpi-grid {
             grid-template-columns: 1fr;
-            gap: 10px;
           }
         }
 
@@ -1950,32 +2083,29 @@ export default function PathologyPage({
           backdrop-filter: blur(12px);
           -webkit-backdrop-filter: blur(12px);
           border: 1px solid rgba(255, 255, 255, 0.14);
-          border-radius: 14px;
-          padding: 10px 14px;
+          border-radius: 18px;
+          padding: 14px 18px;
         }
 
         .pathology-tabs-grid {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
           gap: 12px;
-          margin-bottom: 16px;
+          margin-bottom: 24px;
         }
 
         @media (max-width: 920px) {
           .pathology-tabs-grid {
             grid-template-columns: 1fr;
-            gap: 10px;
           }
         }
 
         .tab-button-modern {
           display: flex;
           align-items: center;
-          gap: 10px;
-          padding: 10px 14px;
-          min-height: 58px;
-          box-sizing: border-box;
-          border-radius: 14px;
+          gap: 12px;
+          padding: 14px 18px;
+          border-radius: 16px;
           cursor: pointer;
           text-align: left;
           user-select: none;
@@ -1987,7 +2117,7 @@ export default function PathologyPage({
           background: linear-gradient(135deg, #0284C7 0%, #0369A1 100%);
           border: 1px solid #0284C7;
           color: #FFFFFF;
-          box-shadow: 0 6px 16px rgba(2, 132, 199, 0.28);
+          box-shadow: 0 8px 20px rgba(2, 132, 199, 0.28);
         }
 
         .tab-button-modern.inactive {
@@ -2004,9 +2134,9 @@ export default function PathologyPage({
         }
 
         .tab-icon-wrapper {
-          width: 36px;
-          height: 36px;
-          border-radius: 10px;
+          width: 40px;
+          height: 40px;
+          border-radius: 12px;
           display: flex;
           align-items: center;
           justify-content: center;
@@ -2037,24 +2167,24 @@ export default function PathologyPage({
         }
 
         .tab-title-text {
-          font-size: 13px;
+          font-size: 13.5px;
           font-weight: 800;
           letter-spacing: -0.2px;
           line-height: 1.2;
         }
 
         .tab-sub-text {
-          font-size: 10.5px;
+          font-size: 11px;
           font-weight: 600;
           display: block;
-          margin-top: 1px;
+          margin-top: 2px;
           opacity: 0.85;
         }
 
         .tab-count-badge {
-          font-size: 10.5px;
+          font-size: 11px;
           font-weight: 800;
-          padding: 2px 7px;
+          padding: 2px 8px;
           border-radius: 9999px;
           display: inline-flex;
           align-items: center;
@@ -2067,11 +2197,12 @@ export default function PathologyPage({
           grid-template-columns: minmax(0, 1fr) 340px;
           gap: 16px;
           width: 100%;
+          align-items: start;
         }
 
         @media (max-width: 1080px) {
           .pathology-workstation-grid {
-            grid-template-columns: 1fr;
+            grid-template-columns: minmax(0, 1fr);
           }
         }
 
@@ -2086,42 +2217,42 @@ export default function PathologyPage({
 
       {/* 1. EXECUTIVE CLINICAL HERO CONTAINER */}
       <div className="pathology-hero-container">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "12px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "16px" }}>
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px", flexWrap: "wrap" }}>
-              <span style={{ background: "rgba(255,255,255,0.14)", padding: "3px 8px", borderRadius: "6px", fontSize: "10.5px", fontWeight: 800, letterSpacing: "0.5px", display: "inline-flex", alignItems: "center", gap: "5px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px", flexWrap: "wrap" }}>
+              <span style={{ background: "rgba(255,255,255,0.14)", padding: "4px 10px", borderRadius: "8px", fontSize: "11px", fontWeight: 800, letterSpacing: "0.5px", display: "inline-flex", alignItems: "center", gap: "6px" }}>
                 <Building2 size={12} />
                 <span>{brandName.toUpperCase()}</span>
               </span>
-              <span style={{ background: "rgba(56, 189, 248, 0.2)", border: "1px solid rgba(56, 189, 248, 0.4)", color: "#BAE6FD", padding: "3px 8px", borderRadius: "6px", fontSize: "10.5px", fontWeight: 800 }}>
+              <span style={{ background: "rgba(56, 189, 248, 0.2)", border: "1px solid rgba(56, 189, 248, 0.4)", color: "#BAE6FD", padding: "4px 10px", borderRadius: "8px", fontSize: "11px", fontWeight: 800 }}>
                 {isHi ? "NABL एवं NABH मान्यता प्राप्त डिजिटल पैथोलॉजी व डायग्नोस्टिक लैब" : "NABL & NABH ACCREDITED DIGITAL PATHOLOGY & DIAGNOSTIC LAB"}
               </span>
             </div>
-            <h1 style={{ margin: 0, fontSize: "24px", fontWeight: 900, letterSpacing: "-0.4px", lineHeight: "1.2" }}>
+            <h1 style={{ margin: 0, fontSize: "28px", fontWeight: 900, letterSpacing: "-0.5px" }}>
               {isHi ? "पैथोलॉजी एवं डायग्नोस्टिक प्रयोगशाला पोर्टल" : "Pathology & Diagnostic Laboratory Portal"}
             </h1>
 
             {/* Highlighted Staff & Department One-Liner Glass Capsule */}
             <div
               style={{
-                marginTop: "8px",
+                marginTop: "10px",
                 display: "inline-flex",
                 alignItems: "center",
                 flexWrap: "nowrap",
-                gap: "8px",
+                gap: "10px",
                 background: "linear-gradient(135deg, rgba(15, 23, 42, 0.75) 0%, rgba(30, 41, 59, 0.6) 100%)",
-                border: "1px solid rgba(56, 189, 248, 0.45)",
+                border: "1.5px solid rgba(56, 189, 248, 0.45)",
                 borderRadius: "30px",
-                padding: "3px 10px 3px 5px",
+                padding: "5px 14px 5px 6px",
                 backdropFilter: "blur(12px)",
-                boxShadow: "0 2px 10px rgba(0, 0, 0, 0.25)",
+                boxShadow: "0 4px 15px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.15)",
                 maxWidth: "100%",
               }}
             >
               <div
                 style={{
-                  width: "22px",
-                  height: "22px",
+                  width: "24px",
+                  height: "24px",
                   borderRadius: "50%",
                   background: "linear-gradient(135deg, #38BDF8 0%, #0284C7 100%)",
                   display: "flex",
@@ -2132,25 +2263,25 @@ export default function PathologyPage({
                   flexShrink: 0,
                 }}
               >
-                <Microscope size={12} />
+                <Microscope size={13} />
               </div>
 
-              <div style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
-                <span style={{ fontSize: "10.5px", fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                <span style={{ fontSize: "11px", fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.5px" }}>
                   {isHi ? "पैथोलॉजिस्ट:" : "Pathologist:"}
                 </span>
-                <span style={{ fontSize: "12.5px", fontWeight: 900, color: "#FFFFFF", letterSpacing: "0.2px" }}>
+                <span style={{ fontSize: "13.5px", fontWeight: 900, color: "#FFFFFF", letterSpacing: "0.2px" }}>
                   {currentUser?.name || currentUser?.username || pathologistName}
                 </span>
               </div>
 
-              <span style={{ width: "1px", height: "12px", background: "rgba(255, 255, 255, 0.2)", margin: "0 1px" }} />
+              <span style={{ width: "1px", height: "14px", background: "rgba(255, 255, 255, 0.2)", margin: "0 2px" }} />
 
-              <div style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
                 <span
                   style={{
-                    width: "6px",
-                    height: "6px",
+                    width: "7px",
+                    height: "7px",
                     borderRadius: "50%",
                     background: "#38BDF8",
                     boxShadow: "0 0 6px rgba(56, 189, 248, 0.5)",
@@ -2158,26 +2289,26 @@ export default function PathologyPage({
                     flexShrink: 0,
                   }}
                 />
-                <span style={{ fontSize: "10.5px", fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                <span style={{ fontSize: "11px", fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.5px" }}>
                   {isHi ? "विभाग:" : "Dept:"}
                 </span>
-                <span style={{ fontSize: "12px", fontWeight: 800, color: "#38BDF8", letterSpacing: "0.3px" }}>
+                <span style={{ fontSize: "12.5px", fontWeight: 800, color: "#38BDF8", letterSpacing: "0.4px" }}>
                   {(currentUser?.department || "PATHOLOGY & DIAGNOSTICS").toUpperCase()}
                 </span>
               </div>
 
               {(currentUser?.employee_code || currentUser?.employee_id || currentUser?.id) && (
                 <>
-                  <span style={{ width: "1px", height: "12px", background: "rgba(255, 255, 255, 0.2)", margin: "0 1px" }} />
+                  <span style={{ width: "1px", height: "14px", background: "rgba(255, 255, 255, 0.2)", margin: "0 2px" }} />
                   <span
                     style={{
-                      fontSize: "10px",
+                      fontSize: "11px",
                       fontWeight: 700,
                       color: "rgba(255, 255, 255, 0.75)",
                       fontFamily: "monospace",
                       background: "rgba(255, 255, 255, 0.08)",
-                      padding: "1px 5px",
-                      borderRadius: "4px",
+                      padding: "2px 7px",
+                      borderRadius: "6px",
                     }}
                   >
                     ID: {currentUser?.employee_code || currentUser?.employee_id || currentUser?.id}
@@ -2188,21 +2319,21 @@ export default function PathologyPage({
           </div>
 
           {/* Assigned Counter & Duty Status Controls */}
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
             {/* Assigned Desk Display */}
             <div
               style={{
                 display: "inline-flex",
                 alignItems: "center",
-                gap: "6px",
+                gap: "8px",
                 background: assignedDesk
                   ? "rgba(255, 255, 255, 0.12)"
                   : "rgba(100, 116, 139, 0.14)",
                 border: assignedDesk
                   ? "1px solid rgba(255, 255, 255, 0.25)"
                   : "1px solid rgba(100, 116, 139, 0.4)",
-                borderRadius: "10px",
-                padding: "6px 12px",
+                borderRadius: "12px",
+                padding: "8px 14px",
                 backdropFilter: "blur(8px)",
                 color: "#FFFFFF",
                 userSelect: "none",
@@ -2387,27 +2518,27 @@ export default function PathologyPage({
         <div className="pathology-hero-kpi-grid">
           <div className="pathology-kpi-card">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ fontSize: "10.5px", fontWeight: 700, opacity: 0.85, textTransform: "uppercase", color: "#BAE6FD" }}>
+              <div style={{ fontSize: "11px", fontWeight: 700, opacity: 0.85, textTransform: "uppercase", color: "#BAE6FD" }}>
                 {isHi ? "कतार में प्रतीक्षारत" : "Waiting in Lab Queue"}
               </div>
-              <Clock size={15} color="#38BDF8" />
+              <Clock size={16} color="#38BDF8" />
             </div>
-            <div style={{ fontSize: "22px", fontWeight: 900, marginTop: "2px", lineHeight: "1.2" }}>
+            <div style={{ fontSize: "28px", fontWeight: 900, marginTop: "4px" }}>
               {pathologyQueue.length}
             </div>
-            <div style={{ fontSize: "10.5px", opacity: 0.8, marginTop: "1px" }}>
+            <div style={{ fontSize: "11px", opacity: 0.8, marginTop: "2px" }}>
               {isHi ? "जांच हेतु प्रतीक्षारत नमूने" : "Specimens waiting in stream"}
             </div>
           </div>
 
           <div className="pathology-kpi-card">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ fontSize: "10.5px", fontWeight: 700, opacity: 0.85, textTransform: "uppercase", color: "#BAE6FD" }}>
+              <div style={{ fontSize: "11px", fontWeight: 700, opacity: 0.85, textTransform: "uppercase", color: "#BAE6FD" }}>
                 {isHi ? "सक्रिय जांच जारी" : "Active In-Testing"}
               </div>
-              <Activity size={15} color="#38BDF8" />
+              <Activity size={16} color="#38BDF8" />
             </div>
-            <div style={{ fontSize: "22px", fontWeight: 900, marginTop: "2px", lineHeight: "1.2" }}>
+            <div style={{ fontSize: "28px", fontWeight: 900, marginTop: "4px" }}>
               {activeServingTicket
                 ? `#${activeServingTicket.ticket_id}`
                 : dutyStatus === "OFF_DUTY"
@@ -2416,7 +2547,7 @@ export default function PathologyPage({
                     ? (isHi ? "अवकाश" : "On Break")
                     : (isHi ? "तैयार" : "Ready")}
             </div>
-            <div style={{ fontSize: "10.5px", opacity: 0.8, marginTop: "1px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            <div style={{ fontSize: "11px", opacity: 0.8, marginTop: "2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
               {activeServingTicket
                 ? activeServingTicket.name
                 : dutyStatus === "OFF_DUTY"
@@ -2431,30 +2562,30 @@ export default function PathologyPage({
 
           <div className="pathology-kpi-card">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ fontSize: "10.5px", fontWeight: 700, opacity: 0.85, textTransform: "uppercase", color: "#BAE6FD" }}>
-                {isHi ? "आज सत्यापित रिपोर्ट" : "Verified Today"}
+              <div style={{ fontSize: "11px", fontWeight: 700, opacity: 0.85, textTransform: "uppercase", color: "#BAE6FD" }}>
+                {isHi ? "लैब परीक्षण रिकॉर्ड्स" : "Laboratory Records"}
               </div>
-              <CheckCircle2 size={15} color="#38BDF8" />
+              <CheckCircle2 size={16} color="#38BDF8" />
             </div>
-            <div style={{ fontSize: "22px", fontWeight: 900, marginTop: "2px", lineHeight: "1.2" }}>
-              {historicalReports.length || 0}
+            <div style={{ fontSize: "28px", fontWeight: 900, marginTop: "4px" }}>
+              {allLabVisits.length || 0}
             </div>
-            <div style={{ fontSize: "10.5px", opacity: 0.8, marginTop: "1px" }}>
+            <div style={{ fontSize: "11px", opacity: 0.8, marginTop: "2px" }}>
               {isHi ? "सत्यापित क्लिनिकल रिपोर्ट" : "Approved Diagnostic Slips"}
             </div>
           </div>
 
           <div className="pathology-kpi-card">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ fontSize: "10.5px", fontWeight: 700, opacity: 0.85, textTransform: "uppercase", color: "#BAE6FD" }}>
+              <div style={{ fontSize: "11px", fontWeight: 700, opacity: 0.85, textTransform: "uppercase", color: "#BAE6FD" }}>
                 {isHi ? "औसत टर्नअराउंड समय" : "Avg. Turnaround"}
               </div>
-              <Sliders size={15} color="#38BDF8" />
+              <Sliders size={16} color="#38BDF8" />
             </div>
-            <div style={{ fontSize: "22px", fontWeight: 900, marginTop: "2px", lineHeight: "1.2" }}>
-              ~14.5 min
+            <div style={{ fontSize: "28px", fontWeight: 900, marginTop: "4px" }}>
+              {avgTurnaroundFormatted}
             </div>
-            <div style={{ fontSize: "10.5px", opacity: 0.8, marginTop: "1px" }}>
+            <div style={{ fontSize: "11px", opacity: 0.8, marginTop: "2px" }}>
               {isHi ? "नमूना संकलन से सत्यापन" : "Collection to Verification"}
             </div>
           </div>
@@ -2465,9 +2596,9 @@ export default function PathologyPage({
       {dutyStatus !== "ACTIVE" && (
         <div
           style={{
-            marginBottom: "16px",
-            padding: "10px 14px",
-            borderRadius: "12px",
+            marginBottom: "18px",
+            padding: "12px 18px",
+            borderRadius: "14px",
             background:
               dutyStatus === "OFF_DUTY"
                 ? (isDark ? "rgba(239, 68, 68, 0.15)" : "#FEF2F2")
@@ -2616,7 +2747,10 @@ export default function PathologyPage({
         {/* Tab 3: Test History */}
         <button
           type="button"
-          onClick={() => setActiveTab("history")}
+          onClick={() => {
+            setActiveTab("history");
+            fetchHistoricalReports();
+          }}
           className={`tab-button-modern ${activeTab === "history" ? "active" : "inactive"}`}
         >
           <div className="tab-icon-wrapper">
@@ -2633,7 +2767,7 @@ export default function PathologyPage({
               color: activeTab === "history" ? "#FFFFFF" : "#0369A1",
             }}
           >
-            {filteredHistory.length}
+            {allLabVisits.length}
           </span>
         </button>
       </div>
@@ -3027,8 +3161,8 @@ export default function PathologyPage({
                   </button>
                 </div>
 
-                <div style={{ overflowX: "auto", borderRadius: "10px", border: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+                <div style={{ overflowX: "auto", maxWidth: "100%", width: "100%", WebkitOverflowScrolling: "touch", borderRadius: "10px", border: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0" }}>
+                  <table style={{ width: "100%", minWidth: "620px", borderCollapse: "collapse", fontSize: "12px" }}>
                     <thead>
                       <tr style={{ background: isDark ? "#0F172A" : "#F1F5F9", borderBottom: isDark ? "1.5px solid #1E293B" : "1.5px solid #CBD5E1" }}>
                         <th style={{ padding: "8px 10px", textAlign: "left", fontWeight: 800, color: mutedText }}>{isHi ? "जांच पैरामीटर" : "Investigation Parameter"}</th>
@@ -3338,7 +3472,7 @@ export default function PathologyPage({
             </div>
 
             {/* RIGHT COLUMN: WORKSTATION SIDEBAR (Requirement 1: Next 5 waiting patients + "View full queue" link) */}
-            <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "14px", minWidth: 0, width: "100%", maxWidth: "100%" }}>
               <div
                 style={{
                   background: cardBg,
@@ -3708,7 +3842,7 @@ export default function PathologyPage({
                   <Sliders size={14} color="#0284C7" />
                 </div>
                 <div style={{ fontSize: "22px", fontWeight: 900, color: "#0284C7", marginTop: "4px", lineHeight: "1" }}>
-                  ~{avgWaitMinutes}m
+                  {avgWaitMinutes > 0 ? `~${avgWaitMinutes}m` : "0m"}
                 </div>
                 <div style={{ fontSize: "10.5px", color: mutedText, marginTop: "4px" }}>
                   {isHi ? "वर्तमान कतार विलंब" : "Live queue wait time"}
@@ -3732,10 +3866,10 @@ export default function PathologyPage({
                   <Activity size={14} color="#0284C7" />
                 </div>
                 <div style={{ fontSize: "22px", fontWeight: 900, color: "#0284C7", marginTop: "4px", lineHeight: "1" }}>
-                  ~{avgTestTimeMinutes}m
+                  {avgTestTimeMinutes > 0 ? `~${avgTestTimeMinutes}m` : "0m"}
                 </div>
                 <div style={{ fontSize: "10.5px", color: mutedText, marginTop: "4px" }}>
-                  {isHi ? "मानक लैब जांच समय" : "Standard assay protocol"}
+                  {isHi ? "औसत जांच अवधि" : "Average test duration"}
                 </div>
               </div>
             </div>
@@ -3845,30 +3979,8 @@ export default function PathologyPage({
                   </button>
                 </div>
 
-                {/* Walk-in Button + Call Next + Refresh (Requirement 1) */}
+                {/* Call Next + Refresh Controls */}
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                  <button
-                    type="button"
-                    onClick={() => setShowWalkInModal(true)}
-                    style={{
-                      background: isDark ? "#1E293B" : "#F1F5F9",
-                      border: "1.5px solid #0284C7",
-                      color: "#0284C7",
-                      padding: "7px 12px",
-                      borderRadius: "10px",
-                      fontSize: "12px",
-                      fontWeight: 800,
-                      cursor: "pointer",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "5px",
-                    }}
-                    title="Book walk-in pathology appointment"
-                  >
-                    <Plus size={13} />
-                    <span>{isHi ? "वॉक-इन अपॉइंटमेंट" : "Book Walk-In"}</span>
-                  </button>
-
                   <button
                     type="button"
                     onClick={() => {
@@ -4606,7 +4718,7 @@ export default function PathologyPage({
                     <div style={{ fontSize: "12px", color: mutedText, marginTop: "4px" }}>
                       {queueSearchQuery || queueCategoryFilter !== "all"
                         ? (isHi ? "फ़िल्टर साफ़ करके पुनः प्रयास करें" : "Try resetting your search query or category filter")
-                        : (isHi ? "वॉक-इन या ऑनलाइन पोर्टल से बुक करें" : "Book via walk-in button above or through patient portal")}
+                        : (isHi ? "जब अपॉइंटमेंट बुक होंगी तो यहाँ प्रदर्शित होंगी" : "Appointments will appear here when scheduled")}
                     </div>
                   </div>
                 ) : (
@@ -5116,209 +5228,7 @@ export default function PathologyPage({
               </div>
             )}
 
-            {/* 6. MODAL: WALK-IN APPOINTMENT (Requirement 1) */}
-            {showWalkInModal && (
-              <div
-                style={{
-                  position: "fixed",
-                  inset: 0,
-                  background: "rgba(15, 23, 42, 0.75)",
-                  backdropFilter: "blur(4px)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  zIndex: 9999,
-                  padding: "16px",
-                }}
-                onClick={() => setShowWalkInModal(false)}
-              >
-                <div
-                  style={{
-                    background: cardBg,
-                    border: cardBorder,
-                    borderRadius: "16px",
-                    padding: "20px 24px",
-                    maxWidth: "460px",
-                    width: "100%",
-                    boxShadow: "0 20px 40px rgba(0,0,0,0.35)",
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
-                    <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 900, color: textColor }}>
-                      {isHi ? "वॉक-इन पैथोलॉजी अपॉइंटमेंट बुक करें" : "Book Walk-In Lab Appointment"}
-                    </h3>
-                    <button
-                      type="button"
-                      onClick={() => setShowWalkInModal(false)}
-                      style={{ background: "none", border: "none", color: mutedText, cursor: "pointer" }}
-                    >
-                      <X size={15} />
-                    </button>
-                  </div>
 
-                  <form onSubmit={handleBookWalkIn} style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                    <div>
-                      <label style={{ fontSize: "11.5px", fontWeight: 700, color: mutedText, display: "block", marginBottom: "3px" }}>
-                        {isHi ? "मरीज़ का नाम *" : "Patient Full Name *"}
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="e.g. Ramesh Kumar"
-                        value={walkInName}
-                        onChange={(e) => setWalkInName(e.target.value)}
-                        style={{
-                          width: "100%",
-                          padding: "8px 12px",
-                          borderRadius: "8px",
-                          border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
-                          background: isDark ? "#0F172A" : "#FFFFFF",
-                          color: textColor,
-                          fontSize: "12px",
-                          outline: "none",
-                          boxSizing: "border-box",
-                        }}
-                      />
-                    </div>
-
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-                      <div>
-                        <label style={{ fontSize: "11.5px", fontWeight: 700, color: mutedText, display: "block", marginBottom: "3px" }}>
-                          {isHi ? "उम्र" : "Age"}
-                        </label>
-                        <input
-                          type="number"
-                          value={walkInAge}
-                          onChange={(e) => setWalkInAge(e.target.value)}
-                          style={{
-                            width: "100%",
-                            padding: "8px 12px",
-                            borderRadius: "8px",
-                            border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
-                            background: isDark ? "#0F172A" : "#FFFFFF",
-                            color: textColor,
-                            fontSize: "12px",
-                            outline: "none",
-                            boxSizing: "border-box",
-                          }}
-                        />
-                      </div>
-                      <div>
-                        <label style={{ fontSize: "11.5px", fontWeight: 700, color: mutedText, display: "block", marginBottom: "3px" }}>
-                          {isHi ? "लिंग" : "Gender"}
-                        </label>
-                        <select
-                          value={walkInGender}
-                          onChange={(e) => setWalkInGender(e.target.value)}
-                          style={{
-                            width: "100%",
-                            padding: "8px 12px",
-                            borderRadius: "8px",
-                            border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
-                            background: isDark ? "#0F172A" : "#FFFFFF",
-                            color: textColor,
-                            fontSize: "12px",
-                            outline: "none",
-                            boxSizing: "border-box",
-                          }}
-                        >
-                          <option value="M">Male (M)</option>
-                          <option value="F">Female (F)</option>
-                          <option value="Other">Other</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label style={{ fontSize: "11.5px", fontWeight: 700, color: mutedText, display: "block", marginBottom: "3px" }}>
-                        {isHi ? "मोबाइल फ़ोन" : "Mobile Phone"}
-                      </label>
-                      <input
-                        type="tel"
-                        placeholder="10-digit mobile number"
-                        value={walkInPhone}
-                        onChange={(e) => setWalkInPhone(e.target.value)}
-                        style={{
-                          width: "100%",
-                          padding: "8px 12px",
-                          borderRadius: "8px",
-                          border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
-                          background: isDark ? "#0F172A" : "#FFFFFF",
-                          color: textColor,
-                          fontSize: "12px",
-                          outline: "none",
-                          boxSizing: "border-box",
-                        }}
-                      />
-                    </div>
-
-                    <div>
-                      <label style={{ fontSize: "11.5px", fontWeight: 700, color: mutedText, display: "block", marginBottom: "3px" }}>
-                        {isHi ? "जांच श्रेणी" : "Test Category"}
-                      </label>
-                      <select
-                        value={walkInTestCategory}
-                        onChange={(e) => setWalkInTestCategory(e.target.value)}
-                        style={{
-                          width: "100%",
-                          padding: "8px 12px",
-                          borderRadius: "8px",
-                          border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
-                          background: isDark ? "#0F172A" : "#FFFFFF",
-                          color: textColor,
-                          fontSize: "12px",
-                          outline: "none",
-                          boxSizing: "border-box",
-                        }}
-                      >
-                        <option value="Hematology">Hematology (CBC)</option>
-                        <option value="Biochemistry">Biochemistry (Glucose/KFT/LFT/Lipid)</option>
-                        <option value="Urine">Urine Examination</option>
-                        <option value="Serology">Serology (Thyroid / Markers)</option>
-                      </select>
-                    </div>
-
-                    <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "8px" }}>
-                      <button
-                        type="button"
-                        onClick={() => setShowWalkInModal(false)}
-                        style={{
-                          padding: "8px 14px",
-                          borderRadius: "8px",
-                          border: isDark ? "1px solid #475569" : "1px solid #CBD5E1",
-                          background: "transparent",
-                          color: textColor,
-                          fontSize: "12px",
-                          fontWeight: 700,
-                          cursor: "pointer",
-                        }}
-                      >
-                        {isHi ? "रद्द करें" : "Cancel"}
-                      </button>
-
-                      <button
-                        type="submit"
-                        disabled={walkInSubmitting}
-                        style={{
-                          padding: "8px 16px",
-                          borderRadius: "8px",
-                          border: "none",
-                          background: "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)",
-                          color: "#FFFFFF",
-                          fontSize: "12px",
-                          fontWeight: 800,
-                          cursor: walkInSubmitting ? "not-allowed" : "pointer",
-                          boxShadow: "0 2px 8px rgba(2, 132, 199, 0.3)",
-                        }}
-                      >
-                        {walkInSubmitting ? (isHi ? "दर्ज हो रहा है..." : "Booking...") : (isHi ? "अपॉइंटमेंट दर्ज करें" : "Book Appointment")}
-                      </button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            )}
           </div>
         )}
 
@@ -5393,6 +5303,25 @@ export default function PathologyPage({
               <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
                 <button
                   type="button"
+                  onClick={() => setHistoryDateFilter("all")}
+                  style={{
+                    padding: "5px 12px",
+                    borderRadius: "9999px",
+                    fontSize: "11.5px",
+                    fontWeight: 800,
+                    cursor: "pointer",
+                    border: historyDateFilter === "all" ? "1.5px solid #0284C7" : isDark ? "1px solid #334155" : "1px solid #CBD5E1",
+                    background: historyDateFilter === "all" ? (isDark ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE") : "transparent",
+                    color: historyDateFilter === "all" ? "#0284C7" : mutedText,
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  <span>{isHi ? "सभी दिनांक" : "All Dates"}</span>
+                  <span style={{ fontSize: "10.5px", marginLeft: "4px", opacity: 0.85 }}>({dateCounts.all})</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => setHistoryDateFilter("today")}
                   style={{
                     padding: "5px 12px",
@@ -5406,7 +5335,8 @@ export default function PathologyPage({
                     transition: "all 0.15s ease",
                   }}
                 >
-                  {isHi ? "आज (Today)" : "Today"}
+                  <span>{isHi ? "आज (Today)" : "Today"}</span>
+                  <span style={{ fontSize: "10.5px", marginLeft: "4px", opacity: 0.85 }}>({dateCounts.today})</span>
                 </button>
 
                 <button
@@ -5424,7 +5354,8 @@ export default function PathologyPage({
                     transition: "all 0.15s ease",
                   }}
                 >
-                  {isHi ? "कल (Yesterday)" : "Yesterday"}
+                  <span>{isHi ? "कल (Yesterday)" : "Yesterday"}</span>
+                  <span style={{ fontSize: "10.5px", marginLeft: "4px", opacity: 0.85 }}>({dateCounts.yesterday})</span>
                 </button>
 
                 <button
@@ -5463,22 +5394,27 @@ export default function PathologyPage({
                   />
                 )}
 
+                {/* Refresh History */}
                 <button
                   type="button"
-                  onClick={() => setHistoryDateFilter("all")}
+                  onClick={fetchHistoricalReports}
+                  title="Refresh lab history"
                   style={{
-                    padding: "5px 12px",
+                    padding: "5px 10px",
                     borderRadius: "9999px",
-                    fontSize: "11.5px",
-                    fontWeight: 800,
+                    border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
+                    background: "transparent",
+                    color: textColor,
                     cursor: "pointer",
-                    border: historyDateFilter === "all" ? "1.5px solid #0284C7" : isDark ? "1px solid #334155" : "1px solid #CBD5E1",
-                    background: historyDateFilter === "all" ? (isDark ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE") : "transparent",
-                    color: historyDateFilter === "all" ? "#0284C7" : mutedText,
-                    transition: "all 0.15s ease",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "4px",
+                    fontSize: "11px",
+                    fontWeight: 700,
                   }}
                 >
-                  {isHi ? "सभी दिनांक" : "All Dates"}
+                  <RefreshCw size={12} className={loadingHistory ? "spin-icon" : ""} />
+                  <span>{isHi ? "ताज़ा करें" : "Refresh"}</span>
                 </button>
 
                 {/* Export Excel (Requirement 1) */}
@@ -5509,7 +5445,30 @@ export default function PathologyPage({
             </div>
 
             {/* Historical Table */}
-            {loadingHistory ? (
+            {historyError ? (
+              <div style={{ textAlign: "center", padding: "40px 16px", color: "#DC2626" }}>
+                <AlertCircle size={36} style={{ margin: "0 auto 10px auto", opacity: 0.8 }} />
+                <div style={{ fontSize: "14px", fontWeight: 800 }}>{historyError}</div>
+                <div style={{ marginTop: "12px" }}>
+                  <button
+                    type="button"
+                    onClick={fetchHistoricalReports}
+                    style={{
+                      background: "#0284C7",
+                      color: "#FFFFFF",
+                      border: "none",
+                      borderRadius: "8px",
+                      padding: "6px 16px",
+                      fontSize: "12px",
+                      fontWeight: 800,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {isHi ? "पुनः प्रयास करें" : "Retry"}
+                  </button>
+                </div>
+              </div>
+            ) : loadingHistory ? (
               <div style={{ textAlign: "center", padding: "40px 0", color: "#0284C7" }}>
                 <RefreshCw size={24} className="spin-icon" style={{ margin: "0 auto 8px auto" }} />
                 <div style={{ fontSize: "13px", fontWeight: 700 }}>
@@ -5519,18 +5478,56 @@ export default function PathologyPage({
             ) : filteredHistory.length === 0 ? (
               <div style={{ textAlign: "center", padding: "40px 10px", color: mutedText }}>
                 <History size={40} style={{ opacity: 0.35, margin: "0 auto 8px auto" }} />
-                <div style={{ fontSize: "14px", fontWeight: 800, color: textColor }}>
-                  {isHi ? "इस फ़िल्टर का कोई रिकॉर्ड नहीं मिला" : "No laboratory records found"}
-                </div>
-                <div style={{ fontSize: "12px", color: mutedText, marginTop: "4px" }}>
-                  {historySearchTerm
-                    ? (isHi ? "खोज शब्द बदलकर देखें" : "Try resetting your search query")
-                    : (isHi ? "अन्य तिथि का चयन करके देखें" : "Try selecting a different date range")}
-                </div>
+                {historyDateFilter !== "all" && dateCounts.all > 0 && !historySearchTerm ? (
+                  <>
+                    <div style={{ fontSize: "15px", fontWeight: 800, color: textColor }}>
+                      {isHi ? "इस तिथि के लिए कोई लैब रिकॉर्ड नहीं" : "No laboratory records for this date"}
+                    </div>
+                    <div style={{ fontSize: "12px", color: mutedText, marginTop: "4px" }}>
+                      {isHi
+                        ? `चयनित तिथि पर कोई रिकॉर्ड नहीं मिला। सभी तिथियों में कुल ${dateCounts.all} लैब रिकॉर्ड उपलब्ध हैं।`
+                        : `No records found for this selected date. There are ${dateCounts.all} record(s) across all dates.`}
+                    </div>
+                    <div style={{ marginTop: "14px" }}>
+                      <button
+                        type="button"
+                        onClick={() => setHistoryDateFilter("all")}
+                        style={{
+                          background: "#0284C7",
+                          color: "#FFFFFF",
+                          border: "none",
+                          borderRadius: "8px",
+                          padding: "6px 16px",
+                          fontSize: "12px",
+                          fontWeight: 800,
+                          cursor: "pointer",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          boxShadow: "0 2px 8px rgba(2, 132, 199, 0.25)",
+                        }}
+                      >
+                        <Calendar size={13} />
+                        <span>{isHi ? `सभी दिनांक देखें (${dateCounts.all})` : `Show all dates (${dateCounts.all})`}</span>
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize: "14px", fontWeight: 800, color: textColor }}>
+                      {isHi ? "इस फ़िल्टर का कोई रिकॉर्ड नहीं मिला" : "No laboratory records found"}
+                    </div>
+                    <div style={{ fontSize: "12px", color: mutedText, marginTop: "4px" }}>
+                      {historySearchTerm
+                        ? (isHi ? "खोज शब्द बदलकर देखें" : "Try resetting your search query")
+                        : (isHi ? "अन्य तिथि का चयन करके देखें" : "Try selecting a different date range")}
+                    </div>
+                  </>
+                )}
               </div>
             ) : (
-              <div style={{ overflowX: "auto", borderRadius: "12px", border: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+              <div style={{ overflowX: "auto", maxWidth: "100%", width: "100%", WebkitOverflowScrolling: "touch", borderRadius: "14px", border: cardBorder, background: cardBg, boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
+                <table style={{ width: "100%", minWidth: "1000px", borderCollapse: "collapse", fontSize: "12px" }}>
                   <thead>
                     <tr style={{ background: isDark ? "#0F172A" : "#F1F5F9", borderBottom: isDark ? "1.5px solid #1E293B" : "1.5px solid #CBD5E1" }}>
                       <th style={{ padding: "8px 10px", textAlign: "left", fontWeight: 800, color: mutedText }}>#</th>
