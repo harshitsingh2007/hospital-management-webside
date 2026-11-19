@@ -135,6 +135,20 @@ router.get(
   getHospitalVisitsEndpoint
 );
 router.get(
+  "/hospitals/:hospital_code/visits",
+  authenticate,
+  requireDeskOperator,
+  hospitalIsolation("hospital_code"),
+  getHospitalVisitsEndpoint
+);
+router.get(
+  "/hospital/:hospital_code/visits",
+  authenticate,
+  requireDeskOperator,
+  hospitalIsolation("hospital_code"),
+  getHospitalVisitsEndpoint
+);
+router.get(
   "/superadmin/hospitals/:hospital_code/live-summary",
   authenticate,
   requireAdmin,

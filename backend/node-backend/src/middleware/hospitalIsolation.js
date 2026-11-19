@@ -75,7 +75,12 @@ async function verifyHospitalAccess(hospitalCode, user, options = { allowPublic:
         },
       },
     });
-    return !!emp;
+    if (emp) return true;
+
+    if (user.primary_hospital_code && user.primary_hospital_code === hCode) {
+      return true;
+    }
+    return false;
   }
 
   // 3. Management paths NEVER permit "user" (patient) role

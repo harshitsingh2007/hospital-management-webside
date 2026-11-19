@@ -171,14 +171,34 @@ const DEFAULT_BRANDING = {
 
 /**
  * Super Admin Overview: aggregates platform or owner-scoped statistics.
+ *
+ * Access rules (mirrors getAllHospitals):
+ * - superadmin who OWNS hospitals → stats scoped to their hospitals only.
+ * - superadmin who owns ZERO hospitals (platform admin) → global aggregate.
+ * - Other roles → stats scoped to their hospital via ownership/employee/primaryCode.
  */
 async function getSuperAdminOverview(requesterUser = null) {
   let ownerUid = null;
   const primaryCode = requesterUser?.primary_hospital_code || requesterUser?.hospital_code || null;
   const role = requesterUser ? (requesterUser.role || "").toLowerCase() : "";
-  const isGlobalSuperAdmin = role === "superadmin" || role === "super_admin" || !!requesterUser?.is_superadmin;
-  if (!isGlobalSuperAdmin && (role === "hospital_owner" || ["admin", "doctor", "staff"].includes(role))) {
-    ownerUid = requesterUser.id;
+  const isSuperAdminRole = role === "superadmin" || role === "super_admin";
+
+  // Determine if this is a hospital-owner superadmin or a platform-level superadmin
+  let isHospitalOwnerSuperAdmin = false;
+  if (isSuperAdminRole && requesterUser?.id) {
+    const ownedCount = await prisma.hospitals.count({
+      where: { owner_user_id: requesterUser.id },
+    });
+    isHospitalOwnerSuperAdmin = ownedCount > 0;
+  }
+
+  const isGlobalSuperAdmin = isSuperAdminRole && !isHospitalOwnerSuperAdmin;
+
+  if (!isGlobalSuperAdmin) {
+    // Scope to owned/linked hospitals
+    if (isSuperAdminRole || role === "hospital_owner" || ["admin", "doctor", "staff"].includes(role)) {
+      ownerUid = requesterUser.id;
+    }
   }
 
   const todayStr = getCurrentQueueDate();
@@ -206,7 +226,8 @@ async function getSuperAdminOverview(requesterUser = null) {
     });
   }
 
-  if (hospitals.length === 0) {
+  if (hospitals.length === 0 && isGlobalSuperAdmin) {
+    // Only platform-level superadmins get the global fallback
     hospitals = await prisma.hospitals.findMany({
       where: { status: "active" },
       select: { id: true, hospital_code: true, status: true },
@@ -384,19 +405,50 @@ async function getSuperAdminOverview(requesterUser = null) {
 
 /**
  * Lists hospitals scoped to user ownership or all hospitals for global admin.
+ *
+ * Access rules:
+ * - superadmin/super_admin who OWNS at least one hospital → see only their hospitals.
+ * - superadmin/super_admin who owns ZERO hospitals (platform-level admin) → see all.
+ * - Any other authenticated user → see only their hospital(s) via owner_user_id,
+ *   employee link, primary_hospital_code, or email.
+ * The old "fallback to all hospitals" is removed to prevent data leakage.
  */
 async function getAllHospitals(requesterUser = null) {
   let list = [];
   const role = requesterUser ? (requesterUser.role || "").toLowerCase() : "";
-  const isGlobalSuperAdmin = role === "superadmin" || role === "super_admin" || !!requesterUser?.is_superadmin;
+  const isSuperAdminRole = role === "superadmin" || role === "super_admin";
 
-  if (isGlobalSuperAdmin) {
-    list = await prisma.hospitals.findMany({
-      orderBy: { id: "asc" },
+  if (isSuperAdminRole && requesterUser?.id) {
+    // Check if this superadmin owns any hospitals
+    const ownedCount = await prisma.hospitals.count({
+      where: { owner_user_id: requesterUser.id },
     });
-  } else if (requesterUser) {
-    const primaryCode = requesterUser.primary_hospital_code || requesterUser.hospital_code || null;
 
+    if (ownedCount > 0) {
+      // Hospital-owner superadmin: scope strictly to owned hospitals
+      const primaryCode = requesterUser.primary_hospital_code || requesterUser.hospital_code || null;
+      const conditions = [{ owner_user_id: requesterUser.id }];
+      if (primaryCode && primaryCode !== "all") {
+        conditions.push({ hospital_code: primaryCode });
+      }
+      list = await prisma.hospitals.findMany({
+        where: {
+          AND: [
+            { status: "active" },
+            { OR: conditions },
+          ],
+        },
+        orderBy: { id: "asc" },
+      });
+    } else {
+      // Platform-level superadmin (no owned hospitals): see all active hospitals
+      list = await prisma.hospitals.findMany({
+        orderBy: { id: "asc" },
+      });
+    }
+  } else if (requesterUser) {
+    // Non-superadmin roles: scope to their hospital only
+    const primaryCode = requesterUser.primary_hospital_code || requesterUser.hospital_code || null;
     const conditions = [];
     if (requesterUser.id) {
       conditions.push({ owner_user_id: requesterUser.id });
@@ -410,7 +462,7 @@ async function getAllHospitals(requesterUser = null) {
     }
 
     if (conditions.length > 0) {
-      const owned = await prisma.hospitals.findMany({
+      list = await prisma.hospitals.findMany({
         where: {
           AND: [
             { status: "active" },
@@ -419,17 +471,7 @@ async function getAllHospitals(requesterUser = null) {
         },
         orderBy: { id: "asc" },
       });
-      if (owned && owned.length > 0) {
-        list = owned;
-      }
     }
-  }
-
-  if (!list || list.length === 0) {
-    list = await prisma.hospitals.findMany({
-      where: { status: "active" },
-      orderBy: { id: "asc" },
-    });
   }
 
   if (!list || list.length === 0) return [];

@@ -30,7 +30,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Filter,
-  RotateCcw
+  RotateCcw,
+  AlertTriangle,
+  ShieldAlert
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -756,6 +758,8 @@ export default function PharmacyPage({
   // Patient Visit History Section State
   const [patientVisits, setPatientVisits] = useState([]);
   const [loadingVisits, setLoadingVisits] = useState(false);
+  const [visitsError, setVisitsError] = useState(null);
+  const [visitScopeFilter, setVisitScopeFilter] = useState("all"); // "all" | "my"
   const [visitSearchQuery, setVisitSearchQuery] = useState("");
 
   // Local calendar date string helper (YYYY-MM-DD)
@@ -806,6 +810,7 @@ export default function PharmacyPage({
   const fetchPatientVisits = useCallback(async () => {
     if (!effectiveHospitalCode) return;
     setLoadingVisits(true);
+    setVisitsError(null);
     try {
       const headers = { "Content-Type": "application/json" };
       if (currentUser?.email) headers["X-User-Email"] = currentUser.email;
@@ -814,19 +819,59 @@ export default function PharmacyPage({
         if (token) headers["Authorization"] = `Bearer ${token}`;
       } catch (_) { }
 
-      const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${effectiveHospitalCode}/visits?limit=500`, {
+      const res = await fetch(`${API_BASE}/api/v1/hospitals/${effectiveHospitalCode}/visits?limit=500`, {
         headers,
       });
+
+      if (res.status === 401 || res.status === 403) {
+        setVisitsError({
+          type: "permission",
+          status: res.status,
+          message: isHi
+            ? "अनुमति अस्वीकृत (403): आपके पास इस अस्पताल के विज़िट रिकॉर्ड देखने की अनुमति नहीं है।"
+            : "Permission Denied (403): You do not have permission to view visit records for this hospital.",
+        });
+        setPatientVisits([]);
+        return;
+      }
+
+      if (!res.ok) {
+        let errMsg = isHi ? `त्रुटि ${res.status}: विज़िट लोड करने में विफल` : `Error ${res.status}: Failed to load patient visits`;
+        try {
+          const errData = await res.json();
+          if (errData?.message) errMsg = errData.message;
+        } catch (_) { }
+        setVisitsError({
+          type: "http",
+          status: res.status,
+          message: errMsg,
+        });
+        setPatientVisits([]);
+        return;
+      }
+
       const data = await res.json();
       if (data && data.status === "success") {
         setPatientVisits(Array.isArray(data.visits) ? data.visits : []);
+        setVisitsError(null);
+      } else {
+        setVisitsError({
+          type: "response",
+          message: data?.message || (isHi ? "विज़िट डेटा प्राप्त करने में विफल" : "Failed to retrieve visit data"),
+        });
+        setPatientVisits([]);
       }
     } catch (err) {
       console.error("Failed to load patient visits:", err);
+      setVisitsError({
+        type: "network",
+        message: isHi ? "नेटवर्क त्रुटि: सर्वर से कनेक्ट नहीं हो सका।" : (err.message || "Network error: Unable to connect to server."),
+      });
+      setPatientVisits([]);
     } finally {
       setLoadingVisits(false);
     }
-  }, [effectiveHospitalCode, currentUser?.email, currentUser?.token]);
+  }, [effectiveHospitalCode, currentUser?.email, currentUser?.token, isHi]);
 
   // Initial load of visit history
   useEffect(() => {
@@ -1216,34 +1261,62 @@ export default function PharmacyPage({
     }
   };
 
-  // Check if a visit was consulted / dispensed exclusively by the logged-in pharmacist ("My Only")
-  const checkConsultMatch = useCallback((visit, details) => {
-    // 1. Mandatory requirement: visit must belong to Pharmacy
+  // Check if a visit belongs to Pharmacy department (by dept_code, department name, or any transfer stage)
+  const isPharmacyVisit = useCallback((visit) => {
+    if (!visit) return false;
     const hasPharmaDept = (visit.dept_code || visit.department || "").toLowerCase().includes("pharm");
     const pharmaStage = Array.isArray(visit.transfer_stages) && visit.transfer_stages.find((s) => {
       const c = (s.dept_code || s.department || "").toLowerCase();
       return c.includes("pharm");
     });
-    if (!hasPharmaDept && !pharmaStage) return false;
+    return Boolean(hasPharmaDept || pharmaStage);
+  }, []);
 
-    // Pharmacist personal identifiers ("his only")
+  // Check if a visit was dispensed / served by the logged-in pharmacist ("My Dispensing")
+  const checkConsultMatch = useCallback((visit, details) => {
+    if (!isPharmacyVisit(visit)) return false;
+
+    // Pharmacist personal identifiers
+    const myId = String(currentUser?.id || currentUser?.user_id || currentUser?.employee_id || "").trim().toLowerCase();
+    const myEmail = (currentUser?.email || "").trim().toLowerCase();
     const myName = (currentUser?.name || "").trim().toLowerCase();
     const myUsername = (currentUser?.username || "").trim().toLowerCase();
-    const myEmail = (currentUser?.email || "").trim().toLowerCase();
-    const myId = String(currentUser?.id || currentUser?.user_id || currentUser?.employee_id || "").trim().toLowerCase();
 
-    const dispBy = (details.dispensedBy || "").trim().toLowerCase();
     const dispById = String(details.dispensedById || "").trim().toLowerCase();
     const dispByEmail = (details.dispensedByEmail || "").trim().toLowerCase();
+    const dispBy = (details.dispensedBy || "").trim().toLowerCase();
+
+    const pharmaStage = Array.isArray(visit.transfer_stages) && visit.transfer_stages.find((s) => {
+      const c = (s.dept_code || s.department || "").toLowerCase();
+      return c.includes("pharm");
+    });
     const servedBy = (pharmaStage?.served_by || visit.served_by || "").trim().toLowerCase();
 
-    return Boolean(
-      (myName && (dispBy.includes(myName) || myName.includes(dispBy) || servedBy.includes(myName) || myName.includes(servedBy))) ||
-      (myUsername && (dispBy.includes(myUsername) || myUsername.includes(dispBy) || servedBy.includes(myUsername) || myUsername.includes(servedBy))) ||
-      (myEmail && (dispByEmail === myEmail || dispBy.includes(myEmail) || servedBy.includes(myEmail))) ||
-      (myId && (dispById === myId))
-    );
+    // 1. Prefer exact matches on ID
+    if (myId && dispById && myId === dispById) return true;
+
+    // 2. Prefer exact matches on Email
+    if (myEmail && dispByEmail && myEmail === dispByEmail) return true;
+    if (myEmail && dispBy && dispBy === myEmail) return true;
+    if (myEmail && servedBy && servedBy === myEmail) return true;
+
+    // Safe string matcher guarding against empty strings (myName.includes("") is always true in JS)
+    const safeStringMatch = (source, target) => {
+      if (!source || !target) return false;
+      return source === target || source.includes(target) || target.includes(source);
+    };
+
+    // 3. Name & Username matching (guarded against empty strings)
+    if (myName && (safeStringMatch(dispBy, myName) || safeStringMatch(servedBy, myName))) {
+      return true;
+    }
+    if (myUsername && (safeStringMatch(dispBy, myUsername) || safeStringMatch(servedBy, myUsername))) {
+      return true;
+    }
+
+    return false;
   }, [
+    isPharmacyVisit,
     currentUser?.employee_id,
     currentUser?.id,
     currentUser?.user_id,
@@ -1302,13 +1375,17 @@ export default function PharmacyPage({
     return true;
   }, [getLocalDateStr, getTodayDateStr, getYesterdayDateStr]);
 
-  // All pharmacy visits matching "My Only" consultation records
+  // All pharmacy visits matching current scope ("All pharmacy visits" vs "My dispensing")
   const pharmaScopedVisits = useMemo(() => {
     return patientVisits.filter((v) => {
-      const details = parseVisitDetails(v);
-      return checkConsultMatch(v, details);
+      if (!isPharmacyVisit(v)) return false;
+      if (visitScopeFilter === "my") {
+        const details = parseVisitDetails(v);
+        return checkConsultMatch(v, details);
+      }
+      return true;
     });
-  }, [patientVisits, parseVisitDetails, checkConsultMatch]);
+  }, [patientVisits, isPharmacyVisit, visitScopeFilter, parseVisitDetails, checkConsultMatch]);
 
   // Telemetry counts for dates and statuses based on current scope
   const dateCounts = useMemo(() => {
@@ -3287,40 +3364,103 @@ export default function PharmacyPage({
 
           {/* Main Table Card */}
           <div style={{ background: cardBg, border: cardBorder, borderRadius: "18px", padding: "24px" }}>
-            {/* Header Title & Pharmacist Identity */}
+            {/* Header Title & Pharmacist Scope Toggle */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "12px" }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: "17px", fontWeight: 800, color: textColor, display: "flex", alignItems: "center", gap: "8px" }}>
                   <History size={18} color="#0284C7" />
-                  <span>{isHi ? "मेरे मरीज़ विज़िट एवं दवा परामर्श इतिहास" : "My Patient Visit & Dispensing History"}</span>
+                  <span>
+                    {visitScopeFilter === "my"
+                      ? (isHi ? "मेरा दवा वितरण व परामर्श इतिहास" : "My Dispensing & Patient History")
+                      : (isHi ? "फार्मेसी मरीज़ विज़िट एवं दवा वितरण इतिहास" : "Pharmacy Patient Visit & Dispensing History")}
+                  </span>
                 </h3>
                 <p style={{ margin: "4px 0 0 0", fontSize: "12px", color: mutedText }}>
-                  {isHi
-                    ? "केवल आपके द्वारा परामर्शित एवं दवा वितरित किए गए मरीज़ों का संपूर्ण ऑडिट रिकॉर्ड।"
-                    : "Audit records for patients consulted and dispensed exclusively by you."}
+                  {visitScopeFilter === "my"
+                    ? (isHi
+                        ? "केवल आपके द्वारा परामर्शित एवं दवा वितरित किए गए मरीज़ों का संपूर्ण ऑडिट रिकॉर्ड।"
+                        : "Audit records for patients dispensed exclusively by you.")
+                    : (isHi
+                        ? "इस अस्पताल के फार्मेसी विभाग के सभी मरीज़ों का विज़िट एवं दवा वितरण ऑडिट रिकॉर्ड।"
+                        : "All pharmacy consultation and medicine dispensing audit records for this facility.")}
                 </p>
               </div>
 
-              {/* Personal Pharmacist Indicator Badge */}
-              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <span
-                  style={{
-                    background: isDark ? "rgba(2, 132, 199, 0.2)" : "#E0F2FE",
-                    border: isDark ? "1px solid rgba(2, 132, 199, 0.4)" : "1px solid #BAE6FD",
-                    color: "#0284C7",
-                    padding: "5px 12px",
-                    borderRadius: "8px",
-                    fontSize: "12px",
-                    fontWeight: 800,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "6px",
-                  }}
-                  title={isHi ? "केवल आपका व्यक्तिगत परामर्श डेटा प्रदर्शित है" : "Displaying your consulted patient data only"}
-                >
-                  <User size={13} />
-                  <span>{currentUser?.name || currentUser?.username || (isHi ? "मेरा परामर्श रिकॉर्ड" : "My Consultations Only")}</span>
-                </span>
+              {/* Scope Toggle: All Pharmacy Visits vs My Dispensing */}
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                <div style={{ display: "inline-flex", background: isDark ? "#1E293B" : "#E2E8F0", padding: "3px", borderRadius: "10px", alignItems: "center", gap: "3px" }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVisitScopeFilter("all");
+                      setVisitPage(1);
+                    }}
+                    style={{
+                      padding: "6px 14px",
+                      borderRadius: "7px",
+                      border: "none",
+                      background: visitScopeFilter === "all" ? "#0284C7" : "transparent",
+                      color: visitScopeFilter === "all" ? "#FFFFFF" : textColor,
+                      fontSize: "12px",
+                      fontWeight: 800,
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      transition: "all 0.15s ease",
+                    }}
+                    title={isHi ? "अस्पताल के सभी फार्मेसी विज़िट देखें" : "View all pharmacy visits for this hospital"}
+                  >
+                    <Building2 size={13} />
+                    <span>{isHi ? "सभी फार्मेसी विज़िट" : "All pharmacy visits"}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVisitScopeFilter("my");
+                      setVisitPage(1);
+                    }}
+                    style={{
+                      padding: "6px 14px",
+                      borderRadius: "7px",
+                      border: "none",
+                      background: visitScopeFilter === "my" ? "#0284C7" : "transparent",
+                      color: visitScopeFilter === "my" ? "#FFFFFF" : textColor,
+                      fontSize: "12px",
+                      fontWeight: 800,
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      transition: "all 0.15s ease",
+                    }}
+                    title={isHi ? "केवल आपके द्वारा वितरित विज़िट देखें" : "View only visits dispensed by you"}
+                  >
+                    <User size={13} />
+                    <span>{isHi ? "मेरा वितरण" : "My dispensing"}</span>
+                  </button>
+                </div>
+
+                {visitScopeFilter === "my" && (
+                  <span
+                    style={{
+                      background: isDark ? "rgba(2, 132, 199, 0.2)" : "#E0F2FE",
+                      border: isDark ? "1px solid rgba(2, 132, 199, 0.4)" : "1px solid #BAE6FD",
+                      color: "#0284C7",
+                      padding: "5px 10px",
+                      borderRadius: "8px",
+                      fontSize: "11px",
+                      fontWeight: 800,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "5px",
+                    }}
+                  >
+                    <User size={12} />
+                    <span>{currentUser?.name || currentUser?.username || "Logged-in Pharmacist"}</span>
+                  </span>
+                )}
               </div>
             </div>
 
@@ -3704,8 +3844,57 @@ export default function PharmacyPage({
               </div>
             </div>
 
-            {/* Visit Stream Table */}
-            {loadingVisits && patientVisits.length === 0 ? (
+            {/* Error State with Retry Button */}
+            {visitsError && !loadingVisits ? (
+              <div
+                style={{
+                  textAlign: "center",
+                  padding: "44px 20px",
+                  background: isDark ? "rgba(239, 68, 68, 0.08)" : "#FEF2F2",
+                  borderRadius: "14px",
+                  border: isDark ? "1px solid rgba(239, 68, 68, 0.25)" : "1px solid #FECACA",
+                  color: textColor,
+                  margin: "10px 0",
+                }}
+              >
+                {visitsError.type === "permission" ? (
+                  <ShieldAlert size={38} color="#EF4444" style={{ margin: "0 auto 12px auto", display: "block" }} />
+                ) : (
+                  <AlertTriangle size={38} color="#EF4444" style={{ margin: "0 auto 12px auto", display: "block" }} />
+                )}
+                <div style={{ fontSize: "16px", fontWeight: 800, color: "#EF4444" }}>
+                  {visitsError.type === "permission"
+                    ? (isHi ? "पहुंच अस्वीकृत (Permission Denied - 403)" : "Permission Denied (403 Forbidden)")
+                    : (isHi ? "विज़िट इतिहास लोड करने में त्रुटि" : "Failed to Load Visit History")}
+                </div>
+                <div style={{ fontSize: "13px", marginTop: "8px", maxWidth: "480px", margin: "8px auto 0 auto", color: mutedText, lineHeight: "1.5" }}>
+                  {visitsError.message}
+                </div>
+                <div style={{ marginTop: "18px" }}>
+                  <button
+                    type="button"
+                    onClick={fetchPatientVisits}
+                    style={{
+                      background: "#0284C7",
+                      color: "#FFFFFF",
+                      border: "none",
+                      borderRadius: "8px",
+                      padding: "8px 18px",
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      boxShadow: "0 2px 6px rgba(2, 132, 199, 0.3)",
+                    }}
+                  >
+                    <RefreshCw size={13} />
+                    <span>{isHi ? "पुनः प्रयास करें" : "Retry"}</span>
+                  </button>
+                </div>
+              </div>
+            ) : loadingVisits && patientVisits.length === 0 ? (
               <div style={{ textAlign: "center", padding: "48px 20px", color: mutedText }}>
                 <RefreshCw size={26} className="spin-icon" style={{ margin: "0 auto 12px auto", display: "block", color: "#0284C7" }} />
                 <div style={{ fontSize: "14px", fontWeight: 700 }}>
@@ -3715,55 +3904,75 @@ export default function PharmacyPage({
             ) : filteredVisits.length === 0 ? (
               <div style={{ textAlign: "center", padding: "48px 20px", color: mutedText, background: isDark ? "#0B1120" : "#F8FAFC", borderRadius: "14px", border: cardBorder }}>
                 <History size={36} color={mutedText} style={{ margin: "0 auto 12px auto", opacity: 0.5 }} />
-                <div style={{ fontSize: "15px", fontWeight: 800, color: textColor }}>
-                  {isHi ? "कोई विज़िट रिकॉर्ड नहीं मिला" : "No consultation records found"}
-                </div>
-                <div style={{ fontSize: "12px", marginTop: "6px", maxWidth: "460px", margin: "6px auto 0 auto", lineHeight: "1.5" }}>
-                  {visitSearchQuery
-                    ? (isHi ? `'${visitSearchQuery}' से मेल खाता कोई रिकॉर्ड नहीं मिला।` : `No records match search '${visitSearchQuery}'.`)
-                    : visitDateFilter === "today"
-                      ? (isHi ? "आज के लिए कोई परामर्शित मरीज़ दर्ज नहीं है। आप 'कल', 'तिथि अनुसार' या 'सभी तिथियां' चुन सकते हैं।" : "No consultations recorded for today. You can switch to Yesterday or All Dates.")
-                      : visitDateFilter === "yesterday"
-                        ? (isHi ? "कल के लिए कोई परामर्शित मरीज़ दर्ज नहीं है।" : "No consultations recorded for yesterday.")
-                        : (isHi ? "इस फ़िल्टर या तिथि में कोई मरीज़ दर्ज नहीं है।" : "No patient visits recorded under this filter or date.")}
-                </div>
-                {visitDateFilter !== "all" && dateCounts.all > 0 && (
-                  <div style={{ marginTop: "14px", display: "flex", justifyContent: "center", gap: "8px" }}>
-                    <button
-                      type="button"
-                      onClick={() => setVisitDateFilter("all")}
-                      style={{
-                        background: "#0284C7",
-                        color: "#FFFFFF",
-                        border: "none",
-                        borderRadius: "8px",
-                        padding: "6px 14px",
-                        fontSize: "12px",
-                        fontWeight: 700,
-                        cursor: "pointer",
-                      }}
-                    >
-                      {isHi ? `सभी तिथियां देखें (${dateCounts.all})` : `View All Dates (${dateCounts.all})`}
-                    </button>
-                    {visitDateFilter !== "yesterday" && dateCounts.yesterday > 0 && (
+                {visitDateFilter !== "all" && dateCounts.all > 0 && !visitSearchQuery ? (
+                  <>
+                    <div style={{ fontSize: "16px", fontWeight: 800, color: textColor }}>
+                      {isHi ? "इस तिथि के लिए कोई विज़िट नहीं" : "No visits for this date"}
+                    </div>
+                    <div style={{ fontSize: "12.5px", marginTop: "6px", maxWidth: "480px", margin: "6px auto 0 auto", lineHeight: "1.5", color: mutedText }}>
+                      {isHi
+                        ? `चयनित तिथि पर कोई विज़िट नहीं मिली। सभी तिथियों में कुल ${dateCounts.all} विज़िट उपलब्ध हैं।`
+                        : `No visits found for this selected date. There are ${dateCounts.all} visit(s) across all dates.`}
+                    </div>
+                    <div style={{ marginTop: "16px" }}>
                       <button
                         type="button"
-                        onClick={() => setVisitDateFilter("yesterday")}
+                        onClick={() => setVisitDateFilter("all")}
                         style={{
-                          background: isDark ? "#1E293B" : "#E2E8F0",
-                          color: textColor,
-                          border: cardBorder,
+                          background: "#0284C7",
+                          color: "#FFFFFF",
+                          border: "none",
                           borderRadius: "8px",
-                          padding: "6px 14px",
-                          fontSize: "12px",
+                          padding: "8px 18px",
+                          fontSize: "12.5px",
                           fontWeight: 700,
                           cursor: "pointer",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          boxShadow: "0 2px 8px rgba(2, 132, 199, 0.25)",
                         }}
                       >
-                        {isHi ? `कल के परामर्श (${dateCounts.yesterday})` : `View Yesterday (${dateCounts.yesterday})`}
+                        <Calendar size={13} />
+                        <span>{isHi ? `सभी तिथियां देखें (${dateCounts.all})` : `Show all dates (${dateCounts.all})`}</span>
                       </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize: "15px", fontWeight: 800, color: textColor }}>
+                      {isHi ? "कोई विज़िट रिकॉर्ड नहीं मिला" : "No consultation records found"}
+                    </div>
+                    <div style={{ fontSize: "12px", marginTop: "6px", maxWidth: "460px", margin: "6px auto 0 auto", lineHeight: "1.5" }}>
+                      {visitSearchQuery
+                        ? (isHi ? `'${visitSearchQuery}' से मेल खाता कोई रिकॉर्ड नहीं मिला।` : `No records match search '${visitSearchQuery}'.`)
+                        : (isHi ? "इस फ़िल्टर या अस्पताल के लिए कोई फार्मेसी विज़िट रिकॉर्ड नहीं है।" : "No pharmacy visit records found under this filter or hospital.")}
+                    </div>
+                    {visitDateFilter !== "all" && dateCounts.all > 0 && (
+                      <div style={{ marginTop: "14px" }}>
+                        <button
+                          type="button"
+                          onClick={() => setVisitDateFilter("all")}
+                          style={{
+                            background: "#0284C7",
+                            color: "#FFFFFF",
+                            border: "none",
+                            borderRadius: "8px",
+                            padding: "6px 14px",
+                            fontSize: "12px",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "6px",
+                          }}
+                        >
+                          <Calendar size={13} />
+                          <span>{isHi ? `सभी तिथियां देखें (${dateCounts.all})` : `Show all dates (${dateCounts.all})`}</span>
+                        </button>
+                      </div>
                     )}
-                  </div>
+                  </>
                 )}
               </div>
             ) : (
