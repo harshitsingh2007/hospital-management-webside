@@ -117,7 +117,7 @@ export default function Header({
     if (onToggleTheme) onToggleTheme(nextTheme);
   };
 
-  const isDarkHeader = theme === "dark" && (activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "admin" || activePage === "pharmacy" || activePage === "pathology" || activePage === "radiology" || activePage === "billing" || activePage === "doctor");
+  const isDarkHeader = theme === "dark" && (activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "admin" || activePage === "pharmacy" || activePage === "pathology" || activePage === "radiology" || activePage === "billing" || activePage === "doctor" || activePage === "reception-history");
 
   // Multi-Hospital Facility Active Display
   const [hospitalsList, setHospitalsList] = useState([]);
@@ -898,7 +898,7 @@ export default function Header({
         {/* 2. Center: Quick Hospital Support & Emergency Hotline or Staff Desk Switcher */}
         <nav className="header-center-nav">
           {/* Clinical & Staff Desk Switcher Bar (Pharmacy Station, Pathology, Radiology) - Visible on Reception/Staff Desk */}
-          {!isPatientOrGuest && activePage === "staff" && !["doctor", "physician"].includes(userRole) && (
+          {!isPatientOrGuest && (activePage === "staff" || activePage === "reception-history") && !["doctor", "physician"].includes(userRole) && (
             Boolean(
               (isPharmacistAccess || isSuperAdmin) ||
               (isPathologistAccess || isSuperAdmin) ||
@@ -994,6 +994,32 @@ export default function Header({
                     <span>{language === "hi" ? "रेडियोलॉजी / एक्स-रे" : "Radiology & X-Ray"}</span>
                   </button>
                 )}
+
+                {/* Reception Portal / History Switcher Button */}
+                {isStaffAccess && (
+                  <button
+                    type="button"
+                    onClick={() => navigateTo(activePage === "reception-history" ? "staff" : "reception-history")}
+                    className={`header-nav-btn ${activePage === "reception-history" ? "active" : ""}`}
+                    style={{
+                      padding: "6px 14px",
+                      borderRadius: "10px",
+                      fontSize: "12px",
+                      fontWeight: activePage === "reception-history" ? 800 : 700,
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      border: activePage === "reception-history" ? "1.5px solid #0284C7" : undefined,
+                      background: activePage === "reception-history" ? (isDarkHeader ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE") : undefined,
+                      color: activePage === "reception-history" ? (isDarkHeader ? "#38BDF8" : "#0284C7") : undefined,
+                    }}
+                    title={language === "hi" ? "रिसेप्शन विज़िट एवं परामर्श ऑडिट इतिहास" : "Reception Patient Visit & Audit History"}
+                  >
+                    <span style={{ fontSize: "14px" }}>📋</span>
+                    <span>{language === "hi" ? (activePage === "reception-history" ? "रिसेप्शन डेस्क" : "विज़िट इतिहास") : (activePage === "reception-history" ? "Reception Desk" : "Visit History")}</span>
+                  </button>
+                )}
               </div>
             )
           )}
@@ -1051,7 +1077,7 @@ export default function Header({
         {/* 3. Right: Theme Toggle (User Portal Only), Language Selector & Patient Profile Dropdown */}
         <div style={{ display: "flex", alignItems: "center", gap: "8px", position: "relative", flexShrink: 0 }}>
           {/* Theme Toggle Switch (Available across all portals including Pharmacy, Doctor and Pathology) */}
-          {(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "admin" || activePage === "pharmacy" || activePage === "doctor" || activePage === "pathology" || activePage === "radiology" || activePage === "billing") && (
+          {(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "admin" || activePage === "pharmacy" || activePage === "doctor" || activePage === "pathology" || activePage === "radiology" || activePage === "billing" || activePage === "reception-history") && (
             <button
               type="button"
               onClick={handleToggleTheme}

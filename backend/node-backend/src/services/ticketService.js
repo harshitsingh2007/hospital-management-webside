@@ -106,6 +106,148 @@ async function setDoctorDutyStatus(docIdentifier, statusData = {}) {
 }
 
 /**
+ * Checks if a ticket is categorized as an emergency.
+ */
+function isEmergencyTicket(ticket) {
+  if (!ticket) return false;
+  const cat = String(ticket.service_category || ticket.department || "").trim().toLowerCase();
+  const fromDept = String(ticket.transferred_from_dept || "").trim().toLowerCase();
+  const prio = Number(ticket.priority_level || ticket.priority || 2);
+  return (
+    cat === "emergency" ||
+    cat === "emergency triage" ||
+    cat.includes("emergency") ||
+    fromDept === "emergency" ||
+    prio === 1 ||
+    Boolean(ticket.is_emergency)
+  );
+}
+
+/**
+ * Determines a doctor's department and desk from server-side desk assignment:
+ * desks.assigned_employee_id -> desks.department_id -> departments.dept_code
+ */
+async function getDoctorDeskAndScope(hid, userOrDoctorInfo) {
+  if (!hid || !userOrDoctorInfo) {
+    return { desk: null, department: null, dept_code: null, isEmergencyDesk: false, employee: null };
+  }
+
+  const userId = userOrDoctorInfo.id || userOrDoctorInfo.user_id || userOrDoctorInfo.doctor_id || null;
+  const userEmail = userOrDoctorInfo.email || userOrDoctorInfo.doctor_email || null;
+  const docDeskId = userOrDoctorInfo.desk_id || null;
+
+  let emp = null;
+  const orFilters = [];
+  if (userId) {
+    const parsedId = parseInt(userId, 10);
+    if (!isNaN(parsedId) && parsedId > 0) {
+      orFilters.push({ id: parsedId }, { user_id: parsedId });
+    }
+  }
+  if (userEmail && typeof userEmail === "string" && userEmail.trim()) {
+    orFilters.push({ email: { equals: userEmail.trim(), mode: "insensitive" } });
+  }
+
+  if (orFilters.length > 0) {
+    emp = await prisma.employees.findFirst({
+      where: {
+        hospital_id: hid,
+        OR: orFilters,
+      },
+      include: { users: true },
+    });
+  }
+
+  let desk = null;
+  if (emp) {
+    desk = await prisma.desks.findFirst({
+      where: {
+        hospital_id: hid,
+        assigned_employee_id: emp.id,
+        NOT: { status: "INACTIVE" },
+      },
+      include: { departments: true },
+    });
+  }
+
+  if (!desk && docDeskId) {
+    const dId = parseInt(docDeskId, 10);
+    if (!isNaN(dId) && dId > 0) {
+      desk = await prisma.desks.findFirst({
+        where: {
+          id: dId,
+          hospital_id: hid,
+          NOT: { status: "INACTIVE" },
+        },
+        include: { departments: true, employees: { include: { users: true } } },
+      });
+      if (desk && desk.employees && !emp) {
+        emp = desk.employees;
+      }
+    }
+  }
+
+  const dept = desk?.departments || null;
+  const deptCode = String(dept?.dept_code || "").trim().toLowerCase();
+  const isEmergencyDesk = deptCode === "emergency" || deptCode.includes("emergency");
+
+  return {
+    desk,
+    department: dept,
+    dept_code: deptCode || null,
+    isEmergencyDesk,
+    employee: emp,
+  };
+}
+
+/**
+ * Checks if ANY doctor assigned to an Emergency desk is currently Active in this hospital.
+ */
+async function hasActiveEmergencyDoctor(hid) {
+  if (!hid) return false;
+
+  const emergencyDesks = await prisma.desks.findMany({
+    where: {
+      hospital_id: hid,
+      departments: {
+        OR: [
+          { dept_code: "emergency" },
+          { dept_code: { contains: "emergency", mode: "insensitive" } },
+        ],
+      },
+      status: { not: "INACTIVE" },
+      assigned_employee_id: { not: null },
+    },
+    include: {
+      employees: { include: { users: true } },
+    },
+  });
+
+  const SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+  for (const desk of emergencyDesks) {
+    const emp = desk.employees;
+    if (!emp) continue;
+    const usr = emp.users;
+    const lastLogin = usr?.last_login_at ? new Date(usr.last_login_at).getTime() : null;
+    const isStale = !lastLogin || (Date.now() - lastLogin > SESSION_MAX_AGE_MS);
+    const isOnline =
+      ["active", "processing", "on_break", "emergency_round"].includes(emp.status) &&
+      usr?.status === "active" &&
+      !isStale;
+
+    const duty = getDoctorDutyStatus(emp.user_id, emp.email, emp.employee_code, emp.name);
+    const isDutyActive = duty
+      ? (duty.status === "ACTIVE" || duty.status === "PROCESSING")
+      : true;
+
+    if (isOnline && isDutyActive) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Persists ticket state to PostgreSQL and synchronizes linked appointments.
  */
 async function saveTicketToDb(ticket) {
@@ -536,7 +678,7 @@ async function serveNext(tenantId, department = null, deskId = null, doctorInfo 
       if (dutyStatusInfo && dutyStatusInfo.status && dutyStatusInfo.status !== "ACTIVE" && dutyStatusInfo.status !== "PROCESSING") {
         const statusLabels = {
           ON_BREAK: "on Tea / Lunch Break",
-          EMERGENCY_ROUND: "on Emergency / ICU Round",
+          EMERGENCY_ROUND: "on ICU / Ward Round",
           OFF_DUTY: "Off Duty (Shift Ended)",
           SHIFT_ENDED: "Off Duty (Shift Ended)",
         };
@@ -631,6 +773,19 @@ async function serveNext(tenantId, department = null, deskId = null, doctorInfo 
     }
   }
 
+  // Server-side Doctor Desk & Emergency Scope Enforcement:
+  // Determine doctor's department from the desk they are assigned to (desks.assigned_employee_id -> desks.department_id)
+  let doctorScope = await getDoctorDeskAndScope(hid, actualDocInfo || { desk_id: deskId });
+  if (!doctorScope.desk && deskId) {
+    doctorScope = await getDoctorDeskAndScope(hid, { desk_id: deskId });
+  }
+  const isEmergencyDesk = Boolean(doctorScope.isEmergencyDesk);
+  const deskDeptCode = doctorScope.dept_code;
+  const hasActiveEmerg = await hasActiveEmergencyDoctor(hid);
+
+  // If doctor is on an emergency desk or desk has a department, effective department comes from desk!
+  const effectiveFilterDept = isEmergencyDesk ? "emergency" : (deskDeptCode || filterDept);
+
   const tempPopped = [];
   let foundTicket = null;
 
@@ -647,9 +802,40 @@ async function serveNext(tenantId, department = null, deskId = null, doctorInfo 
       continue;
     }
 
-    if (filterDept && filterDept !== "all" && !isDeptMatch(t.service_category, filterDept) && !isDeptMatch(t.department, filterDept)) {
-      tempPopped.push(item);
-      continue;
+    const isEmerg = isEmergencyTicket(t);
+
+    if (isEmergencyDesk) {
+      // Rule 1: A doctor on an Emergency desk can only serve tickets that are in the emergency department or priority 1 (is_emergency).
+      if (!isEmerg) {
+        tempPopped.push(item);
+        continue;
+      }
+    } else {
+      // Rule 2: Doctors on other desks no longer receive emergency tickets, except in fallback.
+      if (isEmerg) {
+        if (hasActiveEmerg) {
+          // Emergency doctor is active: skip emergency ticket, reserved for emergency desk
+          tempPopped.push(item);
+          continue;
+        } else {
+          // Fallback: If no doctor on an Emergency desk is Active, emergency tickets become
+          // visible to all available doctors, marked "Emergency - unassigned"
+          t.is_emergency_unassigned = true;
+          t.emergency_unassigned = true;
+        }
+      } else {
+        // Normal OPD ticket: check department match if filter is set
+        if (
+          effectiveFilterDept &&
+          effectiveFilterDept !== "all" &&
+          effectiveFilterDept !== "consultation" &&
+          !isDeptMatch(t.service_category, effectiveFilterDept) &&
+          !isDeptMatch(t.department, effectiveFilterDept)
+        ) {
+          tempPopped.push(item);
+          continue;
+        }
+      }
     }
 
     foundTicket = t;
@@ -663,6 +849,20 @@ async function serveNext(tenantId, department = null, deskId = null, doctorInfo 
 
   if (!foundTicket) {
     return null;
+  }
+
+  // Safety validation:
+  if (isEmergencyDesk && !isEmergencyTicket(foundTicket)) {
+    const err = new Error("Emergency desk doctors can only serve emergency patients.");
+    err.status = 403;
+    err.code = "EMERGENCY_DESK_RESTRICTION";
+    throw err;
+  }
+  if (!isEmergencyDesk && isEmergencyTicket(foundTicket) && hasActiveEmerg) {
+    const err = new Error("Emergency patients are assigned to the Emergency Triage desk.");
+    err.status = 403;
+    err.code = "EMERGENCY_DESK_RESTRICTION";
+    throw err;
   }
 
   foundTicket.status = "serving";
@@ -923,17 +1123,23 @@ async function transferTicket(tenantId, ticketId, targetDepartment, prescription
   const today = getCurrentQueueDate();
   const targetQDate = origTicket.queue_date || today;
 
+  const isTargetEmerg = String(targetDepartment || "").trim().toLowerCase() === "emergency";
+  const newPriority = isTargetEmerg ? 1 : (origTicket.priority_level || 2);
+  const effTime = isTargetEmerg ? (now - 3600) : now;
+
   const newTicket = {
     ticket_id: newTid,
     tenant_id: tenantId,
     consumer_type: origTicket.consumer_type || "hospital",
     service_category: targetDepartment,
     name: origTicket.name,
-    priority_level: origTicket.priority_level || 2,
+    priority_level: newPriority,
+    priority: newPriority,
+    is_emergency: isTargetEmerg || newPriority === 1,
     join_timestamp: now,
     queue_date: targetQDate,
     appointment_id: origTicket.appointment_id || "",
-    effective_timestamp: now,
+    effective_timestamp: effTime,
     user_email: origTicket.user_email || "",
     age: origTicket.age || 30,
     gender: origTicket.gender || "other",
@@ -1565,6 +1771,28 @@ async function recallTicket(tenantId, ticketId, doctorInfo = null, targetMode = 
   // Resuming a held ticket defaults to putting it back into the active waiting queue for doctor to call
   const shouldServeImmediately = targetMode === "serving" && isDocFree;
 
+  const hid = await engine.resolveHospitalId(tenantId);
+  if (shouldServeImmediately && (docId || docEmail)) {
+    const doctorScope = await getDoctorDeskAndScope(hid, doctorInfo);
+    const isEmerg = isEmergencyTicket(ticket);
+    if (doctorScope.isEmergencyDesk) {
+      if (!isEmerg) {
+        const err = new Error("Emergency desk doctors can only serve emergency patients.");
+        err.status = 403;
+        err.code = "EMERGENCY_DESK_RESTRICTION";
+        throw err;
+      }
+    } else if (isEmerg) {
+      const hasActiveEmerg = await hasActiveEmergencyDoctor(hid);
+      if (hasActiveEmerg) {
+        const err = new Error("Emergency patients are assigned to the Emergency Triage desk.");
+        err.status = 403;
+        err.code = "EMERGENCY_DESK_RESTRICTION";
+        throw err;
+      }
+    }
+  }
+
   if (shouldServeImmediately) {
     ticket.status = "serving";
     ticket.serve_start_time = now;
@@ -1587,7 +1815,6 @@ async function recallTicket(tenantId, ticketId, doctorInfo = null, targetMode = 
 
   await saveTicketToDb(ticket);
 
-  const hid = await engine.resolveHospitalId(tenantId);
   await engine.logQueueEvent({
     hospitalId: hid,
     ticketId: ticket.ticket_id,
@@ -1751,6 +1978,38 @@ async function updateTicketPriority(
   const tenant = engine._getTenant(effectiveTenant);
   const qDate = parseQueueDate(ticketRow.queue_date) || getCurrentQueueDate();
 
+  if (priority === 1) {
+    const isAlreadyEmergency = String(ticketRow.service_category || "").trim().toLowerCase() === "emergency";
+    if (!isAlreadyEmergency) {
+      // Transfer ticket to emergency department using existing transfer logic, preserving audit reason
+      const transferredTicket = await transferTicket(effectiveTenant, ticketId, "emergency", reason);
+      transferredTicket.priority_level = 1;
+      transferredTicket.priority = 1;
+      transferredTicket.is_emergency = true;
+      transferredTicket.effective_timestamp = Date.now() / 1000.0 - 3600;
+      await saveTicketToDb(transferredTicket);
+
+      await engine.logQueueEvent({
+        hospitalId: hid,
+        ticketId: transferredTicket.ticket_id,
+        eventType: "PRIORITY_CHANGED",
+        oldStatus: "waiting",
+        newStatus: "waiting",
+        oldPosition: null,
+        newPosition: 1,
+        metadata: {
+          reason,
+          requester: requesterEmail,
+          elevated_to_emergency: true,
+          transferred_from_ticket: ticketId,
+          queue_date: qDate,
+        },
+      });
+
+      return transferredTicket;
+    }
+  }
+
   // If priority 1 (Emergency), set effective_timestamp into past so it jumps to top
   const effTime = priority === 1 ? (now - 3600) : now;
   const effDt = new Date(effTime * 1000);
@@ -1821,4 +2080,7 @@ module.exports = {
   getDoctorDutyStatus,
   setDoctorDutyStatus,
   updateTicketPriority,
+  isEmergencyTicket,
+  getDoctorDeskAndScope,
+  hasActiveEmergencyDoctor,
 };

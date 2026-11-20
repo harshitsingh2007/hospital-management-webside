@@ -669,7 +669,31 @@ export function normalizeRxData(rxData, lang = "en") {
       }
       parsed = JSON.parse(trimmed);
     } catch (e) {
-      parsed = { advice: rxData };
+      // Try extracting labelled JSON blocks e.g. "[General Consultation (OPD)]: { ... }"
+      const labelPattern = /\[([^\]]+)\]:\s*\{/g;
+      let matchedBlock = null;
+      let m;
+      while ((m = labelPattern.exec(rxData)) !== null) {
+        const start = m.index + m[0].length - 1;
+        let depth = 0;
+        let end = -1;
+        for (let i = start; i < rxData.length; i++) {
+          if (rxData[i] === "{") depth++;
+          else if (rxData[i] === "}") {
+            depth--;
+            if (depth === 0) { end = i; break; }
+          }
+        }
+        if (end !== -1) {
+          try {
+            const candidate = JSON.parse(rxData.slice(start, end + 1));
+            if (!matchedBlock || m[1].toLowerCase().includes("consult") || m[1].toLowerCase().includes("opd")) {
+              matchedBlock = candidate;
+            }
+          } catch (_) {}
+        }
+      }
+      parsed = matchedBlock || { advice: cleanAdviceText(rxData) };
     }
   }
 
@@ -681,7 +705,14 @@ export function normalizeRxData(rxData, lang = "en") {
   const rawDoctor = (parsed.doctor_name && parsed.doctor_name !== "Dr. Staff Desk")
     ? parsed.doctor_name
     : (parsed.served_by_doctor_name || "Consultant Physician");
-  const doctorName = formatCleanText(rawDoctor, lang);
+  // Safety: Prevent patient name from appearing as doctor name
+  const patientRaw = (parsed.patient_name || parsed.name || "").trim().toLowerCase();
+  const normPatient = patientRaw.replace(/^(mr|mrs|ms|dr|master|shri|smt)\.?\s+/i, "").replace(/[^a-z0-9]/gi, "");
+  const normDoctor = String(rawDoctor || "").replace(/^(mr|mrs|ms|dr|master|shri|smt)\.?\s+/i, "").replace(/[^a-z0-9]/gi, "").toLowerCase();
+  const safeDoctor = (normPatient && normDoctor && (normDoctor === normPatient || (normDoctor.length > 3 && normPatient.includes(normDoctor))))
+    ? "Attending Consultant"
+    : (rawDoctor || "Attending Consultant");
+  const doctorName = formatCleanText(safeDoctor, lang);
   const rawDept = parsed.doctor_department || parsed.service_category || parsed.department_name || "General OPD";
   const doctorDept = getCategoryLabel(rawDept, lang);
   const doctorReg = parsed.doctor_employee_id || parsed.doctor_reg_no || "MCI-2024-8842";
@@ -889,13 +920,13 @@ export function buildPrescriptionPdfBlob(rawRxData, lang = "en", branding = null
     });
   } else {
     stream.push("0.9 0.9 0.9 RG 0.5 w 40 " + (currentY - 14) + " 515 24 re S");
-    stream.push("BT /F1 9 Tf 0.4 0.4 0.4 rg 52 " + (currentY - 4) + " Td (" + escapePdfText(data.advice || "No specific prescription medications listed. Clinical consultation completed.") + ") Tj ET");
+    stream.push("BT /F1 9 Tf 0.4 0.4 0.4 rg 52 " + (currentY - 4) + " Td (" + escapePdfText("No specific prescription medications prescribed for this visit.") + ") Tj ET");
     currentY -= 24;
   }
 
   // 5. Doctor Advice & Follow-Up (Plain text lines)
   currentY -= 12;
-  if (data.advice && data.medicines && data.medicines.length > 0) {
+  if (data.advice) {
     stream.push("BT /F2 8.5 Tf 0.1 0.1 0.1 rg 40 " + currentY + " Td (Advice: ) Tj ET");
     stream.push("BT /F1 9 Tf 0.2 0.2 0.2 rg 80 " + currentY + " Td (" + escapePdfText(data.advice) + ") Tj ET");
     currentY -= 16;
@@ -1390,12 +1421,12 @@ export function printPrescriptionSlip(rawRxData, lang = "en", branding = null) {
     </tbody>
   </table>` : `
   <div class="no-meds">
-    ${rxData.advice || "No specific prescription medications listed. Consultation completed."}
+    ${lang === "hi" ? "इस विज़िट के लिए कोई दवा निर्धारित नहीं की गई है।" : "No specific prescription medications prescribed for this visit."}
   </div>`}
 
-  ${rxData.advice && rxData.medicines && rxData.medicines.length > 0 ? `
+  ${rxData.advice ? `
   <div class="meta-line">
-    <strong>Doctor's Advice:</strong> <span>${rxData.advice}</span>
+    <strong>${lang === "hi" ? "चिकित्सक सलाह:" : "Doctor's Advice:"}</strong> <span>${rxData.advice}</span>
   </div>` : ""}
 
   ${rxData.follow_up ? `

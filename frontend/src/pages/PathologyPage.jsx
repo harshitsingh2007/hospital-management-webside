@@ -32,6 +32,8 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   Coffee,
   Download,
@@ -47,9 +49,11 @@ import {
   Plus,
   Printer,
   RefreshCw,
+  RotateCcw,
   Search,
   Send,
   Shield,
+  ShieldAlert,
   Sliders,
   Stethoscope,
   TestTube,
@@ -1209,9 +1213,14 @@ export default function PathologyPage({
   };
 
   // Historical Records & Date Filtering
+  const [historyScopeFilter, setHistoryScopeFilter] = useState("all"); // "all" | "my"
   const [historyDateFilter, setHistoryDateFilter] = useState("all"); // Default to "all" so lab records display immediately
   const [customFilterDate, setCustomFilterDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [historyStatusFilter, setHistoryStatusFilter] = useState("all"); // "all" | "completed" | "serving" | "waiting" | "cancelled"
+  const [historyCategoryFilter, setHistoryCategoryFilter] = useState("all"); // "all" | "Hematology" | "Biochemistry" | "Urine" | "Serology"
   const [historySearchTerm, setHistorySearchTerm] = useState("");
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyRowsPerPage, setHistoryRowsPerPage] = useState(10);
   const [historicalReports, setHistoricalReports] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [historyError, setHistoryError] = useState(null);
@@ -1233,11 +1242,13 @@ export default function PathologyPage({
       });
 
       if (res.status === 401 || res.status === 403) {
-        setHistoryError(
-          isHi
+        setHistoryError({
+          type: "permission",
+          status: res.status,
+          message: isHi
             ? "अनुमति अस्वीकृत (403): आपके पास इस अस्पताल के लैब विज़िट रिकॉर्ड देखने की अनुमति नहीं है।"
-            : "Permission Denied (403): You do not have permission to view visit records for this hospital."
-        );
+            : "Permission Denied (403): You do not have permission to view visit records for this hospital.",
+        });
         setHistoricalReports([]);
         return;
       }
@@ -1248,7 +1259,11 @@ export default function PathologyPage({
           const errData = await res.json();
           if (errData?.message) errMsg = errData.message;
         } catch (_) { }
-        setHistoryError(errMsg);
+        setHistoryError({
+          type: "http",
+          status: res.status,
+          message: errMsg,
+        });
         setHistoricalReports([]);
         return;
       }
@@ -1262,7 +1277,10 @@ export default function PathologyPage({
       }
     } catch (e) {
       console.error("History fetch error:", e);
-      setHistoryError(isHi ? "नेटवर्क त्रुटि: सर्वर से कनेक्ट नहीं हो सका।" : "Network error: Unable to connect to server.");
+      setHistoryError({
+        type: "network",
+        message: isHi ? "नेटवर्क त्रुटि: सर्वर से कनेक्ट नहीं हो सका।" : "Network error: Unable to connect to server.",
+      });
       setHistoricalReports([]);
     } finally {
       setLoadingHistory(false);
@@ -1274,7 +1292,115 @@ export default function PathologyPage({
     fetchHistoricalReports();
   }, [fetchHistoricalReports]);
 
-  // All Pathology & Diagnostic Laboratory Visits
+  // Parse structured clinical lab details from visit & transfer stages
+  const parseLabVisitDetails = useCallback((item) => {
+    if (!item) {
+      return {
+        doctor: "Dr. Rahul",
+        technician: "Senior Lab Technologist",
+        testName: "General Diagnostic Laboratory Panel",
+        category: "General Pathology",
+      };
+    }
+
+    const stages = Array.isArray(item.transfer_stages) ? item.transfer_stages : [];
+    const labStage = stages.find((s) => {
+      const c = (s.dept_code || s.department || "").toLowerCase();
+      return c.includes("lab") || c.includes("path");
+    });
+
+    let doctor = item.doctor_name || "";
+    let technician = item.technician_name || "";
+    let testName = item.test_panel_name || item.medical_condition || item.service_category || "";
+    let category = "General Pathology";
+
+    // 1. Inspect notes from item, lab stage, and all transfer stages
+    const notesToInspect = [
+      item.prescription_notes,
+      labStage?.notes,
+      ...stages.map((s) => s.notes),
+    ].filter(Boolean);
+
+    for (const notes of notesToInspect) {
+      try {
+        let raw = typeof notes === "string" ? notes.trim() : notes;
+        if (typeof raw === "string") {
+          const jsonMatch = raw.match(/\{[\s\S]*\}/);
+          if (jsonMatch) raw = jsonMatch[0];
+          const parsed = JSON.parse(raw);
+          if (parsed.lab_report) {
+            if (parsed.lab_report.pathologist_name) doctor = parsed.lab_report.pathologist_name;
+            if (parsed.lab_report.doctor_name) doctor = parsed.lab_report.doctor_name;
+            if (parsed.lab_report.technician_name) technician = parsed.lab_report.technician_name;
+            if (parsed.lab_report.test_panel_name) testName = parsed.lab_report.test_panel_name;
+          }
+          if (parsed.doctor_name) doctor = parsed.doctor_name;
+          if (parsed.pathologist_name) doctor = parsed.pathologist_name;
+          if (parsed.technician_name) technician = parsed.technician_name;
+          if (parsed.diagnosis && (!testName || testName === "general_checkup" || testName === "Clinical Diagnostic Assay")) {
+            testName = parsed.diagnosis;
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 2. Check stages for doctor / served_by
+    if (!doctor) {
+      for (const s of stages) {
+        if (s.served_by) {
+          doctor = s.served_by;
+          break;
+        }
+      }
+    }
+
+    if (!doctor && item.served_by) {
+      doctor = item.served_by;
+    }
+
+    // 3. Fallback to current logged-in doctor / pathologist
+    if (!doctor) {
+      doctor = currentUser?.name || currentUser?.username || "rahul";
+    }
+
+    // Format doctor name nicely with Dr. prefix
+    let formattedDoctor = String(doctor).trim();
+    if (formattedDoctor) {
+      formattedDoctor = formattedDoctor.replace(/^dr\.?\s+/i, "").trim();
+      formattedDoctor = formattedDoctor.charAt(0).toUpperCase() + formattedDoctor.slice(1);
+      formattedDoctor = `Dr. ${formattedDoctor}`;
+    } else {
+      formattedDoctor = "Dr. Rahul";
+    }
+
+    // Format test panel name if raw e.g. "general_checkup"
+    let formattedTestName = testName;
+    if (!formattedTestName || formattedTestName === "general_checkup") {
+      formattedTestName = "Complete Blood Count & Routine Diagnostic Panel";
+    } else if (formattedTestName.includes("_")) {
+      formattedTestName = formattedTestName.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    }
+
+    const lowerTest = String(formattedTestName).toLowerCase();
+    if (lowerTest.includes("cbc") || lowerTest.includes("blood") || lowerTest.includes("hemo") || lowerTest.includes("platelet")) {
+      category = "Hematology";
+    } else if (lowerTest.includes("glucose") || lowerTest.includes("sugar") || lowerTest.includes("hba1c") || lowerTest.includes("lipid") || lowerTest.includes("liver") || lowerTest.includes("kidney") || lowerTest.includes("bio") || lowerTest.includes("kft") || lowerTest.includes("lft")) {
+      category = "Biochemistry";
+    } else if (lowerTest.includes("urine") || lowerTest.includes("urinalysis")) {
+      category = "Urine Routine";
+    } else if (lowerTest.includes("serology") || lowerTest.includes("widal") || lowerTest.includes("hiv") || lowerTest.includes("antigen") || lowerTest.includes("antibody")) {
+      category = "Serology";
+    }
+
+    return {
+      doctor: formattedDoctor,
+      technician: technician || "Senior Lab Technologist",
+      testName: formattedTestName,
+      category,
+    };
+  }, [currentUser]);
+
+    // All Pathology & Diagnostic Laboratory Visits
   const allLabVisits = useMemo(() => {
     return historicalReports.filter((item) => {
       const dept = (item.department || item.department_name || "").toLowerCase();
@@ -1302,7 +1428,36 @@ export default function PathologyPage({
     });
   }, [historicalReports]);
 
-  // Date counts breakdown for pill badges and empty state
+  // Scoped Lab Visits: All vs My Verified Tests
+  const scopedLabVisits = useMemo(() => {
+    if (historyScopeFilter === "all") return allLabVisits;
+    const myName = (currentUser?.name || currentUser?.username || "").toLowerCase().trim();
+    const myId = String(currentUser?.id || "").trim();
+    const myEmail = (currentUser?.email || "").toLowerCase().trim();
+
+    return allLabVisits.filter((item) => {
+      const tech = String(item.technician_name || item.served_by || item.doctor_name || "").toLowerCase().trim();
+      const techId = String(item.technician_id || item.served_by_id || item.doctor_id || "").trim();
+      const techEmail = String(item.technician_email || item.served_by_email || "").toLowerCase().trim();
+
+      if (myId && techId && myId === techId) return true;
+      if (myEmail && techEmail && myEmail === techEmail) return true;
+      if (myName && tech && tech.includes(myName)) return true;
+
+      if (Array.isArray(item.transfer_stages)) {
+        return item.transfer_stages.some((s) => {
+          const sTech = String(s.technician_name || s.served_by || s.doctor_name || "").toLowerCase().trim();
+          const sId = String(s.technician_id || s.served_by_id || s.user_id || "").trim();
+          if (myId && sId && myId === sId) return true;
+          if (myName && sTech && sTech.includes(myName)) return true;
+          return false;
+        });
+      }
+      return false;
+    });
+  }, [allLabVisits, historyScopeFilter, currentUser]);
+
+  // Date counts breakdown for pill badges, metrics, and empty state
   const dateCounts = useMemo(() => {
     const todayStr = new Date().toISOString().split("T")[0];
     const yestDate = new Date();
@@ -1312,21 +1467,26 @@ export default function PathologyPage({
     let today = 0;
     let yesterday = 0;
     let custom = 0;
+    let completed = 0;
 
-    allLabVisits.forEach((item) => {
+    scopedLabVisits.forEach((item) => {
       const itemDate = item.queue_date || (item.created_at ? item.created_at.split("T")[0] : "");
       if (itemDate === todayStr) today++;
       if (itemDate === yestStr) yesterday++;
       if (itemDate === customFilterDate) custom++;
+
+      const st = String(item.status || "completed").toLowerCase();
+      if (st === "completed" || st === "verified" || st === "done") completed++;
     });
 
     return {
-      all: allLabVisits.length,
+      all: scopedLabVisits.length,
       today,
       yesterday,
       custom,
+      completed,
     };
-  }, [allLabVisits, customFilterDate]);
+  }, [scopedLabVisits, customFilterDate]);
 
   // Filtered Historical Records based on user selection
   const filteredHistory = useMemo(() => {
@@ -1335,28 +1495,54 @@ export default function PathologyPage({
     yestDate.setDate(yestDate.getDate() - 1);
     const yestStr = yestDate.toISOString().split("T")[0];
 
-    return allLabVisits.filter((item) => {
+    return scopedLabVisits.filter((item) => {
       // 1. Date Filtering
       const itemDate = item.queue_date || (item.created_at ? item.created_at.split("T")[0] : "");
       if (historyDateFilter === "today" && itemDate && itemDate !== todayStr) return false;
       if (historyDateFilter === "yesterday" && itemDate && itemDate !== yestStr) return false;
       if (historyDateFilter === "date" && itemDate && itemDate !== customFilterDate) return false;
 
-      // 2. Search query (Patient Name, Token, Phone, Test Panel)
+      // 2. Status Filtering
+      const rawSt = String(item.status || "completed").toLowerCase();
+      if (historyStatusFilter === "completed" && !(rawSt === "completed" || rawSt === "verified" || rawSt === "done")) return false;
+      if (historyStatusFilter === "serving" && !(rawSt === "serving" || rawSt === "in_progress" || rawSt === "testing")) return false;
+      if (historyStatusFilter === "waiting" && !(rawSt === "waiting" || rawSt === "queued")) return false;
+      if (historyStatusFilter === "cancelled" && !(rawSt === "cancelled" || rawSt === "canceled" || rawSt === "no_show" || rawSt === "expired")) return false;
+
+      // 3. Category Filtering
+      if (historyCategoryFilter !== "all") {
+        const details = parseLabVisitDetails(item);
+        if (details.category.toLowerCase() !== historyCategoryFilter.toLowerCase()) return false;
+      }
+
+      // 4. Search query (Patient Name, Token, Phone, Test Panel, Doctor)
       if (historySearchTerm.trim()) {
         const q = historySearchTerm.toLowerCase();
         const pName = (item.patient_name || item.name || "").toLowerCase();
-        const tId = String(item.ticket_id || "").toLowerCase();
+        const tId = String(item.ticket_id || item.token_number || "").toLowerCase();
         const phone = String(item.phone || "").toLowerCase();
         const testName = String(item.medical_condition || item.service_category || item.test_panel_name || "").toLowerCase();
-        if (!pName.includes(q) && !tId.includes(q) && !phone.includes(q) && !testName.includes(q)) {
+        const docName = String(item.doctor_name || "").toLowerCase();
+        if (!pName.includes(q) && !tId.includes(q) && !phone.includes(q) && !testName.includes(q) && !docName.includes(q)) {
           return false;
         }
       }
 
       return true;
     });
-  }, [allLabVisits, historyDateFilter, customFilterDate, historySearchTerm]);
+  }, [scopedLabVisits, historyDateFilter, customFilterDate, historyStatusFilter, historyCategoryFilter, historySearchTerm, parseLabVisitDetails]);
+
+  // Reset page when filter criteria change
+  useEffect(() => {
+    setHistoryPage(1);
+  }, [historyScopeFilter, historyDateFilter, customFilterDate, historyStatusFilter, historyCategoryFilter, historySearchTerm, historyRowsPerPage]);
+
+  const historyTotalPages = Math.max(1, Math.ceil(filteredHistory.length / historyRowsPerPage));
+  const historyCurrentPage = Math.min(historyPage, historyTotalPages);
+  const paginatedHistory = useMemo(() => {
+    const start = (historyCurrentPage - 1) * historyRowsPerPage;
+    return filteredHistory.slice(start, start + historyRowsPerPage);
+  }, [filteredHistory, historyCurrentPage, historyRowsPerPage]);
 
   // Excel Export Handler
   const handleExportExcel = () => {
@@ -1366,22 +1552,27 @@ export default function PathologyPage({
     }
 
     const rows = filteredHistory.map((item, idx) => {
+      const details = parseLabVisitDetails(item);
       const rawSt = String(item.status || "completed").toLowerCase();
-      const isCancelled = rawSt === "cancelled" || rawSt === "canceled";
-      const isNoShow = rawSt === "no_show" || rawSt === "noshow" || rawSt === "expired";
       let statusFormatted = "Completed";
-      if (isCancelled) statusFormatted = "Cancelled";
-      else if (isNoShow) statusFormatted = "No-Show";
-      else if (rawSt === "serving" || rawSt === "in_progress") statusFormatted = "Serving";
+      if (rawSt === "cancelled" || rawSt === "canceled") statusFormatted = "Cancelled";
+      else if (rawSt === "no_show" || rawSt === "noshow" || rawSt === "expired") statusFormatted = "No-Show";
+      else if (rawSt === "serving" || rawSt === "in_progress" || rawSt === "testing") statusFormatted = "Testing";
       else if (rawSt === "waiting" || rawSt === "queued") statusFormatted = "Waiting";
 
       return {
         "S.No": idx + 1,
-        "Date": item.queue_date || (item.created_at ? new Date(item.created_at).toLocaleDateString() : ""),
-        "Token ID": item.ticket_id || "",
-        "Patient Name": item.patient_name || item.name || "",
-        "Age / Gender": `${item.age || 30} / ${item.gender || "M"}`,
-        "Test Investigation": item.medical_condition || item.service_category || "Diagnostic Assay",
+        "Date": item.queue_date || (item.created_at ? item.created_at.split("T")[0] : "-"),
+        "Time": item.created_at ? new Date(item.created_at).toLocaleTimeString() : "-",
+        "Token ID": item.ticket_id || item.token_number || "-",
+        "Patient Name": item.patient_name || item.name || "-",
+        "Age": item.age || 30,
+        "Gender": item.gender || "M",
+        "Phone": item.phone || "-",
+        "Investigation": details.testName,
+        "Category": details.category,
+        "Care Pathway": `${item.origin_department || "OPD"} -> Pathology`,
+        "Technician / Doctor": details.technician,
         "Status": statusFormatted,
         "Cancellation Reason": item.cancellation_reason || "-",
       };
@@ -1391,7 +1582,7 @@ export default function PathologyPage({
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Pathology_Records");
     XLSX.writeFile(wb, `Pathology_Records_${historyDateFilter}_${new Date().toISOString().slice(0, 10)}.xlsx`);
-    showToast(isHi ? "एक्सेल स्प्रेडशीट डाउनलोड हो गई।" : "Excel spreadsheet exported successfully.", "success");
+    showToast(isHi ? "एक्सेल स्प्रेडशीट सफलतापूर्वक डाउनलोड हो गई।" : "Excel spreadsheet exported successfully.", "success");
   };
 
   // =========================================================================
@@ -5237,219 +5428,616 @@ export default function PathologyPage({
             Includes Search Bar (moved from Archive), Date Filtering,
             Reprint Action, and Excel Export
         ======================================================== */}
-        {activeTab === "history" && (
+        {/* Tab 3: Test & Report History (Patient Laboratory History) */}
+      {activeTab === "history" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+          {/* Telemetry Metric Cards */}
           <div
             style={{
-              background: cardBg,
-              border: cardBorder,
-              borderRadius: "16px",
-              padding: "16px 18px",
-              boxShadow: isDark ? "0 8px 24px rgba(0,0,0,0.3)" : "0 4px 16px rgba(0,0,0,0.03)",
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gap: "14px",
             }}
           >
-            {/* Top Toolbar: Heading, Search (moved from archive), Date Filtering & Export */}
+            <div
+              style={{
+                background: cardBg,
+                border: cardBorder,
+                borderRadius: "16px",
+                padding: "16px 20px",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.02)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  {historyScopeFilter === "my"
+                    ? (isHi ? "मेरे कुल परीक्षण" : "My Lab Tests Total")
+                    : (isHi ? "कुल प्रयोगशाला परीक्षण" : "All Laboratory Tests Total")}
+                </span>
+                <History size={16} color="#0284C7" />
+              </div>
+              <div style={{ fontSize: "28px", fontWeight: 900, color: textColor, marginTop: "6px" }}>
+                {dateCounts.all}
+              </div>
+              <div style={{ fontSize: "11px", color: mutedText, marginTop: "2px" }}>
+                {historyScopeFilter === "my"
+                  ? (isHi ? "आपके द्वारा विश्लेषित व सत्यापित कुल परीक्षण" : "Total lab specimens tested & verified by you")
+                  : (isHi ? "अस्पताल के कुल प्रयोगशाला परीक्षण रिकॉर्ड" : "Total pathology & lab test records for this hospital")}
+              </div>
+            </div>
+
+            <div
+              style={{
+                background: cardBg,
+                border: cardBorder,
+                borderRadius: "16px",
+                padding: "16px 20px",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.02)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  {isHi ? "आज के परीक्षण" : "Today's Lab Tests"}
+                </span>
+                <Calendar size={16} color="#10B981" />
+              </div>
+              <div style={{ fontSize: "28px", fontWeight: 900, color: "#10B981", marginTop: "6px" }}>
+                {dateCounts.today}
+              </div>
+              <div style={{ fontSize: "11px", color: mutedText, marginTop: "2px" }}>
+                {isHi ? "आज प्राप्त एवं संसाधित नमूने" : "Specimens processed & tested today"}
+              </div>
+            </div>
+
+            <div
+              style={{
+                background: cardBg,
+                border: cardBorder,
+                borderRadius: "16px",
+                padding: "16px 20px",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.02)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  {isHi ? "कल के परीक्षण" : "Yesterday's Lab Tests"}
+                </span>
+                <Clock size={16} color="#F59E0B" />
+              </div>
+              <div style={{ fontSize: "28px", fontWeight: 900, color: "#F59E0B", marginTop: "6px" }}>
+                {dateCounts.yesterday}
+              </div>
+              <div style={{ fontSize: "11px", color: mutedText, marginTop: "2px" }}>
+                {isHi ? "कल संसाधित किए गए नैदानिक नमूने" : "Diagnostic specimens processed yesterday"}
+              </div>
+            </div>
+
+            <div
+              style={{
+                background: cardBg,
+                border: cardBorder,
+                borderRadius: "16px",
+                padding: "16px 20px",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.02)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  {isHi ? "सत्यापित रिपोर्ट स्लिप्स" : "Verified Diagnostic Slips"}
+                </span>
+                <CheckCircle2 size={16} color="#0284C7" />
+              </div>
+              <div style={{ fontSize: "28px", fontWeight: 900, color: textColor, marginTop: "6px" }}>
+                {dateCounts.completed}
+              </div>
+              <div style={{ fontSize: "11px", color: mutedText, marginTop: "2px" }}>
+                {isHi ? "सत्यापित व अधिकृत प्रयोगशाला रिपोर्ट" : "Verified & approved diagnostic slips"}
+              </div>
+            </div>
+          </div>
+
+          {/* Main Table Card */}
+          <div style={{ background: cardBg, border: cardBorder, borderRadius: "18px", padding: "24px" }}>
+            {/* Header Title & Pathologist Scope Toggle */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "12px" }}>
               <div>
-                <h2 style={{ margin: 0, fontSize: "16px", fontWeight: 900, color: textColor }}>
-                  {isHi ? "मरीज़ प्रयोगशाला परीक्षण इतिहास" : "Patient Laboratory Testing History"}
-                </h2>
-                <p style={{ margin: "2px 0 0 0", fontSize: "12px", color: mutedText }}>
-                  {isHi
-                    ? "दिनांक अनुसार फ़िल्टर करें, नाम/टोकन से खोजें, रिपोर्ट पुनः प्रिंट करें अथवा एक्सेल में निर्यात करें।"
-                    : "Search records, filter by date, reprint verified laboratory reports, or export to Excel."}
+                <h3 style={{ margin: 0, fontSize: "17px", fontWeight: 800, color: textColor, display: "flex", alignItems: "center", gap: "8px" }}>
+                  <History size={18} color="#0284C7" />
+                  <span>
+                    {historyScopeFilter === "my"
+                      ? (isHi ? "मेरा प्रयोगशाला परीक्षण एवं रिपोर्ट इतिहास" : "My Verified Tests & Diagnostic History")
+                      : (isHi ? "मरीज़ प्रयोगशाला परीक्षण एवं रिपोर्ट इतिहास" : "Patient Laboratory Testing & Report History")}
+                  </span>
+                </h3>
+                <p style={{ margin: "4px 0 0 0", fontSize: "12px", color: mutedText }}>
+                  {historyScopeFilter === "my"
+                    ? (isHi
+                        ? "केवल आपके द्वारा विश्लेषित एवं सत्यापित किए गए नमूनों का संपूर्ण ऑडिट रिकॉर्ड।"
+                        : "Audit records for laboratory tests verified exclusively by you.")
+                    : (isHi
+                        ? "इस अस्पताल के प्रयोगशाला विभाग के सभी मरीज़ों का परीक्षण एवं रिपोर्ट ऑडिट रिकॉर्ड।"
+                        : "All pathology and diagnostic laboratory testing audit records for this facility.")}
                 </p>
               </div>
 
-              {/* Search Box (Moved from Archive Tab as per Requirement 1) */}
-              <div style={{ position: "relative", minWidth: "240px" }}>
-                <Search size={14} style={{ position: "absolute", left: "10px", top: "9px", color: mutedText }} />
-                <input
-                  type="text"
-                  placeholder={isHi ? "नाम, टोकन, फ़ोन या जांच खोजें..." : "Search name, token, phone or test..."}
-                  value={historySearchTerm}
-                  onChange={(e) => setHistorySearchTerm(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "6px 12px 6px 32px",
-                    borderRadius: "8px",
-                    border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
-                    background: isDark ? "#0F172A" : "#F8FAFC",
-                    color: textColor,
-                    fontSize: "12px",
-                    outline: "none",
-                    boxSizing: "border-box",
-                  }}
-                />
-                {historySearchTerm && (
+              {/* Scope Toggle: All Laboratory Visits vs My Verified Tests */}
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                <div style={{ display: "inline-flex", background: isDark ? "#1E293B" : "#E2E8F0", padding: "3px", borderRadius: "10px", alignItems: "center", gap: "3px" }}>
                   <button
                     type="button"
-                    onClick={() => setHistorySearchTerm("")}
+                    onClick={() => {
+                      setHistoryScopeFilter("all");
+                      setHistoryPage(1);
+                    }}
                     style={{
-                      position: "absolute",
-                      right: "6px",
-                      top: "6px",
-                      background: "none",
+                      padding: "6px 14px",
+                      borderRadius: "7px",
                       border: "none",
-                      color: mutedText,
+                      background: historyScopeFilter === "all" ? "#0284C7" : "transparent",
+                      color: historyScopeFilter === "all" ? "#FFFFFF" : textColor,
+                      fontSize: "12px",
+                      fontWeight: 800,
                       cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      transition: "all 0.15s ease",
+                    }}
+                    title={isHi ? "अस्पताल के सभी लैब परीक्षण देखें" : "View all laboratory tests for this hospital"}
+                  >
+                    <Building2 size={13} />
+                    <span>{isHi ? "सभी प्रयोगशाला विज़िट" : "All laboratory visits"}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHistoryScopeFilter("my");
+                      setHistoryPage(1);
+                    }}
+                    style={{
+                      padding: "6px 14px",
+                      borderRadius: "7px",
+                      border: "none",
+                      background: historyScopeFilter === "my" ? "#0284C7" : "transparent",
+                      color: historyScopeFilter === "my" ? "#FFFFFF" : textColor,
+                      fontSize: "12px",
+                      fontWeight: 800,
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      transition: "all 0.15s ease",
+                    }}
+                    title={isHi ? "केवल आपके द्वारा सत्यापित परीक्षण देखें" : "View only tests verified by you"}
+                  >
+                    <User size={13} />
+                    <span>{isHi ? "मेरा सत्यापन" : "My verified tests"}</span>
+                  </button>
+                </div>
+
+                {historyScopeFilter === "my" && (
+                  <span
+                    style={{
+                      background: isDark ? "rgba(2, 132, 199, 0.2)" : "#E0F2FE",
+                      border: isDark ? "1px solid rgba(2, 132, 199, 0.4)" : "1px solid #BAE6FD",
+                      color: "#0284C7",
+                      padding: "5px 10px",
+                      borderRadius: "8px",
+                      fontSize: "11px",
+                      fontWeight: 800,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "5px",
                     }}
                   >
-                    <X size={13} />
-                  </button>
+                    <User size={12} />
+                    <span>{currentUser?.name || currentUser?.username || "Logged-in Pathologist"}</span>
+                  </span>
                 )}
               </div>
+            </div>
 
-              {/* Date Filtering Pill Group & Excel Export */}
-              <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  onClick={() => setHistoryDateFilter("all")}
-                  style={{
-                    padding: "5px 12px",
-                    borderRadius: "9999px",
-                    fontSize: "11.5px",
-                    fontWeight: 800,
-                    cursor: "pointer",
-                    border: historyDateFilter === "all" ? "1.5px solid #0284C7" : isDark ? "1px solid #334155" : "1px solid #CBD5E1",
-                    background: historyDateFilter === "all" ? (isDark ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE") : "transparent",
-                    color: historyDateFilter === "all" ? "#0284C7" : mutedText,
-                    transition: "all 0.15s ease",
-                  }}
-                >
-                  <span>{isHi ? "सभी दिनांक" : "All Dates"}</span>
-                  <span style={{ fontSize: "10.5px", marginLeft: "4px", opacity: 0.85 }}>({dateCounts.all})</span>
-                </button>
+            {/* Filter Controls Bar (2 Rows matching Pharmacy) */}
+            <div
+              style={{
+                marginBottom: "20px",
+                padding: "16px",
+                borderRadius: "14px",
+                background: isDark ? "#0B1120" : "#F8FAFC",
+                border: cardBorder,
+                display: "flex",
+                flexDirection: "column",
+                gap: "14px",
+              }}
+            >
+              {/* Row 1: Date Range Presets & Custom Date Picker */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                  <span style={{ fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", letterSpacing: "0.5px", display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                    <Calendar size={13} color="#0284C7" />
+                    <span>{isHi ? "दिनांक अवधि:" : "Date Range:"}</span>
+                  </span>
 
-                <button
-                  type="button"
-                  onClick={() => setHistoryDateFilter("today")}
-                  style={{
-                    padding: "5px 12px",
-                    borderRadius: "9999px",
-                    fontSize: "11.5px",
-                    fontWeight: 800,
-                    cursor: "pointer",
-                    border: historyDateFilter === "today" ? "1.5px solid #0284C7" : isDark ? "1px solid #334155" : "1px solid #CBD5E1",
-                    background: historyDateFilter === "today" ? (isDark ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE") : "transparent",
-                    color: historyDateFilter === "today" ? "#0284C7" : mutedText,
-                    transition: "all 0.15s ease",
-                  }}
-                >
-                  <span>{isHi ? "आज (Today)" : "Today"}</span>
-                  <span style={{ fontSize: "10.5px", marginLeft: "4px", opacity: 0.85 }}>({dateCounts.today})</span>
-                </button>
+                  <div style={{ display: "inline-flex", background: isDark ? "#1E293B" : "#E2E8F0", padding: "3px", borderRadius: "10px", alignItems: "center", gap: "3px" }}>
+                    {/* All Dates */}
+                    <button
+                      type="button"
+                      onClick={() => setHistoryDateFilter("all")}
+                      style={{
+                        padding: "5px 12px",
+                        borderRadius: "7px",
+                        border: "none",
+                        background: historyDateFilter === "all" ? (isDark ? "#475569" : "#64748B") : "transparent",
+                        color: historyDateFilter === "all" ? "#FFFFFF" : textColor,
+                        fontSize: "11.5px",
+                        fontWeight: 800,
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      <span>{isHi ? "सभी तिथियां" : "All Dates"}</span>
+                      <span
+                        style={{
+                          background: historyDateFilter === "all" ? "rgba(255,255,255,0.25)" : (isDark ? "rgba(255,255,255,0.08)" : "#CBD5E1"),
+                          color: historyDateFilter === "all" ? "#FFFFFF" : mutedText,
+                          padding: "1px 6px",
+                          borderRadius: "5px",
+                          fontSize: "10px",
+                          fontWeight: 900,
+                        }}
+                      >
+                        {dateCounts.all}
+                      </span>
+                    </button>
 
-                <button
-                  type="button"
-                  onClick={() => setHistoryDateFilter("yesterday")}
-                  style={{
-                    padding: "5px 12px",
-                    borderRadius: "9999px",
-                    fontSize: "11.5px",
-                    fontWeight: 800,
-                    cursor: "pointer",
-                    border: historyDateFilter === "yesterday" ? "1.5px solid #0284C7" : isDark ? "1px solid #334155" : "1px solid #CBD5E1",
-                    background: historyDateFilter === "yesterday" ? (isDark ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE") : "transparent",
-                    color: historyDateFilter === "yesterday" ? "#0284C7" : mutedText,
-                    transition: "all 0.15s ease",
-                  }}
-                >
-                  <span>{isHi ? "कल (Yesterday)" : "Yesterday"}</span>
-                  <span style={{ fontSize: "10.5px", marginLeft: "4px", opacity: 0.85 }}>({dateCounts.yesterday})</span>
-                </button>
+                    {/* Today */}
+                    <button
+                      type="button"
+                      onClick={() => setHistoryDateFilter("today")}
+                      style={{
+                        padding: "5px 12px",
+                        borderRadius: "7px",
+                        border: "none",
+                        background: historyDateFilter === "today" ? "#10B981" : "transparent",
+                        color: historyDateFilter === "today" ? "#FFFFFF" : textColor,
+                        fontSize: "11.5px",
+                        fontWeight: 800,
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      <span>{isHi ? "आज" : "Today"}</span>
+                      <span
+                        style={{
+                          background: historyDateFilter === "today" ? "rgba(255,255,255,0.25)" : (isDark ? "rgba(255,255,255,0.08)" : "#CBD5E1"),
+                          color: historyDateFilter === "today" ? "#FFFFFF" : mutedText,
+                          padding: "1px 6px",
+                          borderRadius: "5px",
+                          fontSize: "10px",
+                          fontWeight: 900,
+                        }}
+                      >
+                        {dateCounts.today}
+                      </span>
+                    </button>
 
-                <button
-                  type="button"
-                  onClick={() => setHistoryDateFilter("date")}
-                  style={{
-                    padding: "5px 12px",
-                    borderRadius: "9999px",
-                    fontSize: "11.5px",
-                    fontWeight: 800,
-                    cursor: "pointer",
-                    border: historyDateFilter === "date" ? "1.5px solid #0284C7" : isDark ? "1px solid #334155" : "1px solid #CBD5E1",
-                    background: historyDateFilter === "date" ? (isDark ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE") : "transparent",
-                    color: historyDateFilter === "date" ? "#0284C7" : mutedText,
-                    transition: "all 0.15s ease",
-                  }}
-                >
-                  {isHi ? "दिनांक चुनें" : "Select Date"}
-                </button>
+                    {/* Yesterday */}
+                    <button
+                      type="button"
+                      onClick={() => setHistoryDateFilter("yesterday")}
+                      style={{
+                        padding: "5px 12px",
+                        borderRadius: "7px",
+                        border: "none",
+                        background: historyDateFilter === "yesterday" ? "#F59E0B" : "transparent",
+                        color: historyDateFilter === "yesterday" ? "#FFFFFF" : textColor,
+                        fontSize: "11.5px",
+                        fontWeight: 800,
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      <span>{isHi ? "कल" : "Yesterday"}</span>
+                      <span
+                        style={{
+                          background: historyDateFilter === "yesterday" ? "rgba(255,255,255,0.25)" : (isDark ? "rgba(255,255,255,0.08)" : "#CBD5E1"),
+                          color: historyDateFilter === "yesterday" ? "#FFFFFF" : mutedText,
+                          padding: "1px 6px",
+                          borderRadius: "5px",
+                          fontSize: "10px",
+                          fontWeight: 900,
+                        }}
+                      >
+                        {dateCounts.yesterday}
+                      </span>
+                    </button>
 
-                {historyDateFilter === "date" && (
+                    {/* Date Wise */}
+                    <button
+                      type="button"
+                      onClick={() => setHistoryDateFilter("date")}
+                      style={{
+                        padding: "5px 12px",
+                        borderRadius: "7px",
+                        border: "none",
+                        background: historyDateFilter === "date" ? "#0284C7" : "transparent",
+                        color: historyDateFilter === "date" ? "#FFFFFF" : textColor,
+                        fontSize: "11.5px",
+                        fontWeight: 800,
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      <span>{isHi ? "तिथि अनुसार" : "Date Wise"}</span>
+                      {historyDateFilter === "date" && (
+                        <span
+                          style={{
+                            background: "rgba(255,255,255,0.25)",
+                            color: "#FFFFFF",
+                            padding: "1px 6px",
+                            borderRadius: "5px",
+                            fontSize: "10px",
+                            fontWeight: 900,
+                          }}
+                        >
+                          {dateCounts.custom}
+                        </span>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Native Date Picker Input */}
                   <input
                     type="date"
                     value={customFilterDate}
-                    onChange={(e) => setCustomFilterDate(e.target.value)}
+                    onChange={(e) => {
+                      setCustomFilterDate(e.target.value);
+                      setHistoryDateFilter("date");
+                    }}
                     style={{
-                      padding: "4px 10px",
-                      borderRadius: "8px",
-                      border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
-                      background: isDark ? "#0F172A" : "#FFFFFF",
+                      padding: "6px 10px",
+                      borderRadius: "9px",
+                      border: historyDateFilter === "date" ? "1.5px solid #0284C7" : cardBorder,
+                      background: isDark ? "#1E293B" : "#FFFFFF",
                       color: textColor,
                       fontSize: "11.5px",
                       fontWeight: 700,
                       outline: "none",
+                      cursor: "pointer",
+                      boxShadow: historyDateFilter === "date" ? "0 0 0 2px rgba(2, 132, 199, 0.25)" : "none",
                     }}
+                    title={isHi ? "कस्टम तिथि का चयन करें" : "Pick custom date"}
                   />
+                </div>
+
+                {/* Reset Filters Button if any filter active */}
+                {(historyDateFilter !== "all" || historyStatusFilter !== "all" || historyCategoryFilter !== "all" || Boolean(historySearchTerm.trim())) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHistoryDateFilter("all");
+                      setHistoryStatusFilter("all");
+                      setHistoryCategoryFilter("all");
+                      setHistorySearchTerm("");
+                      setHistoryPage(1);
+                    }}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "#EF4444",
+                      fontSize: "11.5px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "5px",
+                      padding: "4px 8px",
+                      borderRadius: "6px",
+                    }}
+                    title={isHi ? "सभी फ़िल्टर रीसेट करें" : "Reset all filters"}
+                  >
+                    <RotateCcw size={12} />
+                    <span>{isHi ? "फ़िल्टर रीसेट" : "Reset Filters"}</span>
+                  </button>
                 )}
+              </div>
 
-                {/* Refresh History */}
-                <button
-                  type="button"
-                  onClick={fetchHistoricalReports}
-                  title="Refresh lab history"
-                  style={{
-                    padding: "5px 10px",
-                    borderRadius: "9999px",
-                    border: isDark ? "1px solid #334155" : "1px solid #CBD5E1",
-                    background: "transparent",
-                    color: textColor,
-                    cursor: "pointer",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "4px",
-                    fontSize: "11px",
-                    fontWeight: 700,
-                  }}
-                >
-                  <RefreshCw size={12} className={loadingHistory ? "spin-icon" : ""} />
-                  <span>{isHi ? "ताज़ा करें" : "Refresh"}</span>
-                </button>
+              {/* Row 2: Status Filter, Category Filter, Search Box, Excel, Refresh */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", flex: 1 }}>
+                  {/* Status Dropdown */}
+                  <select
+                    value={historyStatusFilter}
+                    onChange={(e) => {
+                      setHistoryStatusFilter(e.target.value);
+                      setHistoryPage(1);
+                    }}
+                    style={{
+                      padding: "7px 11px",
+                      borderRadius: "9px",
+                      border: cardBorder,
+                      background: isDark ? "#1E293B" : "#FFFFFF",
+                      color: textColor,
+                      fontSize: "11.5px",
+                      fontWeight: 700,
+                      outline: "none",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <option value="all">{isHi ? "सभी स्थितियां (All Status)" : "All Status"}</option>
+                    <option value="completed">{isHi ? "केवल पूर्ण (Completed)" : "Completed"}</option>
+                    <option value="serving">{isHi ? "परीक्षणाधीन (Testing / Serving)" : "Testing / In Progress"}</option>
+                    <option value="waiting">{isHi ? "प्रतीक्षारत (Waiting)" : "Waiting"}</option>
+                    <option value="cancelled">{isHi ? "रद्द (Cancelled)" : "Cancelled"}</option>
+                  </select>
 
-                {/* Export Excel (Requirement 1) */}
-                <button
-                  type="button"
-                  onClick={handleExportExcel}
-                  style={{
-                    background: "linear-gradient(135deg, #0284C7 0%, #0369A1 100%)",
-                    color: "#FFFFFF",
-                    border: "none",
-                    padding: "6px 14px",
-                    borderRadius: "10px",
-                    fontSize: "11.5px",
-                    fontWeight: 800,
-                    cursor: "pointer",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "5px",
-                    marginLeft: "4px",
-                    boxShadow: "0 2px 8px rgba(2, 132, 199, 0.3)",
-                    transition: "all 0.15s ease",
-                  }}
-                >
-                  <Download size={14} />
-                  <span>{isHi ? "Excel निर्यात" : "Export Excel"}</span>
-                </button>
+                  {/* Category Dropdown */}
+                  <select
+                    value={historyCategoryFilter}
+                    onChange={(e) => {
+                      setHistoryCategoryFilter(e.target.value);
+                      setHistoryPage(1);
+                    }}
+                    style={{
+                      padding: "7px 11px",
+                      borderRadius: "9px",
+                      border: cardBorder,
+                      background: isDark ? "#1E293B" : "#FFFFFF",
+                      color: textColor,
+                      fontSize: "11.5px",
+                      fontWeight: 700,
+                      outline: "none",
+                      cursor: "pointer",
+                      maxWidth: "180px",
+                    }}
+                  >
+                    <option value="all">{isHi ? "सभी श्रेणियां (All Categories)" : "All Categories"}</option>
+                    <option value="Hematology">{isHi ? "हेमेटोलॉजी (Hematology)" : "Hematology"}</option>
+                    <option value="Biochemistry">{isHi ? "बायोकेमिस्ट्री (Biochemistry)" : "Biochemistry"}</option>
+                    <option value="Urine">{isHi ? "मूत्र जांच (Urine Routine)" : "Urine Routine"}</option>
+                    <option value="Serology">{isHi ? "सीरोलॉजी (Serology)" : "Serology"}</option>
+                  </select>
+
+                  {/* Search Box */}
+                  <div style={{ position: "relative", minWidth: "220px", flex: 1, maxWidth: "340px" }}>
+                    <Search size={13} color={mutedText} style={{ position: "absolute", left: "11px", top: "50%", transform: "translateY(-50%)" }} />
+                    <input
+                      type="text"
+                      placeholder={isHi ? "मरीज़, टोकन, फ़ोन, परीक्षण..." : "Search patient, token, phone, test..."}
+                      value={historySearchTerm}
+                      onChange={(e) => {
+                        setHistorySearchTerm(e.target.value);
+                        setHistoryPage(1);
+                      }}
+                      style={{
+                        padding: "7px 28px 7px 32px",
+                        borderRadius: "9px",
+                        border: cardBorder,
+                        background: isDark ? "#1E293B" : "#FFFFFF",
+                        color: textColor,
+                        fontSize: "11.5px",
+                        outline: "none",
+                        width: "100%",
+                        boxSizing: "border-box",
+                      }}
+                    />
+                    {historySearchTerm && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setHistorySearchTerm("");
+                          setHistoryPage(1);
+                        }}
+                        style={{
+                          position: "absolute",
+                          right: "8px",
+                          top: "50%",
+                          transform: "translateY(-50%)",
+                          background: "none",
+                          border: "none",
+                          color: mutedText,
+                          cursor: "pointer",
+                          fontSize: "11px",
+                        }}
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Excel & Refresh Controls */}
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  {/* Export to Excel */}
+                  <button
+                    type="button"
+                    onClick={handleExportExcel}
+                    style={{
+                      background: isDark ? "rgba(16, 185, 129, 0.18)" : "#ECFDF5",
+                      border: isDark ? "1px solid rgba(16, 185, 129, 0.4)" : "1px solid #A7F3D0",
+                      color: "#10B981",
+                      borderRadius: "9px",
+                      padding: "7px 12px",
+                      fontSize: "11.5px",
+                      fontWeight: 800,
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "5px",
+                    }}
+                    title={isHi ? "फ़िल्टर किए गए रिकॉर्ड्स एक्सेल में डाउनलोड करें" : "Download filtered records to Excel"}
+                  >
+                    <Download size={13} />
+                    <span>{isHi ? "एक्सेल" : "Excel"}</span>
+                  </button>
+
+                  {/* Refresh */}
+                  <button
+                    type="button"
+                    onClick={fetchHistoricalReports}
+                    disabled={loadingHistory}
+                    style={{
+                      background: isDark ? "#1E293B" : "#FFFFFF",
+                      border: cardBorder,
+                      color: textColor,
+                      borderRadius: "9px",
+                      padding: "7px 12px",
+                      fontSize: "11.5px",
+                      fontWeight: 700,
+                      cursor: loadingHistory ? "wait" : "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "5px",
+                    }}
+                    title="Reload laboratory testing history"
+                  >
+                    <RefreshCw size={12} className={loadingHistory ? "spin-icon" : ""} />
+                    <span>{isHi ? "रिफ्रेश" : "Refresh"}</span>
+                  </button>
+                </div>
               </div>
             </div>
 
-            {/* Historical Table */}
-            {historyError ? (
-              <div style={{ textAlign: "center", padding: "40px 16px", color: "#DC2626" }}>
-                <AlertCircle size={36} style={{ margin: "0 auto 10px auto", opacity: 0.8 }} />
-                <div style={{ fontSize: "14px", fontWeight: 800 }}>{historyError}</div>
-                <div style={{ marginTop: "12px" }}>
+            {/* Error State with Retry Button */}
+            {historyError && !loadingHistory ? (
+              <div
+                style={{
+                  textAlign: "center",
+                  padding: "44px 20px",
+                  background: isDark ? "rgba(239, 68, 68, 0.08)" : "#FEF2F2",
+                  borderRadius: "14px",
+                  border: isDark ? "1px solid rgba(239, 68, 68, 0.25)" : "1px solid #FECACA",
+                  color: textColor,
+                  margin: "10px 0",
+                }}
+              >
+                {historyError.type === "permission" ? (
+                  <ShieldAlert size={38} color="#EF4444" style={{ margin: "0 auto 12px auto", display: "block" }} />
+                ) : (
+                  <AlertTriangle size={38} color="#EF4444" style={{ margin: "0 auto 12px auto", display: "block" }} />
+                )}
+                <div style={{ fontSize: "16px", fontWeight: 800, color: "#EF4444" }}>
+                  {historyError.type === "permission"
+                    ? (isHi ? "पहुंच अस्वीकृत (Permission Denied - 403)" : "Permission Denied (403 Forbidden)")
+                    : (isHi ? "प्रयोगशाला रिकॉर्ड लोड करने में त्रुटि" : "Failed to Load Laboratory History")}
+                </div>
+                <div style={{ fontSize: "13px", marginTop: "8px", maxWidth: "480px", margin: "8px auto 0 auto", color: mutedText, lineHeight: "1.5" }}>
+                  {typeof historyError === "string" ? historyError : historyError.message}
+                </div>
+                <div style={{ marginTop: "18px" }}>
                   <button
                     type="button"
                     onClick={fetchHistoricalReports}
@@ -5458,37 +6046,42 @@ export default function PathologyPage({
                       color: "#FFFFFF",
                       border: "none",
                       borderRadius: "8px",
-                      padding: "6px 16px",
+                      padding: "8px 18px",
                       fontSize: "12px",
-                      fontWeight: 800,
+                      fontWeight: 700,
                       cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      boxShadow: "0 2px 6px rgba(2, 132, 199, 0.3)",
                     }}
                   >
-                    {isHi ? "पुनः प्रयास करें" : "Retry"}
+                    <RefreshCw size={13} />
+                    <span>{isHi ? "पुनः प्रयास करें" : "Retry"}</span>
                   </button>
                 </div>
               </div>
-            ) : loadingHistory ? (
-              <div style={{ textAlign: "center", padding: "40px 0", color: "#0284C7" }}>
-                <RefreshCw size={24} className="spin-icon" style={{ margin: "0 auto 8px auto" }} />
-                <div style={{ fontSize: "13px", fontWeight: 700 }}>
-                  {isHi ? "रिपोर्ट्स लोड हो रही हैं..." : "Loading laboratory testing history..."}
+            ) : loadingHistory && historicalReports.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "48px 20px", color: mutedText }}>
+                <RefreshCw size={26} className="spin-icon" style={{ margin: "0 auto 12px auto", display: "block", color: "#0284C7" }} />
+                <div style={{ fontSize: "14px", fontWeight: 700 }}>
+                  {isHi ? "प्रयोगशाला इतिहास लोड हो रहा है..." : "Loading laboratory testing history..."}
                 </div>
               </div>
             ) : filteredHistory.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "40px 10px", color: mutedText }}>
-                <History size={40} style={{ opacity: 0.35, margin: "0 auto 8px auto" }} />
+              <div style={{ textAlign: "center", padding: "48px 20px", color: mutedText, background: isDark ? "#0B1120" : "#F8FAFC", borderRadius: "14px", border: cardBorder }}>
+                <History size={36} color={mutedText} style={{ margin: "0 auto 12px auto", opacity: 0.5 }} />
                 {historyDateFilter !== "all" && dateCounts.all > 0 && !historySearchTerm ? (
                   <>
-                    <div style={{ fontSize: "15px", fontWeight: 800, color: textColor }}>
+                    <div style={{ fontSize: "16px", fontWeight: 800, color: textColor }}>
                       {isHi ? "इस तिथि के लिए कोई लैब रिकॉर्ड नहीं" : "No laboratory records for this date"}
                     </div>
-                    <div style={{ fontSize: "12px", color: mutedText, marginTop: "4px" }}>
+                    <div style={{ fontSize: "12.5px", marginTop: "6px", maxWidth: "480px", margin: "6px auto 0 auto", lineHeight: "1.5", color: mutedText }}>
                       {isHi
                         ? `चयनित तिथि पर कोई रिकॉर्ड नहीं मिला। सभी तिथियों में कुल ${dateCounts.all} लैब रिकॉर्ड उपलब्ध हैं।`
                         : `No records found for this selected date. There are ${dateCounts.all} record(s) across all dates.`}
                     </div>
-                    <div style={{ marginTop: "14px" }}>
+                    <div style={{ marginTop: "16px" }}>
                       <button
                         type="button"
                         onClick={() => setHistoryDateFilter("all")}
@@ -5497,9 +6090,9 @@ export default function PathologyPage({
                           color: "#FFFFFF",
                           border: "none",
                           borderRadius: "8px",
-                          padding: "6px 16px",
-                          fontSize: "12px",
-                          fontWeight: 800,
+                          padding: "8px 18px",
+                          fontSize: "12.5px",
+                          fontWeight: 700,
                           cursor: "pointer",
                           display: "inline-flex",
                           alignItems: "center",
@@ -5508,281 +6101,530 @@ export default function PathologyPage({
                         }}
                       >
                         <Calendar size={13} />
-                        <span>{isHi ? `सभी दिनांक देखें (${dateCounts.all})` : `Show all dates (${dateCounts.all})`}</span>
+                        <span>{isHi ? `सभी तिथियां देखें (${dateCounts.all})` : `Show all dates (${dateCounts.all})`}</span>
                       </button>
                     </div>
                   </>
                 ) : (
                   <>
-                    <div style={{ fontSize: "14px", fontWeight: 800, color: textColor }}>
-                      {isHi ? "इस फ़िल्टर का कोई रिकॉर्ड नहीं मिला" : "No laboratory records found"}
+                    <div style={{ fontSize: "15px", fontWeight: 800, color: textColor }}>
+                      {isHi ? "कोई प्रयोगशाला रिकॉर्ड नहीं मिला" : "No laboratory records found"}
                     </div>
-                    <div style={{ fontSize: "12px", color: mutedText, marginTop: "4px" }}>
+                    <div style={{ fontSize: "12px", marginTop: "6px", maxWidth: "460px", margin: "6px auto 0 auto", lineHeight: "1.5" }}>
                       {historySearchTerm
-                        ? (isHi ? "खोज शब्द बदलकर देखें" : "Try resetting your search query")
-                        : (isHi ? "अन्य तिथि का चयन करके देखें" : "Try selecting a different date range")}
+                        ? (isHi ? `'${historySearchTerm}' से मेल खाता कोई रिकॉर्ड नहीं मिला।` : `No records match search '${historySearchTerm}'.`)
+                        : (isHi ? "इस फ़िल्टर या अस्पताल के लिए कोई लैब रिकॉर्ड नहीं है।" : "No laboratory testing records found under this filter or hospital.")}
                     </div>
+                    {historyDateFilter !== "all" && dateCounts.all > 0 && (
+                      <div style={{ marginTop: "14px" }}>
+                        <button
+                          type="button"
+                          onClick={() => setHistoryDateFilter("all")}
+                          style={{
+                            background: "#0284C7",
+                            color: "#FFFFFF",
+                            border: "none",
+                            borderRadius: "8px",
+                            padding: "6px 14px",
+                            fontSize: "12px",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "6px",
+                          }}
+                        >
+                          <Calendar size={13} />
+                          <span>{isHi ? `सभी तिथियां देखें (${dateCounts.all})` : `Show all dates (${dateCounts.all})`}</span>
+                        </button>
+                      </div>
+                    )}
                   </>
                 )}
               </div>
             ) : (
-              <div style={{ overflowX: "auto", maxWidth: "100%", width: "100%", WebkitOverflowScrolling: "touch", borderRadius: "14px", border: cardBorder, background: cardBg, boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
-                <table style={{ width: "100%", minWidth: "1000px", borderCollapse: "collapse", fontSize: "12px" }}>
-                  <thead>
-                    <tr style={{ background: isDark ? "#0F172A" : "#F1F5F9", borderBottom: isDark ? "1.5px solid #1E293B" : "1.5px solid #CBD5E1" }}>
-                      <th style={{ padding: "8px 10px", textAlign: "left", fontWeight: 800, color: mutedText }}>#</th>
-                      <th style={{ padding: "8px 10px", textAlign: "left", fontWeight: 800, color: mutedText }}>{isHi ? "दिनांक व समय" : "Date & Time"}</th>
-                      <th style={{ padding: "8px 10px", textAlign: "left", fontWeight: 800, color: mutedText }}>{isHi ? "टोकन" : "Token"}</th>
-                      <th style={{ padding: "8px 10px", textAlign: "left", fontWeight: 800, color: mutedText }}>{isHi ? "मरीज़ का नाम" : "Patient Name"}</th>
-                      <th style={{ padding: "8px 10px", textAlign: "left", fontWeight: 800, color: mutedText }}>{isHi ? "आयु/लिंग" : "Age/Sex"}</th>
-                      <th style={{ padding: "8px 10px", textAlign: "left", fontWeight: 800, color: mutedText }}>{isHi ? "जांच / परीक्षण" : "Investigation"}</th>
-                      <th style={{ padding: "8px 10px", textAlign: "center", fontWeight: 800, color: mutedText }}>{isHi ? "स्थिति" : "Status"}</th>
-                      <th style={{ padding: "8px 10px", textAlign: "center", fontWeight: 800, color: mutedText }}>{isHi ? "रिपोर्ट स्लिप" : "Report Slip"}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredHistory.map((item, idx) => {
-                      const rawSt = String(item.status || "completed").toLowerCase();
-                      const isCancelled = rawSt === "cancelled" || rawSt === "canceled";
-                      const isNoShow = rawSt === "no_show" || rawSt === "noshow" || rawSt === "expired";
-                      const isServing = rawSt === "serving" || rawSt === "in_progress";
-                      const isWaiting = rawSt === "waiting" || rawSt === "queued";
+              <div>
+                <style>{`
+                  .pathology-visit-row {
+                    transition: background-color 0.15s ease;
+                  }
+                  .pathology-visit-row:hover {
+                    background-color: ${isDark ? "rgba(255, 255, 255, 0.04)" : "#F8FAFC"} !important;
+                  }
+                `}</style>
+                <div style={{ overflowX: "auto", borderRadius: "14px", border: cardBorder, background: cardBg, boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
+                  <table style={{ width: "100%", minWidth: "1050px", borderCollapse: "collapse", fontSize: "12px" }}>
+                    <thead>
+                      <tr style={{ background: isDark ? "#0F172A" : "#F8FAFC", borderBottom: cardBorder, position: "sticky", top: 0, zIndex: 5 }}>
+                        <th style={{ padding: "14px 20px", textAlign: "left", fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em", width: "160px" }}>
+                          {isHi ? "टोकन व समय" : "Token & Date/Time"}
+                        </th>
+                        <th style={{ padding: "14px 20px", textAlign: "left", fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em", width: "180px" }}>
+                          {isHi ? "मरीज़ विवरण" : "Patient Info"}
+                        </th>
+                        <th style={{ padding: "14px 20px", textAlign: "left", fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em", width: "170px" }}>
+                          {isHi ? "परीक्षण मार्ग" : "Care Pathway"}
+                        </th>
+                        <th style={{ padding: "14px 20px", textAlign: "left", fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em", width: "230px" }}>
+                          {isHi ? "जांच एवं श्रेणी" : "Investigation & Category"}
+                        </th>
+                        <th style={{ padding: "14px 20px", textAlign: "left", fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em", width: "180px" }}>
+                          {isHi ? "तकनीशियन / डॉक्टर" : "Technician / Doctor"}
+                        </th>
+                        <th style={{ padding: "14px 20px", textAlign: "right", fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", letterSpacing: "0.06em", width: "230px" }}>
+                          {isHi ? "स्थिति व रिपोर्ट स्लिप" : "Status & Actions"}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paginatedHistory.map((item, idx) => {
+                        const details = parseLabVisitDetails(item);
+                        const rawSt = String(item.status || "completed").toLowerCase();
+                        const isCancelled = rawSt === "cancelled" || rawSt === "canceled";
+                        const isNoShow = rawSt === "no_show" || rawSt === "noshow" || rawSt === "expired";
+                        const isServing = rawSt === "serving" || rawSt === "in_progress" || rawSt === "testing";
+                        const isWaiting = rawSt === "waiting" || rawSt === "queued";
 
-                      return (
-                        <tr
-                          key={idx}
-                          style={{
-                            borderBottom: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0",
-                            background: isCancelled
-                              ? (isDark ? "rgba(239, 68, 68, 0.05)" : "rgba(254, 242, 242, 0.6)")
-                              : isNoShow
-                                ? (isDark ? "rgba(100, 116, 139, 0.04)" : "#F8FAFC")
-                                : "transparent",
-                            opacity: isCancelled ? 0.92 : 1,
-                          }}
-                        >
-                          <td style={{ padding: "6px 10px", color: mutedText }}>{idx + 1}</td>
-                          <td style={{ padding: "6px 10px", color: mutedText }}>
-                            <div>{item.created_at ? new Date(item.created_at).toLocaleString() : "-"}</div>
-                            {isCancelled && item.cancelled_at && (
-                              <div style={{ fontSize: "10px", color: "#DC2626", marginTop: "2px", fontWeight: 600 }}>
-                                {isHi ? "रद्द: " : "Cancelled: "}{new Date(item.cancelled_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        return (
+                          <tr
+                            key={item.id || item.ticket_id || idx}
+                            className="pathology-visit-row"
+                            style={{
+                              borderBottom: isDark ? "1px solid #1E293B" : "1px solid #F1F5F9",
+                              height: "76px",
+                              minHeight: "76px",
+                              background: idx % 2 === 0 ? "transparent" : (isDark ? "rgba(255,255,255,0.012)" : "rgba(0,0,0,0.01)"),
+                              opacity: isCancelled ? 0.92 : 1,
+                            }}
+                          >
+                            {/* 1. Token & Date/Time */}
+                            <td style={{ padding: "14px 20px", verticalAlign: "middle" }}>
+                              <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                                <span
+                                  style={{
+                                    fontFamily: "monospace",
+                                    fontWeight: 800,
+                                    fontSize: "12px",
+                                    padding: "3px 8px",
+                                    borderRadius: "6px",
+                                    background: isDark ? "rgba(2, 132, 199, 0.2)" : "#E0F2FE",
+                                    color: "#0284C7",
+                                    border: "1px solid rgba(2, 132, 199, 0.3)",
+                                  }}
+                                >
+                                  #{item.ticket_id || item.token_number || "-"}
+                                </span>
                               </div>
-                            )}
-                          </td>
-                          <td style={{ padding: "6px 10px", fontWeight: 800, color: isCancelled ? "#94A3B8" : "#0284C7", fontFamily: "monospace" }}>
-                            #{item.ticket_id || "-"}
-                          </td>
-                          <td style={{ padding: "6px 10px", fontWeight: 700, color: textColor }}>
-                            <div style={{ textDecoration: isCancelled ? "line-through" : "none", color: isCancelled ? (isDark ? "#94A3B8" : "#64748B") : textColor }}>
-                              {item.patient_name || item.name || "Patient"}
-                            </div>
-                            {item.phone && (
-                              <div style={{ fontSize: "10.5px", color: mutedText, fontWeight: 500 }}>
-                                {item.phone}
+                              <div style={{ fontSize: "11px", color: mutedText, marginTop: "4px", display: "flex", alignItems: "center", gap: "4px" }}>
+                                <Clock size={11} />
+                                <span>{item.created_at ? new Date(item.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "-"}</span>
+                                <span>•</span>
+                                <span>{item.created_at ? new Date(item.created_at).toLocaleDateString([], { month: "short", day: "numeric" }) : "-"}</span>
                               </div>
-                            )}
-                          </td>
-                          <td style={{ padding: "6px 10px", color: mutedText }}>
-                            {item.age || "-"}y / {item.gender || "-"}
-                          </td>
-                          <td style={{ padding: "6px 10px", fontWeight: 600 }}>
-                            <span style={{ textDecoration: isCancelled ? "line-through" : "none", color: isCancelled ? mutedText : textColor }}>
-                              {item.medical_condition || item.service_category || item.test_panel_name || "Diagnostic Assay"}
-                            </span>
-                          </td>
-                          {/* Status Badge */}
-                          <td style={{ padding: "6px 10px", textAlign: "center" }}>
-                            {isCancelled ? (
-                              <div style={{ display: "inline-flex", flexDirection: "column", alignItems: "center" }}>
+                            </td>
+
+                            {/* 2. Patient Info */}
+                            <td style={{ padding: "14px 20px", verticalAlign: "middle" }}>
+                              <div style={{ fontWeight: 800, fontSize: "12.5px", color: isCancelled ? (isDark ? "#94A3B8" : "#64748B") : textColor, textDecoration: isCancelled ? "line-through" : "none" }}>
+                                {item.patient_name || item.name || "Patient"}
+                              </div>
+                              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "3px", fontSize: "11px", color: mutedText }}>
+                                <span
+                                  style={{
+                                    padding: "1px 6px",
+                                    borderRadius: "4px",
+                                    background: isDark ? "#1E293B" : "#F1F5F9",
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  {item.age || 30}y / {item.gender || "M"}
+                                </span>
+                                {item.phone && (
+                                  <span style={{ display: "inline-flex", alignItems: "center", gap: "3px" }}>
+                                    <Phone size={10} />
+                                    {item.phone}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* 3. Care Pathway */}
+                            <td style={{ padding: "14px 20px", verticalAlign: "middle" }}>
+                              {(() => {
+                                const origin = (item.origin_department || "").trim();
+                                const isSelfDept = !origin || origin.toLowerCase().includes("path") || origin.toLowerCase().includes("lab");
+                                const hasOtherStages = Array.isArray(item.transfer_stages) && item.transfer_stages.some((s) => {
+                                  const d = (s.department || "").toLowerCase();
+                                  return !d.includes("path") && !d.includes("lab");
+                                });
+                                const isTransferredFromOther = (!isSelfDept || hasOtherStages) && origin && !isSelfDept;
+
+                                if (isTransferredFromOther) {
+                                  return (
+                                    <>
+                                      <div style={{ display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "11.5px", fontWeight: 700, color: textColor }}>
+                                        <span style={{ color: "#0284C7" }}>{origin}</span>
+                                        <ArrowRight size={11} color={mutedText} />
+                                        <span style={{ color: "#10B981" }}>Pathology</span>
+                                      </div>
+                                      <div style={{ fontSize: "10.5px", color: mutedText, marginTop: "3px" }}>
+                                        {isHi ? "ओपीडी से रेफरल" : "Referred from OPD / Dept"}
+                                      </div>
+                                    </>
+                                  );
+                                }
+
+                                return (
+                                  <>
+                                    <div style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                                      <span
+                                        style={{
+                                          fontSize: "11px",
+                                          fontWeight: 800,
+                                          padding: "3px 9px",
+                                          borderRadius: "6px",
+                                          background: isDark ? "rgba(2, 132, 199, 0.15)" : "#E0F2FE",
+                                          color: "#0284C7",
+                                          border: "1px solid rgba(2, 132, 199, 0.3)",
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          gap: "4px",
+                                        }}
+                                      >
+                                        <Building2 size={11} />
+                                        <span>{isHi ? "प्रत्यक्ष लैब ऑर्डर" : "Direct Lab Order"}</span>
+                                      </span>
+                                    </div>
+                                    <div style={{ fontSize: "10.5px", color: mutedText, marginTop: "3px" }}>
+                                      {isHi ? "स्वतंत्र लैब पंजीकरण" : "Direct Pathology Registration"}
+                                    </div>
+                                  </>
+                                );
+                              })()}
+                            </td>
+
+                            {/* 4. Investigation & Category */}
+                            <td style={{ padding: "14px 20px", verticalAlign: "middle" }}>
+                              <div style={{ fontWeight: 700, fontSize: "12px", color: isCancelled ? mutedText : textColor, textDecoration: isCancelled ? "line-through" : "none" }}>
+                                {details.testName}
+                              </div>
+                              <div style={{ marginTop: "4px" }}>
                                 <span
                                   style={{
                                     fontSize: "10px",
                                     fontWeight: 800,
-                                    padding: "2px 8px",
-                                    borderRadius: "9999px",
-                                    background: isDark ? "rgba(239, 68, 68, 0.18)" : "#FEE2E2",
-                                    color: "#DC2626",
-                                    border: "1px solid rgba(239, 68, 68, 0.4)",
-                                    display: "inline-flex",
-                                    alignItems: "center",
-                                    gap: "4px",
+                                    padding: "2px 7px",
+                                    borderRadius: "5px",
+                                    background: isDark ? "rgba(2, 132, 199, 0.15)" : "#E0F2FE",
+                                    color: "#0369A1",
+                                    border: "1px solid rgba(2, 132, 199, 0.3)",
                                   }}
-                                  title={item.cancellation_reason ? `Reason: ${item.cancellation_reason}` : (isHi ? "रद्द किया गया टोकन" : "Cancelled Ticket")}
                                 >
-                                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#DC2626" }} />
-                                  {isHi ? "रद्द (CANCELLED)" : "CANCELLED"}
+                                  {details.category}
                                 </span>
-                                {item.cancellation_reason && (
-                                  <span
-                                    style={{
-                                      fontSize: "9.5px",
-                                      color: "#DC2626",
-                                      marginTop: "2px",
-                                      maxWidth: "140px",
-                                      whiteSpace: "nowrap",
-                                      overflow: "hidden",
-                                      textOverflow: "ellipsis",
-                                    }}
-                                    title={item.cancellation_reason}
-                                  >
-                                    {item.cancellation_reason}
-                                  </span>
+                              </div>
+                            </td>
+
+                            {/* 5. Technician / Doctor */}
+                            <td style={{ padding: "14px 20px", verticalAlign: "middle" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                <User size={13} color="#0284C7" />
+                                <span style={{ fontSize: "12.5px", fontWeight: 800, color: textColor }}>
+                                  {details.doctor}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: "10.5px", color: mutedText, marginTop: "2px", display: "flex", alignItems: "center", gap: "5px" }}>
+                                <span style={{ color: "#10B981", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: "3px" }}>
+                                  <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#10B981" }} />
+                                  <span>{isHi ? "परामर्शदाता पैथोलॉजिस्ट" : "Consultant Pathologist"}</span>
+                                </span>
+                                {details.technician && details.technician !== "Senior Lab Technologist" && (
+                                  <span style={{ color: mutedText }}>• {details.technician}</span>
                                 )}
                               </div>
-                            ) : isNoShow ? (
-                              <span
-                                style={{
-                                  fontSize: "10px",
-                                  fontWeight: 800,
-                                  padding: "2px 8px",
-                                  borderRadius: "9999px",
-                                  background: isDark ? "rgba(100, 116, 139, 0.18)" : "#F1F5F9",
-                                  color: "#64748B",
-                                  border: "1px solid rgba(100, 116, 139, 0.4)",
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  gap: "4px",
-                                }}
-                              >
-                                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#64748B" }} />
-                                {isHi ? "अनुपस्थित (NO-SHOW)" : "NO-SHOW"}
-                              </span>
-                            ) : isServing ? (
-                              <span
-                                style={{
-                                  fontSize: "10px",
-                                  fontWeight: 800,
-                                  padding: "2px 8px",
-                                  borderRadius: "9999px",
-                                  background: isDark ? "rgba(2, 132, 199, 0.18)" : "#E0F2FE",
-                                  color: "#0284C7",
-                                  border: "1px solid rgba(2, 132, 199, 0.4)",
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  gap: "4px",
-                                }}
-                              >
-                                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#0284C7" }} />
-                                {isHi ? "प्रक्रियाधीन" : "SERVING"}
-                              </span>
-                            ) : isWaiting ? (
-                              <span
-                                style={{
-                                  fontSize: "10px",
-                                  fontWeight: 800,
-                                  padding: "2px 8px",
-                                  borderRadius: "9999px",
-                                  background: isDark ? "#1E293B" : "#F1F5F9",
-                                  color: "#475569",
-                                  border: "1px solid #CBD5E1",
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  gap: "4px",
-                                }}
-                              >
-                                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#64748B" }} />
-                                {isHi ? "प्रतीक्षारत" : "WAITING"}
-                              </span>
-                            ) : (
-                              <span
-                                style={{
-                                  fontSize: "10px",
-                                  fontWeight: 800,
-                                  padding: "2px 8px",
-                                  borderRadius: "9999px",
-                                  background: isDark ? "rgba(2, 132, 199, 0.15)" : "#E0F2FE",
-                                  color: "#0369A1",
-                                  border: "1px solid #BAE6FD",
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  gap: "4px",
-                                }}
-                              >
-                                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#0369A1" }} />
-                                {isHi ? "पूर्ण (COMPLETED)" : "COMPLETED"}
-                              </span>
-                            )}
-                          </td>
-                          {/* Reprint Report Slip Button (Requirement 1) */}
-                          <td style={{ padding: "6px 10px", textAlign: "center" }}>
-                            {isCancelled ? (
-                              <span
-                                style={{
-                                  fontSize: "11px",
-                                  fontWeight: 700,
-                                  color: isDark ? "#EF4444" : "#DC2626",
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  gap: "4px",
-                                  fontStyle: "italic",
-                                }}
-                                title={item.cancellation_reason || (isHi ? "यह टिकट रद्द कर दिया गया था" : "Ticket was cancelled")}
-                              >
-                                <XCircle size={12} />
-                                <span>{isHi ? "रद्द (रिपोर्ट नहीं)" : "Cancelled (No Report)"}</span>
-                              </span>
-                            ) : isNoShow ? (
-                              <span
-                                style={{
-                                  fontSize: "11px",
-                                  fontWeight: 600,
-                                  color: mutedText,
-                                  fontStyle: "italic",
-                                }}
-                              >
-                                {isHi ? "अनुपस्थित" : "No-Show"}
-                              </span>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  printLabReportSlip(
-                                    {
-                                      patient_name: item.patient_name || item.name,
-                                      age: item.age || 30,
-                                      gender: item.gender || "M",
-                                      phone: item.phone || "",
-                                      ticket_id: item.ticket_id,
-                                      test_panel_name: item.medical_condition || item.service_category || "Clinical Diagnostic Report",
-                                      results: DEFAULT_TEST_PANELS.cbc.parameters,
-                                      hospital_name: brandName,
-                                    },
-                                    language,
-                                    hospitalBranding
-                                  );
-                                }}
-                                style={{
-                                  background: isDark ? "rgba(2, 132, 199, 0.15)" : "#E0F2FE",
-                                  border: "1px solid #0284C7",
-                                  color: "#0284C7",
-                                  padding: "4px 10px",
-                                  borderRadius: "6px",
-                                  fontSize: "11px",
-                                  fontWeight: 800,
-                                  cursor: "pointer",
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  gap: "4px",
-                                  transition: "all 0.15s ease",
-                                }}
-                                title="Reprint official lab report slip"
-                              >
-                                <Printer size={12} />
-                                <span>{isHi ? "पुनः प्रिंट" : "Reprint"}</span>
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                            </td>
+
+                            {/* 6. Status & Actions */}
+                            <td style={{ padding: "14px 20px", verticalAlign: "middle", textAlign: "right" }}>
+                              <div style={{ display: "inline-flex", alignItems: "center", gap: "8px", justifyContent: "flex-end" }}>
+                                {/* Status Badge */}
+                                {isCancelled ? (
+                                  <span
+                                    style={{
+                                      fontSize: "10px",
+                                      fontWeight: 800,
+                                      padding: "3px 8px",
+                                      borderRadius: "9999px",
+                                      background: isDark ? "rgba(239, 68, 68, 0.18)" : "#FEE2E2",
+                                      color: "#DC2626",
+                                      border: "1px solid rgba(239, 68, 68, 0.4)",
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: "4px",
+                                    }}
+                                  >
+                                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#DC2626" }} />
+                                    {isHi ? "रद्द" : "CANCELLED"}
+                                  </span>
+                                ) : isNoShow ? (
+                                  <span
+                                    style={{
+                                      fontSize: "10px",
+                                      fontWeight: 800,
+                                      padding: "3px 8px",
+                                      borderRadius: "9999px",
+                                      background: isDark ? "rgba(100, 116, 139, 0.18)" : "#F1F5F9",
+                                      color: "#64748B",
+                                      border: "1px solid rgba(100, 116, 139, 0.4)",
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: "4px",
+                                    }}
+                                  >
+                                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#64748B" }} />
+                                    {isHi ? "अनुपस्थित" : "NO-SHOW"}
+                                  </span>
+                                ) : isServing ? (
+                                  <span
+                                    style={{
+                                      fontSize: "10px",
+                                      fontWeight: 800,
+                                      padding: "3px 8px",
+                                      borderRadius: "9999px",
+                                      background: isDark ? "rgba(2, 132, 199, 0.18)" : "#E0F2FE",
+                                      color: "#0284C7",
+                                      border: "1px solid rgba(2, 132, 199, 0.4)",
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: "4px",
+                                    }}
+                                  >
+                                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#0284C7" }} />
+                                    {isHi ? "परीक्षणाधीन" : "TESTING"}
+                                  </span>
+                                ) : isWaiting ? (
+                                  <span
+                                    style={{
+                                      fontSize: "10px",
+                                      fontWeight: 800,
+                                      padding: "3px 8px",
+                                      borderRadius: "9999px",
+                                      background: isDark ? "#1E293B" : "#F1F5F9",
+                                      color: "#475569",
+                                      border: "1px solid #CBD5E1",
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: "4px",
+                                    }}
+                                  >
+                                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#64748B" }} />
+                                    {isHi ? "प्रतीक्षारत" : "WAITING"}
+                                  </span>
+                                ) : (
+                                  <span
+                                    style={{
+                                      fontSize: "10px",
+                                      fontWeight: 800,
+                                      padding: "3px 8px",
+                                      borderRadius: "9999px",
+                                      background: isDark ? "rgba(16, 185, 129, 0.15)" : "#ECFDF5",
+                                      color: "#059669",
+                                      border: "1px solid #A7F3D0",
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: "4px",
+                                    }}
+                                  >
+                                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#10B981" }} />
+                                    {isHi ? "पूर्ण" : "COMPLETED"}
+                                  </span>
+                                )}
+
+                                {/* Reprint Button */}
+                                {!isCancelled && !isNoShow && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      printLabReportSlip(
+                                        {
+                                          patient_name: item.patient_name || item.name,
+                                          age: item.age || 30,
+                                          gender: item.gender || "M",
+                                          phone: item.phone || "",
+                                          ticket_id: item.ticket_id || item.token_number,
+                                          test_panel_name: details.testName,
+                                          results: DEFAULT_TEST_PANELS.cbc.parameters,
+                                          hospital_name: brandName,
+                                        },
+                                        language,
+                                        hospitalBranding
+                                      );
+                                    }}
+                                    style={{
+                                      background: isDark ? "rgba(2, 132, 199, 0.15)" : "#E0F2FE",
+                                      border: "1px solid #0284C7",
+                                      color: "#0284C7",
+                                      padding: "5px 12px",
+                                      borderRadius: "8px",
+                                      fontSize: "11px",
+                                      fontWeight: 800,
+                                      cursor: "pointer",
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: "5px",
+                                      transition: "all 0.15s ease",
+                                    }}
+                                    title="Reprint official lab report slip"
+                                  >
+                                    <Printer size={12} />
+                                    <span>{isHi ? "पुनः प्रिंट" : "Reprint"}</span>
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Pagination Controls Bar */}
+                {filteredHistory.length > 0 && (
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      marginTop: "16px",
+                      padding: "12px 18px",
+                      borderRadius: "12px",
+                      background: isDark ? "#0B1120" : "#F8FAFC",
+                      border: cardBorder,
+                      flexWrap: "wrap",
+                      gap: "12px",
+                    }}
+                  >
+                    {/* Record count info */}
+                    <div style={{ fontSize: "12px", color: mutedText, fontWeight: 600 }}>
+                      {isHi ? (
+                        <span>
+                          कुल <strong>{filteredHistory.length}</strong> में से <strong>{Math.min((historyCurrentPage - 1) * historyRowsPerPage + 1, filteredHistory.length)}</strong> - <strong>{Math.min(historyCurrentPage * historyRowsPerPage, filteredHistory.length)}</strong> रिकॉर्ड प्रदर्शित
+                        </span>
+                      ) : (
+                        <span>
+                          Showing <strong>{Math.min((historyCurrentPage - 1) * historyRowsPerPage + 1, filteredHistory.length)}</strong> - <strong>{Math.min(historyCurrentPage * historyRowsPerPage, filteredHistory.length)}</strong> of <strong>{filteredHistory.length}</strong> records
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Rows per page & Navigation */}
+                    <div style={{ display: "flex", alignItems: "center", gap: "16px", flexWrap: "wrap" }}>
+                      {/* Rows per page selector */}
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <span style={{ fontSize: "11.5px", color: mutedText, fontWeight: 700 }}>
+                          {isHi ? "प्रति पृष्ठ:" : "Rows per page:"}
+                        </span>
+                        <select
+                          value={historyRowsPerPage}
+                          onChange={(e) => {
+                            setHistoryRowsPerPage(Number(e.target.value));
+                            setHistoryPage(1);
+                          }}
+                          style={{
+                            padding: "5px 8px",
+                            borderRadius: "7px",
+                            border: cardBorder,
+                            background: isDark ? "#1E293B" : "#FFFFFF",
+                            color: textColor,
+                            fontSize: "11.5px",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            outline: "none",
+                          }}
+                        >
+                          <option value={10}>10</option>
+                          <option value={25}>25</option>
+                          <option value={50}>50</option>
+                          <option value={100}>100</option>
+                        </select>
+                      </div>
+
+                      {/* Page navigation controls */}
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <button
+                          type="button"
+                          onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
+                          disabled={historyCurrentPage <= 1}
+                          style={{
+                            padding: "5px 10px",
+                            borderRadius: "7px",
+                            border: cardBorder,
+                            background: isDark ? "#1E293B" : "#FFFFFF",
+                            color: historyCurrentPage <= 1 ? mutedText : textColor,
+                            opacity: historyCurrentPage <= 1 ? 0.45 : 1,
+                            cursor: historyCurrentPage <= 1 ? "not-allowed" : "pointer",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "4px",
+                            fontSize: "11.5px",
+                            fontWeight: 700,
+                            transition: "all 0.15s ease",
+                          }}
+                          title={isHi ? "पिछला पृष्ठ" : "Previous page"}
+                        >
+                          <ChevronLeft size={13} />
+                          <span>{isHi ? "पिछला" : "Prev"}</span>
+                        </button>
+
+                        <span
+                          style={{
+                            padding: "5px 10px",
+                            borderRadius: "7px",
+                            background: isDark ? "#0F172A" : "#FFFFFF",
+                            border: cardBorder,
+                            fontSize: "11.5px",
+                            fontWeight: 800,
+                            color: textColor,
+                          }}
+                        >
+                          {historyCurrentPage} / {historyTotalPages}
+                        </span>
+
+                        <button
+                          type="button"
+                          onClick={() => setHistoryPage((p) => Math.min(historyTotalPages, p + 1))}
+                          disabled={historyCurrentPage >= historyTotalPages}
+                          style={{
+                            padding: "5px 10px",
+                            borderRadius: "7px",
+                            border: cardBorder,
+                            background: isDark ? "#1E293B" : "#FFFFFF",
+                            color: historyCurrentPage >= historyTotalPages ? mutedText : textColor,
+                            opacity: historyCurrentPage >= historyTotalPages ? 0.45 : 1,
+                            cursor: historyCurrentPage >= historyTotalPages ? "not-allowed" : "pointer",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "4px",
+                            fontSize: "11.5px",
+                            fontWeight: 700,
+                            transition: "all 0.15s ease",
+                          }}
+                          title={isHi ? "अगला पृष्ठ" : "Next page"}
+                        >
+                          <span>{isHi ? "अगला" : "Next"}</span>
+                          <ChevronRight size={13} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
-        )}
-{/* ROUTE TO DOCTOR — DEPARTMENT PICKER MODAL (Requirement 2: Routing Parity) */}
+        </div>
+      )}
+
       {showRouteDeptModal && (
         <div
           style={{

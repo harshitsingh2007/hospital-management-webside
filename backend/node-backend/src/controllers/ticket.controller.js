@@ -225,6 +225,20 @@ async function updateTicketPriorityEndpoint(req, res, next) {
 
     const io = getIo();
     if (io) {
+      if (updatedTicket && updatedTicket.ticket_id !== tid) {
+        io.to(tenantId).emit("ticket_transferred", {
+          old_ticket_id: tid,
+          new_ticket: updatedTicket,
+          target_department: "emergency",
+          tenant_id: tenantId,
+        });
+        io.emit("ticket_transferred", {
+          old_ticket_id: tid,
+          new_ticket: updatedTicket,
+          target_department: "emergency",
+          tenant_id: tenantId,
+        });
+      }
       io.to(tenantId).emit("ticket_updated", { ticket: updatedTicket, ticket_id: tid, tenant_id: tenantId });
       io.emit("ticket_updated", { ticket: updatedTicket, ticket_id: tid, tenant_id: tenantId });
       io.to(tenantId).emit("priority_changed", { ticket: updatedTicket, ticket_id: tid, priority: priorityLevel, tenant_id: tenantId });

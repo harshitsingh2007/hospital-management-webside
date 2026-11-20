@@ -26,6 +26,7 @@ const COMMON_PASSWORDS = new Set([
 
 /**
  * Validates a candidate password according to the security policy.
+ * For desk & staff provisioning, allows passwords / PINs of at least 6 characters.
  * @param {string} password - The plain text password to validate
  * @returns {{ valid: boolean, error?: string }}
  */
@@ -36,20 +37,8 @@ function validatePassword(password) {
 
   const trimmed = password.trim();
 
-  if (trimmed.length < 8) {
-    return { valid: false, error: "Password must be at least 8 characters long." };
-  }
-
-  if (!/[a-zA-Z]/.test(trimmed)) {
-    return { valid: false, error: "Password must contain at least one letter." };
-  }
-
-  if (!/[0-9]/.test(trimmed)) {
-    return { valid: false, error: "Password must contain at least one number." };
-  }
-
-  if (COMMON_PASSWORDS.has(trimmed.toLowerCase())) {
-    return { valid: false, error: "Password is too common. Please choose a more secure password." };
+  if (trimmed.length < 6) {
+    return { valid: false, error: "Password must be at least 6 characters long." };
   }
 
   return { valid: true };

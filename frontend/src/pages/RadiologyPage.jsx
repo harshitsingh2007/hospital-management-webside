@@ -2091,6 +2091,8 @@ export default function RadiologyPage({
       className="radiology-portal-wrapper"
       style={{
         width: "100%",
+        maxWidth: "100%",
+        overflowX: "hidden",
         boxSizing: "border-box",
         padding: "0 0 12px 0",
         background: pageBg,
@@ -2118,8 +2120,27 @@ export default function RadiologyPage({
     >
       {/* Embedded CSS Style Rules matching Pathology & Doctor Portals */}
       <style>{`
-        .radiology-portal-wrapper * {
+        .radiology-portal-wrapper {
+          box-sizing: border-box;
+          width: 100%;
+          max-width: 100%;
+          overflow-x: hidden;
+        }
+
+        .radiology-portal-wrapper *,
+        .radiology-portal-wrapper *::before,
+        .radiology-portal-wrapper *::after {
+          box-sizing: border-box;
           font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+
+        /* Responsive Table Scroll Container matching Pharmacy & Reception Portals */
+        .staff-table-scroll-wrapper {
+          width: 100%;
+          max-width: 100%;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          box-sizing: border-box;
         }
 
         .radiology-portal-wrapper .user-dashboard-footer {
@@ -2143,6 +2164,9 @@ export default function RadiologyPage({
           position: relative;
           overflow: visible;
           z-index: 50;
+          width: 100%;
+          max-width: 100%;
+          box-sizing: border-box;
         }
 
         .radiology-hero-kpi-grid {
@@ -2182,6 +2206,9 @@ export default function RadiologyPage({
           grid-template-columns: repeat(3, 1fr);
           gap: 12px;
           margin-bottom: 16px;
+          width: 100%;
+          max-width: 100%;
+          box-sizing: border-box;
         }
 
         @media (max-width: 920px) {
@@ -2290,12 +2317,14 @@ export default function RadiologyPage({
           grid-template-columns: minmax(0, 1fr) 340px;
           gap: 16px;
           width: 100%;
+          max-width: 100%;
+          box-sizing: border-box;
           align-items: start;
         }
 
         @media (max-width: 1024px) {
           .radiology-workstation-grid {
-            grid-template-columns: 1fr;
+            grid-template-columns: minmax(0, 1fr);
             gap: 16px;
           }
         }
@@ -2317,6 +2346,8 @@ export default function RadiologyPage({
             top: "24px",
             right: "24px",
             zIndex: 999999,
+            maxWidth: "min(480px, calc(100vw - 32px))",
+            boxSizing: "border-box",
             display: "flex",
             alignItems: "center",
             gap: "10px",
@@ -2364,7 +2395,8 @@ export default function RadiologyPage({
           <div
             style={{
               width: "100%",
-              maxWidth: "1100px",
+              maxWidth: "min(1100px, calc(100vw - 32px))",
+              boxSizing: "border-box",
               background: "#0F172A",
               borderRadius: "14px",
               border: "1px solid rgba(255,255,255,0.15)",
@@ -2735,7 +2767,9 @@ export default function RadiologyPage({
                     boxShadow: isDark
                       ? "0 16px 36px -4px rgba(0, 0, 0, 0.7), 0 8px 16px rgba(2, 132, 199, 0.2)"
                       : "0 16px 36px -4px rgba(0, 0, 0, 0.2), 0 8px 16px rgba(2, 132, 199, 0.12)",
-                    minWidth: "230px",
+                    minWidth: "200px",
+                    maxWidth: "min(280px, calc(100vw - 32px))",
+                    boxSizing: "border-box",
                     zIndex: 9999,
                   }}
                 >
@@ -4005,7 +4039,7 @@ export default function RadiologyPage({
           </div>
 
           {/* Right Column: Live Imaging Queue */}
-          <div>
+          <div style={{ minWidth: 0, maxWidth: "100%", width: "100%", boxSizing: "border-box" }}>
             <div
               style={{
                 background: "var(--rad-card-bg, #FFFFFF)",
@@ -4690,7 +4724,7 @@ export default function RadiologyPage({
                 </select>
 
                 {/* Search Box */}
-                <div style={{ position: "relative", minWidth: "200px" }}>
+                <div style={{ position: "relative", minWidth: "160px", maxWidth: "min(320px, 100%)", flex: "1 1 auto", boxSizing: "border-box" }}>
                   <Search size={13} style={{ position: "absolute", left: "9px", top: "8px", color: mutedText }} />
                   <input
                     type="text"
@@ -5637,8 +5671,9 @@ export default function RadiologyPage({
                   border: cardBorder,
                   borderRadius: "16px",
                   padding: "20px 24px",
-                  maxWidth: "460px",
+                  maxWidth: "min(460px, calc(100vw - 32px))",
                   width: "100%",
+                  boxSizing: "border-box",
                   boxShadow: "0 20px 40px rgba(0,0,0,0.35)",
                 }}
                 onClick={(e) => e.stopPropagation()}
@@ -6032,8 +6067,8 @@ export default function RadiologyPage({
               <div style={{ fontSize: "13px", fontWeight: 700 }}>{isHi ? "इस तिथि का कोई रिकॉर्ड नहीं मिला" : "No imaging records found for the selected filter"}</div>
             </div>
           ) : (
-            <div style={{ overflowX: "auto", borderRadius: "12px", border: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+            <div className="staff-table-scroll-wrapper" style={{ overflowX: "auto", width: "100%", maxWidth: "100%", boxSizing: "border-box", borderRadius: "14px", border: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0", background: cardBg, boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
+              <table style={{ width: "100%", minWidth: "980px", borderCollapse: "collapse", fontSize: "12px" }}>
                 <thead>
                   <tr style={{ background: isDark ? "#0F172A" : "#F1F5F9", borderBottom: isDark ? "1.5px solid #1E293B" : "1.5px solid #E2E8F0" }}>
                     <th style={{ padding: "8px 10px", textAlign: "left", fontWeight: 800, color: isDark ? "#94A3B8" : "#475569" }}>#</th>
@@ -6330,8 +6365,9 @@ export default function RadiologyPage({
               borderRadius: "20px",
               border: isDark ? "1px solid #334155" : "1.5px solid #E2E8F0",
               padding: "24px",
-              maxWidth: "520px",
+              maxWidth: "min(520px, calc(100vw - 32px))",
               width: "100%",
+              boxSizing: "border-box",
               maxHeight: "80vh",
               overflow: "auto",
               boxShadow: "0 25px 60px -12px rgba(0,0,0,0.4)",

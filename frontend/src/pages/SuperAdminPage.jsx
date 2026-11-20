@@ -2158,7 +2158,7 @@ export default function SuperAdminPage({
                 fetchHospitalDeepDive(selectedHospital.hospital_code);
                 fetchGlobalData(true);
             } else {
-                notify(data.detail || "Failed to add employee.", "error");
+                notify(data.message || data.detail || data.error || "Failed to add employee.", "error");
             }
         } catch (err) {
             notify(`Error: ${err.message}`, "error");
@@ -2235,7 +2235,7 @@ export default function SuperAdminPage({
                         fetchHospitalDeepDive(selectedHospital.hospital_code);
                         fetchGlobalData();
                     } else {
-                        notify(data.detail || "Failed to delete employee.", "error");
+                        notify(data.message || data.detail || data.error || "Failed to delete employee.", "error");
                     }
                 } catch (err) {
                     notify(`Error deleting employee: ${err.message}`, "error");
@@ -2263,7 +2263,7 @@ export default function SuperAdminPage({
                 fetchHospitalDeepDive(selectedHospital.hospital_code);
                 window.dispatchEvent(new CustomEvent("hospital_departments_updated", { detail: { hospital_code: selectedHospital.hospital_code } }));
             } else {
-                notify(data.detail || "Failed to add department.", "error");
+                notify(data.message || data.detail || data.error || "Failed to add department.", "error");
             }
         } catch (err) {
             notify(`Error: ${err.message}`, "error");
@@ -2297,7 +2297,7 @@ export default function SuperAdminPage({
                         fetchGlobalData();
                         window.dispatchEvent(new CustomEvent("hospital_departments_updated", { detail: { hospital_code: selectedHospital.hospital_code } }));
                     } else {
-                        notify(data.detail || "Failed to delete department.", "error");
+                        notify(data.message || data.detail || data.error || "Failed to delete department.", "error");
                     }
                 } catch (err) {
                     notify(`Error deleting department: ${err.message}`, "error");
@@ -2340,7 +2340,7 @@ export default function SuperAdminPage({
                 fetchHospitalDeepDive(selectedHospital.hospital_code);
                 fetchGlobalData();
             } else {
-                notify(data.detail || "Failed to add desk.", "error");
+                notify(data.message || data.detail || data.error || "Failed to add desk.", "error");
             }
         } catch (err) {
             notify(`Error adding desk: ${err.message}`, "error");
@@ -2373,7 +2373,7 @@ export default function SuperAdminPage({
                         fetchHospitalDeepDive(selectedHospital.hospital_code);
                         fetchGlobalData();
                     } else {
-                        notify(data.detail || "Failed to delete desk.", "error");
+                        notify(data.message || data.detail || data.error || "Failed to delete desk.", "error");
                     }
                 } catch (err) {
                     notify(`Error deleting desk: ${err.message}`, "error");
@@ -3310,9 +3310,11 @@ export default function SuperAdminPage({
                 }}
                 assignDeskTarget={assignDeskTarget}
                 setAssignDeskTarget={setAssignDeskTarget}
-                onSubmit={() => handleAssignDesk(assignDeskTarget?.desk?.id, assignDeskTarget?.employee_id)}
+                onAssign={handleAssignDesk}
+                onSubmit={handleAssignDesk}
                 hospitalEmployees={hospitalEmployees}
                 hospitalDesksData={hospitalDesksData}
+                getEmployeeCurrentDesk={getEmployeeCurrentDesk}
                 assignSearchQuery={assignSearchQuery}
                 setAssignSearchQuery={setAssignSearchQuery}
                 language={language}

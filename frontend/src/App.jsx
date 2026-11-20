@@ -21,6 +21,7 @@ import { useIdleTimeout } from "./hooks/useIdleTimeout";
 import PatientPage from "./pages/PatientPage";
 import DoctorPage from "./pages/DoctorPage";
 import StaffPortalPage from "./pages/StaffPortalPage";
+import ReceptionHistoryPage from "./pages/ReceptionHistoryPage";
 import MLAdminPage from "./pages/MLAdminPage";
 import DatabaseInspectorPage from "./pages/DatabaseInspectorPage";
 import KioskPage from "./pages/KioskPage";
@@ -67,6 +68,7 @@ export function getInitialPage(user) {
       if (isStaffUser && !isDoctorUser) return "staff";
       return "doctor";
     }
+    if (["reception-history", "staff-history", "reception_history"].includes(p)) return "reception-history";
     if (["staff", "reception", "desk"].includes(p)) {
       if (isDoctorUser) return "doctor";
       return "staff";
@@ -96,6 +98,7 @@ export function getInitialPage(user) {
     if (isStaffUser && !isDoctorUser) return "staff";
     return "doctor";
   }
+  if (path.includes("reception-history") || path.includes("staff-history")) return "reception-history";
   if (path.includes("staff") || path.includes("reception")) {
     if (isDoctorUser) return "doctor";
     return "staff";
@@ -1901,7 +1904,7 @@ export default function App() {
 
   return (
     <div
-      className={`app-main-layout-wrapper ${(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "doctor" || activePage === "pharmacy" || activePage === "pathology" || activePage === "radiology" || activePage === "billing" || activePage === "admin") && theme === "dark" ? "dark-theme" : ""} ${activePage === "superadmin" ? "superadmin-page-layout" : ""} ${activePage === "staff" ? "reception-page-layout" : ""} ${activePage === "pathology" || activePage === "pharmacy" || activePage === "radiology" || activePage === "billing" || activePage === "staff" ? "portal-wide-layout" : ""}`}
+      className={`app-main-layout-wrapper ${(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "doctor" || activePage === "pharmacy" || activePage === "pathology" || activePage === "radiology" || activePage === "billing" || activePage === "admin") && theme === "dark" ? "dark-theme" : ""} ${activePage === "superadmin" ? "superadmin-page-layout" : ""} ${(activePage === "staff" || activePage === "reception-history") ? "reception-page-layout" : ""} ${activePage === "pathology" || activePage === "pharmacy" || activePage === "radiology" || activePage === "billing" || activePage === "staff" || activePage === "reception-history" ? "portal-wide-layout" : ""}`}
       style={(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "doctor" || activePage === "pharmacy" || activePage === "pathology" || activePage === "radiology" || activePage === "billing" || activePage === "admin") && theme === "dark" ? darkAppBgStyle : appBgStyle}
     >
       {inactivityNotice && (
@@ -2019,12 +2022,12 @@ export default function App() {
           width: 100%;
         }
       `}</style>
-      <div className={`app-main-layout-inner ${activePage === "superadmin" ? "superadmin-wide" : activePage === "pathology" || activePage === "pharmacy" || activePage === "radiology" || activePage === "billing" || activePage === "staff" ? "portal-wide" : ""}`}>
+      <div className={`app-main-layout-inner ${activePage === "superadmin" ? "superadmin-wide" : activePage === "pathology" || activePage === "pharmacy" || activePage === "radiology" || activePage === "billing" || activePage === "staff" || activePage === "reception-history" ? "portal-wide" : ""}`}>
         {/* Real-Time Animated Emergency Marquee & Broadcast Ribbon */}
         <EmergencyBroadcastBanner
           broadcasts={activeBroadcasts}
           currentHospitalCode={currentHospitalTenant}
-          surface={activePage === "superadmin" ? "superadmin" : activePage === "pharmacy" ? "pharmacy_desk" : activePage === "pathology" ? "pathology_desk" : activePage === "radiology" ? "radiology_desk" : activePage === "billing" ? "billing_desk" : activePage === "doctor" ? "doctor_desk" : activePage === "staff" ? "staff_desk" : "patient_portal"}
+          surface={activePage === "superadmin" ? "superadmin" : activePage === "pharmacy" ? "pharmacy_desk" : activePage === "pathology" ? "pathology_desk" : activePage === "radiology" ? "radiology_desk" : activePage === "billing" ? "billing_desk" : activePage === "doctor" ? "doctor_desk" : (activePage === "staff" || activePage === "reception-history") ? "staff_desk" : "patient_portal"}
           language={language}
           isStaffOrAdmin={Boolean(currentUser && ["admin", "doctor", "staff", "receptionist", "super_admin", "superadmin"].includes((currentUser.role || "").toLowerCase()))}
           navigateTo={navigateTo}
@@ -2054,7 +2057,7 @@ export default function App() {
         />
 
         {/* Main Content View with Access Control Guard */}
-        <main style={activePage === "staff" ? { minHeight: "auto" } : mainContentStyle}>
+        <main style={(activePage === "staff" || activePage === "reception-history") ? { minHeight: "auto" } : mainContentStyle}>
           <>
             {activePage === "patient" && (
               !isPatientOrGuest ? (
@@ -2183,6 +2186,31 @@ export default function App() {
                   refreshData={refreshData}
                   language={language}
                   socketRef={socketRef}
+                  navigateTo={navigateTo}
+                  hospitalBranding={hospitalBranding}
+                  theme={theme}
+                  setTheme={setTheme}
+                />
+              )
+            )}
+
+            {activePage === "reception-history" && (
+              !isStaffAccess ? (
+                <AccessDeniedGuard
+                  requiredRole="staff"
+                  pageName="Reception History"
+                  currentUser={currentUser}
+                  onLoginSuccess={handleLoginSuccess}
+                  navigateTo={navigateTo}
+                  language={language}
+                />
+              ) : (
+                <ReceptionHistoryPage
+                  tenantId={tenantId}
+                  currentUser={currentUser}
+                  analytics={analytics}
+                  queueSnapshot={queueSnapshot}
+                  language={language}
                   navigateTo={navigateTo}
                   hospitalBranding={hospitalBranding}
                   theme={theme}

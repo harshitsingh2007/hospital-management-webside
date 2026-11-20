@@ -259,6 +259,7 @@ export function AssignDeskModal({
     assignDeskTarget,
     setAssignDeskTarget,
     onAssign,
+    onSubmit,
     assignSearchQuery,
     setAssignSearchQuery,
     hospitalEmployees = [],
@@ -267,6 +268,15 @@ export function AssignDeskModal({
     isHi = false
 }) {
     if (!isOpen || !assignDeskTarget?.desk) return null;
+
+    const performAssign = (deskId, empId) => {
+        if (typeof onAssign === "function") {
+            return onAssign(deskId, empId);
+        }
+        if (typeof onSubmit === "function") {
+            return onSubmit(deskId, empId);
+        }
+    };
 
     return (
         <div style={modalOverlayStyle} onClick={onClose}>
@@ -308,7 +318,7 @@ export function AssignDeskModal({
                         {assignDeskTarget.desk.assigned_employee_id && (
                             <button
                                 type="button"
-                                onClick={() => onAssign(assignDeskTarget.desk.id, null)}
+                                onClick={() => performAssign(assignDeskTarget.desk.id, null)}
                                 style={{
                                     background: "#FEE2E2",
                                     border: "1px solid #FCA5A5",
@@ -404,7 +414,7 @@ export function AssignDeskModal({
                         </button>
                         <button
                             type="button"
-                            onClick={() => onAssign(assignDeskTarget.desk.id, assignDeskTarget.employee_id)}
+                            onClick={() => performAssign(assignDeskTarget.desk.id, assignDeskTarget.employee_id)}
                             style={modalSubmitBtnStyle}
                         >
                             {isHi ? "नियुक्ति सहेजें" : "Save Assignment"}

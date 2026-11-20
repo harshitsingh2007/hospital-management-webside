@@ -435,6 +435,153 @@ async function getDoctorShiftSummary({ tenantId = "city-hospital-01", doctorId, 
   };
 }
 
+/**
+ * Checks if a ticket is categorized as an emergency.
+ */
+function isEmergencyTicket(ticket) {
+  if (!ticket) return false;
+  const cat = String(ticket.service_category || ticket.department || "").trim().toLowerCase();
+  const fromDept = String(ticket.transferred_from_dept || "").trim().toLowerCase();
+  const prio = Number(ticket.priority_level || ticket.priority || 2);
+  return (
+    cat === "emergency" ||
+    cat === "emergency triage" ||
+    cat.includes("emergency") ||
+    fromDept === "emergency" ||
+    prio === 1 ||
+    Boolean(ticket.is_emergency)
+  );
+}
+
+/**
+ * Determines a doctor's department and desk from server-side desk assignment:
+ * desks.assigned_employee_id -> desks.department_id -> departments.dept_code
+ */
+async function getDoctorDeskAndScope(hid, userOrDoctorInfo) {
+  if (!hid || !userOrDoctorInfo) {
+    return { desk: null, department: null, dept_code: null, isEmergencyDesk: false, employee: null };
+  }
+
+  const userId = userOrDoctorInfo.id || userOrDoctorInfo.user_id || null;
+  const userEmail = userOrDoctorInfo.email || userOrDoctorInfo.doctor_email || null;
+  const docDeskId = userOrDoctorInfo.desk_id || null;
+
+  // 1. Find employee record in this hospital
+  let emp = null;
+  const orFilters = [];
+  if (userId) {
+    const parsedId = parseInt(userId, 10);
+    if (!isNaN(parsedId) && parsedId > 0) {
+      orFilters.push({ id: parsedId }, { user_id: parsedId });
+    }
+  }
+  if (userEmail && typeof userEmail === "string" && userEmail.trim()) {
+    orFilters.push({ email: { equals: userEmail.trim(), mode: "insensitive" } });
+  }
+
+  if (orFilters.length > 0) {
+    emp = await prisma.employees.findFirst({
+      where: {
+        hospital_id: hid,
+        OR: orFilters,
+      },
+      include: { users: true },
+    });
+  }
+
+  // 2. Find desk assigned to this employee (or explicit deskId verified for this hospital)
+  let desk = null;
+  if (emp) {
+    desk = await prisma.desks.findFirst({
+      where: {
+        hospital_id: hid,
+        assigned_employee_id: emp.id,
+        NOT: { status: "INACTIVE" },
+      },
+      include: { departments: true },
+    });
+  }
+
+  if (!desk && docDeskId) {
+    const dId = parseInt(docDeskId, 10);
+    if (!isNaN(dId) && dId > 0) {
+      desk = await prisma.desks.findFirst({
+        where: {
+          id: dId,
+          hospital_id: hid,
+          NOT: { status: "INACTIVE" },
+        },
+        include: { departments: true, employees: { include: { users: true } } },
+      });
+      if (desk && desk.employees && !emp) {
+        emp = desk.employees;
+      }
+    }
+  }
+
+  const dept = desk?.departments || null;
+  const deptCode = String(dept?.dept_code || "").trim().toLowerCase();
+  const isEmergencyDesk = deptCode === "emergency" || deptCode.includes("emergency");
+
+  return {
+    desk,
+    department: dept,
+    dept_code: deptCode || null,
+    isEmergencyDesk,
+    employee: emp,
+  };
+}
+
+/**
+ * Checks if ANY doctor assigned to an Emergency desk is currently Active in this hospital.
+ */
+async function hasActiveEmergencyDoctor(hid) {
+  if (!hid) return false;
+
+  const emergencyDesks = await prisma.desks.findMany({
+    where: {
+      hospital_id: hid,
+      departments: {
+        OR: [
+          { dept_code: "emergency" },
+          { dept_code: { contains: "emergency", mode: "insensitive" } },
+        ],
+      },
+      status: { not: "INACTIVE" },
+      assigned_employee_id: { not: null },
+    },
+    include: {
+      employees: { include: { users: true } },
+    },
+  });
+
+  const SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+  for (const desk of emergencyDesks) {
+    const emp = desk.employees;
+    if (!emp) continue;
+    const usr = emp.users;
+    const lastLogin = usr?.last_login_at ? new Date(usr.last_login_at).getTime() : null;
+    const isStale = !lastLogin || (Date.now() - lastLogin > SESSION_MAX_AGE_MS);
+    const isOnline =
+      ["active", "processing", "on_break", "emergency_round"].includes(emp.status) &&
+      usr?.status === "active" &&
+      !isStale;
+
+    const duty = getDoctorDutyStatus(emp.user_id, emp.email, emp.employee_code, emp.name);
+    const isDutyActive = duty
+      ? (duty.status === "ACTIVE" || duty.status === "PROCESSING")
+      : true;
+
+    if (isOnline && isDutyActive) {
+      return true;
+    }
+  }
+  return false;
+}
+
 module.exports = {
   getDoctorShiftSummary,
+  getDoctorDeskAndScope,
+  hasActiveEmergencyDoctor,
+  isEmergencyTicket,
 };

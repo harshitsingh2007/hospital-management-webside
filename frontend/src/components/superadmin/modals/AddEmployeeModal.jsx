@@ -236,11 +236,15 @@ export default function AddEmployeeModal({
                             <input
                                 type="text"
                                 required
-                                placeholder="e.g. pass123"
+                                minLength={6}
+                                placeholder="Min 6 characters (e.g. 000000 / pass123)"
                                 value={newEmployeeForm.password || ""}
                                 onChange={(e) => setNewEmployeeForm({ ...newEmployeeForm, password: e.target.value })}
                                 style={fieldInputStyle}
                             />
+                            <span style={{ fontSize: "11px", color: "#64748B", marginTop: "3px", display: "block" }}>
+                                {isHi ? "कम से कम 6 अक्षर या अंक" : "Min 6 characters or digits"}
+                            </span>
                         </div>
                     </div>
 

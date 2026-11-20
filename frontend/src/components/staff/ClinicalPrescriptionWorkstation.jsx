@@ -67,6 +67,18 @@ export default function ClinicalPrescriptionWorkstation({
   rxAutoSaveStatus = "idle",
   rxLastSavedAt = null,
   rxPreFillWarning = "",
+  // Emergency Desk & Triage Props
+  isEmergencyDesk = false,
+  rxArrivalMode = "walk-in",
+  setRxArrivalMode,
+  rxChiefComplaint = "",
+  setRxChiefComplaint,
+  rxVitals = { bp: "", pulse: "", spo2: "", temperature: "", respiratory_rate: "" },
+  setRxVitals,
+  rxTriageNotes = "",
+  setRxTriageNotes,
+  rxDisposition = "Discharge",
+  setRxDisposition,
   // Patient History Props
   patient,
   summary,
@@ -316,6 +328,170 @@ export default function ClinicalPrescriptionWorkstation({
               <IconClock size={12} color={mutedColor} />
               {new Date().toLocaleDateString()}
             </span>
+          </div>
+        </div>
+
+        {/* Card 1.5: Triage & Clinical Vitals Assessment */}
+        <div style={{ background: cardBg, border: isEmergencyDesk ? "1.5px solid #FECDD3" : cardBorder, borderRadius: "16px", padding: "16px", boxShadow: "0 2px 10px rgba(0,0,0,0.03)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <IconHeartPulse size={16} color={isEmergencyDesk ? "#DC2626" : "#0284C7"} />
+              <span style={{ fontSize: "13.5px", fontWeight: 800, color: textColor }}>
+                {language === "hi" ? "ट्राइएज एवं वाइटल्स (Triage Assessment)" : "Clinical Triage & Vitals"}
+              </span>
+            </div>
+            {isEmergencyDesk && (
+              <span style={{ fontSize: "11px", fontWeight: 800, color: "#DC2626", background: isDark ? "rgba(220, 38, 38, 0.2)" : "#FEF2F2", border: "1px solid #FECDD3", padding: "2px 8px", borderRadius: "6px" }}>
+                {language === "hi" ? "आपातकालीन" : "Emergency"}
+              </span>
+            )}
+          </div>
+
+          {/* Arrival Mode */}
+          <div style={{ marginBottom: "12px" }}>
+            <label style={{ display: "block", fontSize: "11px", fontWeight: 700, color: mutedColor, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px" }}>
+              {language === "hi" ? "आगमन का माध्यम" : "Arrival Mode"}
+            </label>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "8px" }}>
+              {[
+                { id: "walk-in", label: language === "hi" ? "वॉक-इन" : "Walk-in" },
+                { id: "ambulance", label: language === "hi" ? "एम्बुलेंस" : "Ambulance" },
+                { id: "referred", label: language === "hi" ? "रेफर्ड" : "Referred" },
+              ].map((mode) => {
+                const isSel = (rxArrivalMode || "walk-in").toLowerCase() === mode.id;
+                return (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    onClick={() => setRxArrivalMode && setRxArrivalMode(mode.id)}
+                    style={{
+                      padding: "8px 10px",
+                      borderRadius: "8px",
+                      border: isSel ? `2px solid ${isEmergencyDesk ? "#DC2626" : "#0284C7"}` : subBorder,
+                      background: isSel ? (isDark ? "#1E293B" : (isEmergencyDesk ? "#FEF2F2" : "#F0F9FF")) : subBg,
+                      color: isSel ? (isEmergencyDesk ? "#DC2626" : "#0284C7") : textColor,
+                      fontSize: "12px",
+                      fontWeight: 800,
+                      cursor: "pointer",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    {mode.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Chief Complaint */}
+          <div style={{ marginBottom: "12px" }}>
+            <label style={{ display: "block", fontSize: "11px", fontWeight: 700, color: mutedColor, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>
+              {language === "hi" ? "मुख्य लक्षण / शिकायत" : "Chief Complaint"}
+            </label>
+            <input
+              type="text"
+              value={rxChiefComplaint}
+              onChange={(e) => setRxChiefComplaint && setRxChiefComplaint(e.target.value)}
+              placeholder={language === "hi" ? "उदा. सीने में दर्द, सांस लेने में तकलीफ..." : "e.g. Acute chest pain, dyspnea, trauma..."}
+              style={{
+                width: "100%",
+                padding: "8px 12px",
+                borderRadius: "8px",
+                border: subBorder,
+                background: subBg,
+                color: textColor,
+                fontSize: "12.5px",
+                fontWeight: 600,
+                outline: "none",
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+
+          {/* Vitals Grid (BP, Pulse, SpO2, Temp, RR) */}
+          <div style={{ marginBottom: "12px" }}>
+            <label style={{ display: "block", fontSize: "11px", fontWeight: 700, color: mutedColor, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px" }}>
+              {language === "hi" ? "वाइटल्स (रोगी माप)" : "Patient Vitals"}
+            </label>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "8px", marginBottom: "8px" }}>
+              <div>
+                <span style={{ fontSize: "10.5px", color: mutedColor, fontWeight: 700, display: "block", marginBottom: "3px" }}>BP (mmHg)</span>
+                <input
+                  type="text"
+                  value={rxVitals?.bp || ""}
+                  onChange={(e) => setRxVitals && setRxVitals((prev) => ({ ...prev, bp: e.target.value }))}
+                  placeholder="120/80"
+                  style={{ width: "100%", padding: "6px 8px", borderRadius: "6px", border: subBorder, background: subBg, color: textColor, fontSize: "12px", fontWeight: 700, boxSizing: "border-box" }}
+                />
+              </div>
+              <div>
+                <span style={{ fontSize: "10.5px", color: mutedColor, fontWeight: 700, display: "block", marginBottom: "3px" }}>Pulse (bpm)</span>
+                <input
+                  type="text"
+                  value={rxVitals?.pulse || ""}
+                  onChange={(e) => setRxVitals && setRxVitals((prev) => ({ ...prev, pulse: e.target.value }))}
+                  placeholder="72"
+                  style={{ width: "100%", padding: "6px 8px", borderRadius: "6px", border: subBorder, background: subBg, color: textColor, fontSize: "12px", fontWeight: 700, boxSizing: "border-box" }}
+                />
+              </div>
+              <div>
+                <span style={{ fontSize: "10.5px", color: mutedColor, fontWeight: 700, display: "block", marginBottom: "3px" }}>SpO2 (%)</span>
+                <input
+                  type="text"
+                  value={rxVitals?.spo2 || ""}
+                  onChange={(e) => setRxVitals && setRxVitals((prev) => ({ ...prev, spo2: e.target.value }))}
+                  placeholder="98%"
+                  style={{ width: "100%", padding: "6px 8px", borderRadius: "6px", border: subBorder, background: subBg, color: textColor, fontSize: "12px", fontWeight: 700, boxSizing: "border-box" }}
+                />
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "8px" }}>
+              <div>
+                <span style={{ fontSize: "10.5px", color: mutedColor, fontWeight: 700, display: "block", marginBottom: "3px" }}>Temp (°F)</span>
+                <input
+                  type="text"
+                  value={rxVitals?.temperature || ""}
+                  onChange={(e) => setRxVitals && setRxVitals((prev) => ({ ...prev, temperature: e.target.value }))}
+                  placeholder="98.6"
+                  style={{ width: "100%", padding: "6px 8px", borderRadius: "6px", border: subBorder, background: subBg, color: textColor, fontSize: "12px", fontWeight: 700, boxSizing: "border-box" }}
+                />
+              </div>
+              <div>
+                <span style={{ fontSize: "10.5px", color: mutedColor, fontWeight: 700, display: "block", marginBottom: "3px" }}>Resp. Rate (/min)</span>
+                <input
+                  type="text"
+                  value={rxVitals?.respiratory_rate || ""}
+                  onChange={(e) => setRxVitals && setRxVitals((prev) => ({ ...prev, respiratory_rate: e.target.value }))}
+                  placeholder="18"
+                  style={{ width: "100%", padding: "6px 8px", borderRadius: "6px", border: subBorder, background: subBg, color: textColor, fontSize: "12px", fontWeight: 700, boxSizing: "border-box" }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Triage Clinical Note */}
+          <div>
+            <label style={{ display: "block", fontSize: "11px", fontWeight: 700, color: mutedColor, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>
+              {language === "hi" ? "ट्राइएज क्लिनिकल टिप्पणी" : "Triage Note"}
+            </label>
+            <input
+              type="text"
+              value={rxTriageNotes}
+              onChange={(e) => setRxTriageNotes && setRxTriageNotes(e.target.value)}
+              placeholder={language === "hi" ? "प्राथमिक क्लिनिकल स्थिति..." : "Primary clinical assessment / acuity notes..."}
+              style={{
+                width: "100%",
+                padding: "8px 12px",
+                borderRadius: "8px",
+                border: subBorder,
+                background: subBg,
+                color: textColor,
+                fontSize: "12px",
+                fontWeight: 600,
+                outline: "none",
+                boxSizing: "border-box",
+              }}
+            />
           </div>
         </div>
 
@@ -1048,17 +1224,64 @@ export default function ClinicalPrescriptionWorkstation({
           />
         </div>
 
-        {/* Card 4: Next Destination / Care Routing */}
+        {/* Card 4: Next Destination / Care Routing & Disposition */}
         <div style={{ background: cardBg, border: cardBorder, borderRadius: "16px", padding: "18px", boxShadow: "0 2px 10px rgba(0,0,0,0.03)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px", flexWrap: "wrap", gap: "6px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", flexWrap: "wrap", gap: "6px" }}>
             <label style={{ fontSize: "13px", fontWeight: 800, color: textColor, display: "inline-flex", alignItems: "center", gap: "6px" }}>
               <IconHospital size={16} color="#0284C7" />
-              {language === "hi" ? "मरीज़ का अगला गंतव्य / विभाग रेफरल" : "Next Destination / Care Routing"}
+              {language === "hi" ? "क्लिनिकल परिणाम एवं विभाग रेफरल (Disposition & Routing)" : "Clinical Disposition & Care Routing"}
             </label>
             <span style={{ fontSize: "11px", color: mutedColor, fontWeight: 600 }}>
-              {language === "hi" ? "परामर्श उपरांत मरीज़ हेतु विभाग चुनें" : "Select target department for patient routing"}
+              {language === "hi" ? "परामर्श उपरांत मरीज़ हेतु परिणाम व विभाग चुनें" : "Select patient disposition and next care step"}
             </span>
           </div>
+
+          {/* Disposition Options */}
+          <div style={{ marginBottom: "14px" }}>
+            <span style={{ display: "block", fontSize: "11px", fontWeight: 700, color: mutedColor, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "8px" }}>
+              {language === "hi" ? "अंतिम क्लिनिकल परिणाम (Disposition)" : "Final Clinical Disposition"}
+            </span>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+              {[
+                { id: "Admit", label: language === "hi" ? "भर्ती करें (Admit)" : "Admit", color: "#DC2626" },
+                { id: "Observation", label: language === "hi" ? "निगरानी (Observation)" : "Observation", color: "#D97706" },
+                { id: "Discharge", label: language === "hi" ? "छुट्टी (Discharge)" : "Discharge", color: "#16A34A" },
+                { id: "Refer to Department", label: language === "hi" ? "अन्य विभाग रेफर" : "Refer to Department", color: "#0284C7" },
+                { id: "Refer Out", label: language === "hi" ? "बाहरी रेफर (Refer Out)" : "Refer Out", color: "#7C3AED" },
+              ].map((opt) => {
+                const isSel = (rxDisposition || "Discharge").toLowerCase() === opt.id.toLowerCase();
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => {
+                      if (setRxDisposition) setRxDisposition(opt.id);
+                      if (opt.id === "Discharge" && rxRoutingDept !== "pharmacy") {
+                        setRxRoutingDept("none");
+                      }
+                    }}
+                    style={{
+                      padding: "8px 14px",
+                      borderRadius: "8px",
+                      border: isSel ? `2px solid ${opt.color}` : subBorder,
+                      background: isSel ? (isDark ? "#1E293B" : "#F8FAFC") : subBg,
+                      color: isSel ? opt.color : textColor,
+                      fontSize: "12px",
+                      fontWeight: 800,
+                      cursor: "pointer",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <span style={{ display: "block", fontSize: "11px", fontWeight: 700, color: mutedColor, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px" }}>
+            {language === "hi" ? "विभाग का चयन (Target Department / Routing)" : "Department Routing / Care Transfer"}
+          </span>
 
           <select
             value={resolvedRoutingDept}

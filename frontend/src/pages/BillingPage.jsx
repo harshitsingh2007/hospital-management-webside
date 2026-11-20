@@ -1013,6 +1013,14 @@ export default function BillingPage({
           background: transparent !important;
         }
 
+        /* Responsive container & overflow containment */
+        .billing-portal-wrapper {
+          width: 100%;
+          max-width: 100%;
+          box-sizing: border-box;
+          overflow-x: clip;
+        }
+
         /* Executive Dark-Navy Clinical Hero Container matching Pathology & Radiology */
         .billing-hero-container {
           background: radial-gradient(circle at 10% 15%, rgba(2, 132, 199, 0.28) 0%, transparent 45%),
@@ -1027,11 +1035,13 @@ export default function BillingPage({
           position: relative;
           overflow: visible;
           z-index: 50;
+          box-sizing: border-box;
+          max-width: 100%;
         }
 
         .billing-hero-kpi-grid {
           display: grid;
-          grid-template-columns: repeat(4, 1fr);
+          grid-template-columns: repeat(4, minmax(0, 1fr));
           gap: 12px;
           margin-top: 14px;
           border-top: 1px solid rgba(255, 255, 255, 0.12);
@@ -1040,14 +1050,14 @@ export default function BillingPage({
 
         @media (max-width: 960px) {
           .billing-hero-kpi-grid {
-            grid-template-columns: repeat(2, 1fr);
+            grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 10px;
           }
         }
 
         @media (max-width: 540px) {
           .billing-hero-kpi-grid {
-            grid-template-columns: 1fr;
+            grid-template-columns: minmax(0, 1fr);
             gap: 10px;
           }
         }
@@ -1059,25 +1069,29 @@ export default function BillingPage({
           border: 1px solid rgba(255, 255, 255, 0.14);
           border-radius: 14px;
           padding: 10px 14px;
+          min-width: 0;
+          box-sizing: border-box;
         }
 
         .billing-tabs-grid {
           display: grid;
-          grid-template-columns: repeat(4, 1fr);
+          grid-template-columns: repeat(4, minmax(0, 1fr));
           gap: 12px;
           margin-bottom: 16px;
+          width: 100%;
+          box-sizing: border-box;
         }
 
-        @media (max-width: 920px) {
+        @media (max-width: 960px) {
           .billing-tabs-grid {
-            grid-template-columns: repeat(2, 1fr);
+            grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 10px;
           }
         }
 
         @media (max-width: 540px) {
           .billing-tabs-grid {
-            grid-template-columns: 1fr;
+            grid-template-columns: minmax(0, 1fr);
             gap: 10px;
           }
         }
@@ -1094,6 +1108,7 @@ export default function BillingPage({
           text-align: left;
           user-select: none;
           outline: none;
+          min-width: 0;
         }
 
         .tab-button-modern.active {
@@ -1148,6 +1163,9 @@ export default function BillingPage({
           font-weight: 800;
           letter-spacing: -0.2px;
           line-height: 1.2;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
 
         .tab-sub-text {
@@ -1156,6 +1174,9 @@ export default function BillingPage({
           display: block;
           margin-top: 1px;
           opacity: 0.85;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
 
         .tab-count-badge {
@@ -1166,6 +1187,7 @@ export default function BillingPage({
           display: inline-flex;
           align-items: center;
           justify-content: center;
+          flex-shrink: 0;
         }
 
         /* Responsive Workstation 2-Column Grid matching Radiology & Pathology */
@@ -1174,12 +1196,114 @@ export default function BillingPage({
           grid-template-columns: minmax(0, 1fr) 340px;
           gap: 16px;
           width: 100%;
+          max-width: 100%;
+          box-sizing: border-box;
           align-items: start;
         }
 
-        @media (max-width: 1024px) {
+        @media (max-width: 1100px) {
           .billing-workstation-grid {
-            grid-template-columns: 1fr;
+            grid-template-columns: minmax(0, 1fr);
+          }
+        }
+
+        /* Responsive patient details card */
+        .billing-patient-grid {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 10px;
+          align-items: flex-start;
+        }
+
+        @media (max-width: 900px) {
+          .billing-patient-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+        }
+
+        @media (max-width: 480px) {
+          .billing-patient-grid {
+            grid-template-columns: minmax(0, 1fr);
+          }
+        }
+
+        /* Responsive calculations & discount bar */
+        .billing-calc-bar {
+          display: grid;
+          grid-template-columns: 1.2fr 1fr;
+          gap: 16px;
+          padding: 12px 16px;
+          border-radius: 10px;
+          margin-bottom: 16px;
+          box-sizing: border-box;
+        }
+
+        @media (max-width: 640px) {
+          .billing-calc-bar {
+            grid-template-columns: minmax(0, 1fr);
+            gap: 12px;
+          }
+        }
+
+        /* Responsive reports grid */
+        .billing-reports-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 16px;
+          width: 100%;
+          box-sizing: border-box;
+        }
+
+        @media (max-width: 768px) {
+          .billing-reports-grid {
+            grid-template-columns: minmax(0, 1fr);
+          }
+        }
+
+        /* Responsive modal form grids */
+        .billing-form-grid-2 {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 10px;
+        }
+
+        .billing-form-grid-3 {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 10px;
+        }
+
+        @media (max-width: 560px) {
+          .billing-form-grid-2,
+          .billing-form-grid-3 {
+            grid-template-columns: minmax(0, 1fr);
+          }
+        }
+
+        .billing-archive-filter-bar {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 10px;
+          margin-bottom: 16px;
+          width: 100%;
+          box-sizing: border-box;
+        }
+
+        .billing-archive-filter-group {
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 10px;
+          flex: 1;
+          min-width: 260px;
+        }
+
+        @media (max-width: 640px) {
+          .billing-archive-filter-group {
+            width: 100%;
+            min-width: 100%;
           }
         }
 
@@ -1239,7 +1363,7 @@ export default function BillingPage({
                 marginTop: "8px",
                 display: "inline-flex",
                 alignItems: "center",
-                flexWrap: "nowrap",
+                flexWrap: "wrap",
                 gap: "8px",
                 background: "linear-gradient(135deg, rgba(15, 23, 42, 0.75) 0%, rgba(30, 41, 59, 0.6) 100%)",
                 border: "1px solid rgba(56, 189, 248, 0.45)",
@@ -1749,14 +1873,7 @@ export default function BillingPage({
                 fontSize: "12px",
               }}
             >
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(4, 1fr)",
-                  gap: "10px",
-                  alignItems: "flex-start",
-                }}
-              >
+              <div className="billing-patient-grid">
                 <div>
                   <span style={{ fontSize: "10px", color: mutedText, display: "block" }}>{isHi ? "मरीज़ का नाम" : "Patient Name"}</span>
                   <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", marginTop: "2px" }}>
@@ -1838,7 +1955,7 @@ export default function BillingPage({
             </div>
 
             {/* Add Item Actions Bar */}
-            <div style={{ display: "flex", gap: "10px", marginBottom: "14px", alignItems: "center" }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", marginBottom: "14px", alignItems: "center" }}>
               <div style={{ flex: 1 }}>
                 <select
                   defaultValue=""
@@ -1905,7 +2022,7 @@ export default function BillingPage({
                 borderRadius: "10px",
               }}
             >
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px", textAlign: "left" }}>
+              <table style={{ width: "100%", minWidth: "520px", borderCollapse: "collapse", fontSize: "12px", textAlign: "left" }}>
                 <thead style={{ position: "sticky", top: 0, zIndex: 2 }}>
                   <tr style={{ background: isDark ? "#1E293B" : "#F1F5F9", color: mutedText, fontSize: "10.5px", textTransform: "uppercase" }}>
                     <th style={{ padding: "8px 10px", width: "40%" }}>{isHi ? "सेवा विवरण" : "Service Description"}</th>
@@ -2001,7 +2118,7 @@ export default function BillingPage({
             </div>
 
             {/* Calculations & Discount Bar */}
-            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "16px", background: isDark ? "#1E293B" : "#F8FAFC", padding: "12px 16px", borderRadius: "10px", border: `1px solid ${cardBorder}`, marginBottom: "16px" }}>
+            <div className="billing-calc-bar" style={{ background: isDark ? "#1E293B" : "#F8FAFC", border: `1px solid ${cardBorder}` }}>
               <div>
                 <label style={{ fontSize: "11px", fontWeight: 700, color: mutedText, display: "block", marginBottom: "4px" }}>
                   {isHi ? "छूट / डिस्काउंट (₹) एवं कारण:" : "Discount Amount (₹) & Reason:"}
@@ -2272,8 +2389,8 @@ export default function BillingPage({
           }}
         >
           {/* Filter Bar */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px", marginBottom: "16px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", flex: 1, minWidth: "260px" }}>
+          <div className="billing-archive-filter-bar">
+            <div className="billing-archive-filter-group">
               <div style={{ position: "relative", flex: 1 }}>
                 <Search size={14} style={{ position: "absolute", left: "10px", top: "10px", color: mutedText }} />
                 <input
@@ -2381,7 +2498,7 @@ export default function BillingPage({
               borderRadius: "10px",
             }}
           >
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px", textAlign: "left" }}>
+            <table style={{ width: "100%", minWidth: "760px", borderCollapse: "collapse", fontSize: "12px", textAlign: "left" }}>
               <thead style={{ position: "sticky", top: 0, zIndex: 2 }}>
                 <tr style={{ background: isDark ? "#1E293B" : "#F1F5F9", color: mutedText, fontSize: "10.5px", textTransform: "uppercase" }}>
                   <th style={{ padding: "10px 12px" }}>{isHi ? "चालान संख्या" : "Bill #"}</th>
@@ -2490,7 +2607,7 @@ export default function BillingPage({
       {/* TAB 3: DAILY COLLECTIONS & FINANCIAL REPORTS                              */}
       {/* ========================================================================= */}
       {activeTab === "reports" && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+        <div className="billing-reports-grid">
           {/* Mode Breakdown */}
           <div style={{ background: cardBg, border: `1px solid ${cardBorder}`, borderRadius: "16px", padding: "16px 20px" }}>
             <h3 style={{ fontSize: "14px", fontWeight: 800, margin: "0 0 14px 0", display: "flex", alignItems: "center", gap: "8px" }}>
@@ -2743,7 +2860,7 @@ export default function BillingPage({
               </div>
 
               {paymentMode === "Cash" && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                <div className="billing-form-grid-2">
                   <div>
                     <label style={{ fontSize: "10.5px", color: mutedText, display: "block", marginBottom: "4px" }}>Cash Given by Patient (₹)</label>
                     <input
@@ -2850,7 +2967,7 @@ export default function BillingPage({
                   <span>{isHi ? "1. मरीज़ पहचान एवं जनसांख्यिकी" : "1. Patient Identification & Demographics"}</span>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: "10px", marginBottom: "10px" }}>
+                <div className="billing-form-grid-2" style={{ marginBottom: "10px" }}>
                   <div>
                     <label style={{ fontSize: "11px", fontWeight: 700, color: mutedText, display: "block", marginBottom: "4px" }}>
                       {isHi ? "पूरा नाम *" : "Full Name *"}
@@ -2877,7 +2994,7 @@ export default function BillingPage({
                   </div>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr 1fr", gap: "10px" }}>
+                <div className="billing-form-grid-3">
                   <div>
                     <label style={{ fontSize: "11px", fontWeight: 700, color: mutedText, display: "block", marginBottom: "4px" }}>
                       {isHi ? "आयु (वर्ष) *" : "Age (Yrs) *"}
@@ -2936,7 +3053,7 @@ export default function BillingPage({
                   <span>{isHi ? "2. संपर्क एवं अभिभावक विवरण" : "2. Contact & Guardian Details"}</span>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "10px" }}>
+                <div className="billing-form-grid-2" style={{ marginBottom: "10px" }}>
                   <div>
                     <label style={{ fontSize: "11px", fontWeight: 700, color: mutedText, display: "block", marginBottom: "4px" }}>
                       {isHi ? "मोबाइल नंबर *" : "Phone Number *"}
@@ -2964,7 +3081,7 @@ export default function BillingPage({
                   </div>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: "10px" }}>
+                <div className="billing-form-grid-2">
                   <div>
                     <label style={{ fontSize: "11px", fontWeight: 700, color: mutedText, display: "block", marginBottom: "4px" }}>
                       {isHi ? "आवासीय पता" : "Residential Address"}
@@ -2999,7 +3116,7 @@ export default function BillingPage({
                   <span>{isHi ? "3. बिलिंग श्रेणी एवं क्लिनिकल संदर्भ" : "3. Clinical & Billing Classification"}</span>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "10px" }}>
+                <div className="billing-form-grid-2" style={{ marginBottom: "10px" }}>
                   <div>
                     <label style={{ fontSize: "11px", fontWeight: 700, color: mutedText, display: "block", marginBottom: "4px" }}>
                       {isHi ? "बिलिंग श्रेणी" : "Billing Category / Tariff Type"}
@@ -3031,7 +3148,7 @@ export default function BillingPage({
                   </div>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                <div className="billing-form-grid-2">
                   <div>
                     <label style={{ fontSize: "11px", fontWeight: 700, color: mutedText, display: "block", marginBottom: "4px" }}>
                       {isHi ? "संदर्भित डॉक्टर" : "Referring / Attending Doctor"}

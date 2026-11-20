@@ -13,6 +13,9 @@ const {
   holdTicket,
   recallTicket,
   recordAnnouncement,
+  getDoctorDeskAndScope,
+  hasActiveEmergencyDoctor,
+  isEmergencyTicket,
 } = require("../services/ticketService");
 const { verifyFamilyMemberOwnership, resolveOrCreateFamilyMember } = require("../services/familyService");
 const { closeAndExpirePreviousDayQueues } = require("../services/dailyClosureService");
@@ -213,13 +216,21 @@ async function joinQueueEndpoint(req, res, next) {
       });
     }
 
+    const isEmergWalkin =
+      priority === 1 ||
+      String(urgency).toLowerCase() === "emergency" ||
+      String(service_category).toLowerCase() === "emergency";
+
+    const effectiveCategory = isEmergWalkin ? "emergency" : service_category;
+    const effectivePriority = isEmergWalkin ? 1 : priority;
+
     const ticket = await joinQueue({
       tenantId: tenant_id,
       consumerType: consumer_type,
-      serviceCategory: service_category,
+      serviceCategory: effectiveCategory,
       name: cleanName,
       phone: cleanPhone,
-      priorityLevel: priority,
+      priorityLevel: effectivePriority,
       userEmail: emailToCheck,
       familyMemberId: family_member_id,
       age,
@@ -513,9 +524,82 @@ async function getQueueEndpoint(req, res, next) {
     const today = getCurrentQueueDate();
     const isHistorical = dateQuery && String(dateQuery).trim() !== today;
 
-    const snapshot = await engine.getQueueSnapshot(tenantId, department, dateQuery);
-    const serving = isHistorical ? [] : await engine.getServingTickets(tenantId, department, dateQuery);
-    const held = isHistorical ? [] : await engine.getHeldTickets(tenantId, department, dateQuery);
+    let snapshot = await engine.getQueueSnapshot(tenantId, department, dateQuery);
+    let serving = isHistorical ? [] : await engine.getServingTickets(tenantId, department, dateQuery);
+    let held = isHistorical ? [] : await engine.getHeldTickets(tenantId, department, dateQuery);
+
+    const hid = await engine.resolveHospitalId(tenantId);
+    const userRole = req.user?.role ? req.user.role.toLowerCase() : null;
+    const isDocReq =
+      userRole === "doctor" ||
+      userRole === "physician" ||
+      req.query.role === "doctor" ||
+      req.query.doctor_id ||
+      req.query.doctor_email;
+
+    if (isDocReq) {
+      const docScope = await getDoctorDeskAndScope(hid, req.user || {
+        id: req.query.doctor_id,
+        email: req.query.doctor_email,
+        desk_id: req.query.desk_id,
+      });
+
+      if (docScope.isEmergencyDesk) {
+        // Doctor on Emergency Desk: ONLY sees emergency tickets
+        snapshot = snapshot.filter(isEmergencyTicket);
+        serving = serving.filter(isEmergencyTicket);
+        held = held.filter(isEmergencyTicket);
+      } else {
+        // Doctor on non-emergency (e.g. OPD) desk:
+        const hasActiveEmerg = await hasActiveEmergencyDoctor(hid);
+        if (hasActiveEmerg) {
+          // Emergency doctor is active: hide emergency tickets from OPD doctors
+          snapshot = snapshot.filter((t) => !isEmergencyTicket(t));
+          serving = serving.filter((t) => !isEmergencyTicket(t));
+          held = held.filter((t) => !isEmergencyTicket(t));
+        } else {
+          // Fallback: No emergency doctor is active!
+          // Emergency tickets become visible to all available doctors, marked "Emergency - unassigned"
+          const markUnassigned = (t) => {
+            if (isEmergencyTicket(t)) {
+              return { ...t, is_emergency_unassigned: true, emergency_unassigned: true };
+            }
+            return t;
+          };
+          snapshot = snapshot.map(markUnassigned);
+          serving = serving.map(markUnassigned);
+          held = held.map(markUnassigned);
+
+          const hasWaitingEmerg = snapshot.some(isEmergencyTicket);
+          if (hasWaitingEmerg) {
+            const io = getIo();
+            if (io) {
+              io.to(tenantId).emit("emergency_unassigned_alert", {
+                tenant_id: tenantId,
+                message: "Emergency patient waiting with no active Emergency doctor on duty.",
+              });
+            }
+          }
+        }
+      }
+    } else if (
+      !req.user ||
+      req.query.consumer_type === "kiosk" ||
+      req.query.view === "display" ||
+      userRole === "patient"
+    ) {
+      // Unauthenticated / Kiosk / Display / Public view:
+      // Keep a trimmed public version: token number and status only, NO names or medical details!
+      const trimTicket = (t) => {
+        const stripped = stripTicketForPublic(t);
+        stripped.is_emergency = isEmergencyTicket(t);
+        if (t.is_emergency_unassigned) stripped.is_emergency_unassigned = true;
+        return stripped;
+      };
+      snapshot = snapshot.map(trimTicket);
+      serving = serving.map(trimTicket);
+      held = held.map(trimTicket);
+    }
 
     return res.status(200).json({
       snapshot,

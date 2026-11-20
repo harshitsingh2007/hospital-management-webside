@@ -455,16 +455,20 @@ async function login(req, res, next) {
     };
 
     if (pat) {
+      responseUser.name = pat.name || user.username || "";
       responseUser.medical_id = pat.medical_id || "";
       responseUser.age = pat.age || 0;
       responseUser.gender = pat.gender || "";
     }
 
     if (emp) {
+      responseUser.name = emp.name || user.username || "";
+      responseUser.employee_name = emp.name || "";
       responseUser.hospital_code = emp.hospitals?.hospital_code || "city-hospital-01";
       responseUser.hospital_name = emp.hospitals?.name || "City General Hospital";
       responseUser.department = emp.departments?.dept_code || "all";
       responseUser.employee_id = emp.employee_code || "";
+      responseUser.specialization = emp.specialization || "";
     } else if (ownedH) {
       responseUser.hospital_code = ownedH.hospital_code;
       responseUser.hospital_name = ownedH.name;
@@ -532,16 +536,20 @@ async function getMe(req, res, next) {
     };
 
     if (pat) {
+      responseUser.name = pat.name || user.username || "";
       responseUser.medical_id = pat.medical_id || "";
       responseUser.age = pat.age || 0;
       responseUser.gender = pat.gender || "";
     }
 
     if (emp) {
+      responseUser.name = emp.name || user.username || "";
+      responseUser.employee_name = emp.name || "";
       responseUser.hospital_code = emp.hospitals?.hospital_code || "city-hospital-01";
       responseUser.hospital_name = emp.hospitals?.name || "City General Hospital";
       responseUser.department = emp.departments?.dept_code || "all";
       responseUser.employee_id = emp.employee_code || "";
+      responseUser.specialization = emp.specialization || "";
     } else if (ownedH) {
       responseUser.hospital_code = ownedH.hospital_code;
       responseUser.hospital_name = ownedH.name;

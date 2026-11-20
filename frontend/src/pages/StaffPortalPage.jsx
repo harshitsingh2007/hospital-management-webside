@@ -3,6 +3,7 @@ import { API_BASE, HOSPITAL_CONFIG } from "../config/hospitalConfig";
 import { t, getCategoryLabel, getStatusLabel, formatCleanText, SYMPTOM_OPTIONS } from "../utils/i18n";
 import { printTokenPass } from "../utils/printPassHelper";
 import Footer from "../components/common/Footer";
+import ReceptionHistorySection from "../components/staff/ReceptionHistorySection";
 import {
   Users,
   CalendarCheck,
@@ -44,7 +45,8 @@ import {
   Layers,
   SlidersHorizontal,
   HelpCircle,
-  ListOrdered
+  ListOrdered,
+  History
 } from "lucide-react";
 
 export default function StaffPortalPage({
@@ -61,6 +63,7 @@ export default function StaffPortalPage({
   hospitalBranding = null,
   theme = "light",
   setTheme = null,
+  initialTab = null,
 }) {
   const isHi = language === "hi";
   const effectiveHospitalCode =
@@ -71,7 +74,16 @@ export default function StaffPortalPage({
     "city-hospital-01";
 
   // Tab State: "walkin" | "all_queues" | "checkin" | "counters"
-  const [activeTab, setActiveTab] = useState("walkin");
+  const [activeTab, setActiveTab] = useState(() => {
+    if (typeof window !== "undefined") {
+      const urlParams = new URLSearchParams(window.location.search);
+      const tabParam = urlParams.get("tab");
+      if (tabParam && ["walkin", "all_queues", "checkin", "counters", "history"].includes(tabParam)) {
+        return tabParam;
+      }
+    }
+    return initialTab || "walkin";
+  });
 
   // Telemetry & Data States
   const [appointments, setAppointments] = useState([]);
@@ -211,6 +223,175 @@ export default function StaffPortalPage({
       setFeedbackMsg("");
     }, 4500);
   }, []);
+
+  // Receptionist Duty Status: "ACTIVE" | "ON_BREAK" | "SHIFT_ENDED"
+  const userStorageKey = currentUser?.email || currentUser?.id || "default";
+
+  const [receptionDutyStatus, setReceptionDutyStatus] = useState(() => {
+    try {
+      const savedUser = localStorage.getItem(`reception_duty_status_${userStorageKey}`);
+      if (savedUser && ["ACTIVE", "ON_BREAK", "SHIFT_ENDED"].includes(savedUser)) {
+        return savedUser;
+      }
+      const saved = localStorage.getItem("reception_duty_status");
+      if (saved && ["ACTIVE", "ON_BREAK", "SHIFT_ENDED"].includes(saved)) {
+        return saved;
+      }
+    } catch (_) {}
+    return "ACTIVE";
+  });
+  const [showDutyDropdown, setShowDutyDropdown] = useState(false);
+  const dutyDropdownRef = useRef(null);
+
+  const handleUpdateDutyStatus = useCallback((status) => {
+    setReceptionDutyStatus(status);
+    try {
+      localStorage.setItem(`reception_duty_status_${userStorageKey}`, status);
+      localStorage.setItem("reception_duty_status", status);
+    } catch (_) {}
+
+    const targetUserId = currentUser?.id || currentUser?.user_id;
+    const targetEmail = currentUser?.email;
+    const targetName = currentUser?.name || currentUser?.username || "Reception Officer";
+
+    const payload = {
+      tenant_id: effectiveHospitalCode || tenantId,
+      staff_id: targetUserId,
+      user_id: targetUserId,
+      doctor_id: targetUserId,
+      staff_email: targetEmail,
+      doctor_email: targetEmail,
+      email: targetEmail,
+      staff_name: targetName,
+      doctor_name: targetName,
+      name: targetName,
+      role: "receptionist",
+      status: status,
+      break_type: status === "ON_BREAK" ? "tea" : null,
+    };
+
+    if (socketRef && socketRef.current) {
+      socketRef.current.emit("update_staff_duty_status", payload);
+      socketRef.current.emit("update_doctor_duty_status", payload);
+    }
+
+    const token = localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || currentUser?.token;
+    fetch(`${API_BASE}/api/v1/staff/duty-status`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        ...(currentUser?.email ? { "X-User-Email": currentUser.email } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(payload),
+    }).catch(() => {});
+
+    showFeedback(
+      isHi
+        ? `ड्यूटी स्थिति: ${status === "ACTIVE" ? "ड्यूटी पर सक्रिय (इनटेक चालू)" : status === "ON_BREAK" ? "अवकाश पर (इनटेक रुका)" : "शिफ्ट समाप्त (ऑफ ड्यूटी)"}`
+        : `Duty status updated to ${status === "ACTIVE" ? "Active on Duty (Intake Ready)" : status === "ON_BREAK" ? "On Break (Intake Paused)" : "Shift Ended (Off Duty)"}`,
+      status === "ACTIVE" ? "success" : status === "ON_BREAK" ? "warn" : "info"
+    );
+  }, [currentUser, effectiveHospitalCode, tenantId, socketRef, userStorageKey, isHi, showFeedback]);
+
+  // Sync duty status from backend server on mount
+  useEffect(() => {
+    const staffId = currentUser?.id || currentUser?.user_id || currentUser?.email;
+    if (!staffId) return;
+
+    fetch(`${API_BASE}/api/v1/staff/duty-status/${encodeURIComponent(staffId)}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.status === "success" && d.duty && d.duty.status) {
+          const s = d.duty.status;
+          const mapped = s === "OFF_DUTY" ? "SHIFT_ENDED" : s;
+          if (["ACTIVE", "ON_BREAK", "SHIFT_ENDED"].includes(mapped)) {
+            setReceptionDutyStatus(mapped);
+            try {
+              localStorage.setItem(`reception_duty_status_${userStorageKey}`, mapped);
+              localStorage.setItem("reception_duty_status", mapped);
+            } catch (_) {}
+          }
+        }
+      })
+      .catch(() => {});
+  }, [currentUser, userStorageKey]);
+
+  // Live Socket.IO listener for staff duty changes
+  useEffect(() => {
+    if (!socketRef || !socketRef.current) return;
+    const s = socketRef.current;
+    const handleDutyChange = (data) => {
+      if (!data) return;
+      const targetId = data.staff_id || data.doctor_id || data.user_id;
+      const targetEmail = data.staff_email || data.doctor_email || data.email;
+      const matchesMe =
+        (targetId && currentUser?.id && String(targetId) === String(currentUser.id)) ||
+        (targetEmail && currentUser?.email && String(targetEmail).toLowerCase() === String(currentUser.email).toLowerCase());
+
+      if (matchesMe && data.duty && data.duty.status) {
+        const rawStatus = data.duty.status;
+        const mapped = rawStatus === "OFF_DUTY" ? "SHIFT_ENDED" : rawStatus;
+        if (["ACTIVE", "ON_BREAK", "SHIFT_ENDED"].includes(mapped)) {
+          setReceptionDutyStatus(mapped);
+          try {
+            localStorage.setItem(`reception_duty_status_${userStorageKey}`, mapped);
+            localStorage.setItem("reception_duty_status", mapped);
+          } catch (_) {}
+        }
+      }
+    };
+
+    s.on("staff_duty_status_changed", handleDutyChange);
+    s.on("doctor_duty_status_changed", handleDutyChange);
+    return () => {
+      s.off("staff_duty_status_changed", handleDutyChange);
+      s.off("doctor_duty_status_changed", handleDutyChange);
+    };
+  }, [socketRef, currentUser, userStorageKey]);
+
+  // Close duty dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dutyDropdownRef.current && !dutyDropdownRef.current.contains(e.target)) {
+        setShowDutyDropdown(false);
+      }
+    };
+    if (showDutyDropdown) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showDutyDropdown]);
+
+  const dutyStatusOptions = [
+    {
+      id: "ACTIVE",
+      label: isHi ? "ड्यूटी पर सक्रिय (Ready for Intake)" : "Active on Duty",
+      icon: <span style={{ display: "inline-block", width: "9px", height: "9px", borderRadius: "50%", background: "#10B981", boxShadow: "0 0 6px rgba(16, 185, 129, 0.8)" }} />,
+      color: "#10B981",
+      bg: isDark ? "rgba(16, 185, 129, 0.2)" : "#ECFDF5",
+      border: isDark ? "rgba(16, 185, 129, 0.45)" : "#A7F3D0",
+      desc: isHi ? "वॉक-इन टोकन व अपॉइंटमेंट चेक-इन हेतु तैयार" : "Ready for walk-in intake & check-in",
+    },
+    {
+      id: "ON_BREAK",
+      label: isHi ? "चाय / अल्पाहार अवकाश (On Break)" : "On Break / Tea Break",
+      icon: <Coffee size={13} color="#D97706" />,
+      color: "#D97706",
+      bg: isDark ? "rgba(245, 158, 11, 0.2)" : "#FEF3C7",
+      border: isDark ? "rgba(245, 158, 11, 0.5)" : "#FDE68A",
+      desc: isHi ? "रिसेप्शन इनटेक अस्थायी रूप से रुका हुआ है" : "Front-desk intake temporarily paused",
+    },
+    {
+      id: "SHIFT_ENDED",
+      label: isHi ? "शिफ्ट समाप्त / ऑफ ड्यूटी (Shift Ended)" : "Off Duty / Shift Ended",
+      icon: <Clock size={13} color="#EF4444" />,
+      color: "#EF4444",
+      bg: isDark ? "rgba(239, 68, 68, 0.2)" : "#FEF2F2",
+      border: isDark ? "rgba(239, 68, 68, 0.45)" : "#FECACA",
+      desc: isHi ? "रिसेप्शन काउंटर आज के लिए बंद है" : "Reception desk closed for the shift",
+    },
+  ];
 
   // 1. Fetch Live Multi-Department Queue Snapshot for this Hospital Tenant
   const fetchLiveQueueData = useCallback(async () => {
@@ -916,6 +1097,9 @@ export default function StaffPortalPage({
         "warn"
       );
       return;
+    }
+    if (receptionDutyStatus !== "ACTIVE") {
+      handleUpdateDutyStatus("ACTIVE");
     }
     setIsSubmittingWalkin(true);
     try {
@@ -1828,12 +2012,100 @@ export default function StaffPortalPage({
         maxWidth: "100%",
         width: "100%",
         margin: "0",
-        padding: "0 4px",
-        paddingBottom: "4px",
-        boxSizing: "border-box"
+        padding: "0 6px 16px 6px",
+        boxSizing: "border-box",
+        overflowX: "hidden",
       }}
     >
       <style>{`
+        .staff-portal-container {
+          box-sizing: border-box;
+          width: 100%;
+          max-width: 100%;
+          overflow-x: hidden;
+        }
+
+        .walkin-intake-grid {
+          display: grid;
+          grid-template-columns: 1fr;
+          gap: 20px;
+          width: 100%;
+          box-sizing: border-box;
+        }
+        .walkin-intake-grid.has-ticket {
+          grid-template-columns: 1fr 1fr;
+        }
+        @media (max-width: 1080px) {
+          .walkin-intake-grid.has-ticket {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        .dependent-intake-grid {
+          display: grid;
+          grid-template-columns: 1.5fr 1fr 0.8fr 1fr;
+          gap: 10px;
+          margin-bottom: 10px;
+        }
+        @media (max-width: 768px) {
+          .dependent-intake-grid {
+            grid-template-columns: 1fr 1fr;
+          }
+        }
+        @media (max-width: 480px) {
+          .dependent-intake-grid {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        .patient-vitals-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr 1fr;
+          gap: 14px;
+          margin-bottom: 14px;
+        }
+        @media (max-width: 640px) {
+          .patient-vitals-grid {
+            grid-template-columns: 1fr;
+            gap: 10px;
+          }
+        }
+
+        .patient-complaint-grid {
+          display: grid;
+          grid-template-columns: 1.1fr 1.9fr;
+          gap: 10px;
+          margin-bottom: 10px;
+        }
+        @media (max-width: 640px) {
+          .patient-complaint-grid {
+            grid-template-columns: 1fr;
+            gap: 10px;
+          }
+        }
+
+        .staff-table-scroll-wrapper {
+          overflow-x: auto;
+          max-width: 100%;
+          width: 100%;
+          -webkit-overflow-scrolling: touch;
+          border-radius: 14px;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+          box-sizing: border-box;
+        }
+
+        .staff-table-row {
+          transition: background-color 0.15s ease;
+        }
+        .staff-table-row:hover {
+          background-color: rgba(2, 132, 199, 0.04) !important;
+        }
+        body.theme-dark .staff-table-row:hover,
+        [data-theme="dark"] .staff-table-row:hover,
+        .dark-theme .staff-table-row:hover {
+          background-color: rgba(255, 255, 255, 0.04) !important;
+        }
+
         .staff-portal-container * {
           font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         }
@@ -1898,14 +2170,21 @@ export default function StaffPortalPage({
         /* 2. RECEPTION NAVIGATION TABS GRID */
         .staff-tabs-grid {
           display: grid;
-          grid-template-columns: repeat(4, 1fr);
+          grid-template-columns: repeat(5, 1fr);
           gap: 12px;
           margin-bottom: 16px;
           width: 100%;
           box-sizing: border-box;
         }
 
-        @media (max-width: 1100px) {
+        @media (max-width: 1280px) {
+          .staff-tabs-grid {
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+          }
+        }
+
+        @media (max-width: 840px) {
           .staff-tabs-grid {
             grid-template-columns: repeat(2, 1fr);
             gap: 10px;
@@ -2226,25 +2505,120 @@ export default function StaffPortalPage({
               </span>
             </div>
 
-            {/* Ready for Intake Status Badge */}
-            <div
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "6px",
-                background: "linear-gradient(135deg, #10B981 0%, #059669 100%)",
-                border: "none",
-                borderRadius: "10px",
-                padding: "6px 12px",
-                fontSize: "11.5px",
-                fontWeight: 800,
-                color: "#FFFFFF",
-                boxShadow: "0 4px 14px rgba(16, 185, 129, 0.35)",
-              }}
-              title={isHi ? "डेस्क सक्रिय • इनटेक हेतु तैयार" : "Desk Active • Ready for Intake"}
-            >
-              <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#FFFFFF", display: "inline-block" }} />
-              <span>{isHi ? "इनटेक सक्रिय" : "Ready for Intake"}</span>
+            {/* Receptionist Duty Status Dropdown (Active on Duty, On Break, Shift Ended) */}
+            <div style={{ position: "relative" }} ref={dutyDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setShowDutyDropdown((prev) => !prev)}
+                style={{
+                  background:
+                    receptionDutyStatus === "ACTIVE"
+                      ? "linear-gradient(135deg, #10B981 0%, #059669 100%)"
+                      : receptionDutyStatus === "ON_BREAK"
+                        ? "linear-gradient(135deg, #F59E0B 0%, #D97706 100%)"
+                        : "linear-gradient(135deg, #EF4444 0%, #DC2626 100%)",
+                  color: "#FFFFFF",
+                  border: "none",
+                  borderRadius: "10px",
+                  padding: "6px 14px",
+                  fontSize: "11.5px",
+                  fontWeight: 800,
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "7px",
+                  boxShadow:
+                    receptionDutyStatus === "ACTIVE"
+                      ? "0 4px 14px rgba(16, 185, 129, 0.35)"
+                      : receptionDutyStatus === "ON_BREAK"
+                        ? "0 4px 14px rgba(245, 158, 11, 0.35)"
+                        : "0 4px 14px rgba(239, 68, 68, 0.35)",
+                  transition: "all 0.2s ease",
+                  userSelect: "none",
+                }}
+                title={isHi ? "ड्यूटी स्थिति बदलें (सक्रिय, ब्रेक, शिफ्ट समाप्त)" : "Toggle Duty Status (Active, On Break, Shift Ended)"}
+              >
+                {receptionDutyStatus === "ON_BREAK" ? (
+                  <Coffee size={12} />
+                ) : receptionDutyStatus === "SHIFT_ENDED" ? (
+                  <Clock size={12} />
+                ) : (
+                  <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#FFFFFF", display: "inline-block" }} />
+                )}
+                <span>
+                  {receptionDutyStatus === "ACTIVE"
+                    ? (isHi ? "इनटेक सक्रिय" : "Ready for Intake")
+                    : receptionDutyStatus === "ON_BREAK"
+                      ? (isHi ? "अवकाश पर" : "On Tea Break")
+                      : (isHi ? "शिफ्ट समाप्त" : "Shift Ended")}
+                </span>
+                <span style={{ fontSize: "9px", opacity: 0.85, marginLeft: "2px" }}>▼</span>
+              </button>
+
+              {showDutyDropdown && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 8px)",
+                    right: 0,
+                    background: isDark ? "#0F172A" : "#FFFFFF",
+                    border: isDark ? "1px solid rgba(255, 255, 255, 0.18)" : "1px solid #CBD5E1",
+                    borderRadius: "14px",
+                    padding: "6px",
+                    boxShadow: isDark
+                      ? "0 20px 40px -4px rgba(0, 0, 0, 0.7), 0 8px 16px rgba(2, 132, 199, 0.2)"
+                      : "0 20px 40px -4px rgba(0, 0, 0, 0.2), 0 8px 16px rgba(2, 132, 199, 0.12)",
+                    zIndex: 9999,
+                    minWidth: "260px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "4px",
+                    backdropFilter: "blur(12px)",
+                  }}
+                >
+                  <div style={{ padding: "6px 10px 4px 10px", fontSize: "10px", fontWeight: 800, color: isDark ? "#94A3B8" : "#64748B", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                    {isHi ? "रिसेप्शनिस्ट ड्यूटी स्थिति चुनें" : "Select Receptionist Duty Status"}
+                  </div>
+
+                  {dutyStatusOptions.map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => {
+                        handleUpdateDutyStatus(opt.id);
+                        setShowDutyDropdown(false);
+                      }}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "10px",
+                        padding: "8px 12px",
+                        borderRadius: "10px",
+                        border: receptionDutyStatus === opt.id ? `1px solid ${opt.border}` : "1px solid transparent",
+                        background: receptionDutyStatus === opt.id ? opt.bg : "transparent",
+                        color: isDark ? "#FFFFFF" : "#0F172A",
+                        cursor: "pointer",
+                        textAlign: "left",
+                        transition: "all 0.15s ease",
+                        width: "100%",
+                      }}
+                    >
+                      <span style={{ fontSize: "14px", display: "inline-flex", alignItems: "center" }}>{opt.icon}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: "12px", fontWeight: 800, color: opt.color }}>
+                          {opt.label}
+                        </div>
+                        <div style={{ fontSize: "10px", color: isDark ? "#94A3B8" : "#64748B", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {opt.desc}
+                        </div>
+                      </div>
+                      {receptionDutyStatus === opt.id && (
+                        <span style={{ color: opt.color, fontSize: "12px", fontWeight: 900 }}>✓</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Lost Token Lookup Action Button */}
@@ -2420,6 +2794,72 @@ export default function StaffPortalPage({
         </div>
       )}
 
+      {/* Reception Duty Status Alert Banner when On Break or Shift Ended */}
+      {receptionDutyStatus !== "ACTIVE" && (
+        <div
+          style={{
+            marginBottom: "16px",
+            padding: "12px 18px",
+            borderRadius: "14px",
+            background:
+              receptionDutyStatus === "SHIFT_ENDED"
+                ? (isDark ? "rgba(239, 68, 68, 0.15)" : "#FEF2F2")
+                : (isDark ? "rgba(245, 158, 11, 0.15)" : "#FFFBEB"),
+            border:
+              receptionDutyStatus === "SHIFT_ENDED"
+                ? (isDark ? "1px solid rgba(239, 68, 68, 0.35)" : "1px solid #FECACA")
+                : (isDark ? "1px solid rgba(245, 158, 11, 0.35)" : "1px solid #FDE68A"),
+            color:
+              receptionDutyStatus === "SHIFT_ENDED"
+                ? (isDark ? "#FCA5A5" : "#B91C1C")
+                : (isDark ? "#FDE68A" : "#B45309"),
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: "10px",
+            fontSize: "13px",
+            fontWeight: 700,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <span style={{ display: "inline-flex", alignItems: "center" }}>
+              {receptionDutyStatus === "SHIFT_ENDED" ? <Clock size={16} /> : <Coffee size={16} />}
+            </span>
+            <span>
+              {receptionDutyStatus === "SHIFT_ENDED"
+                ? (isHi
+                  ? "शिफ्ट समाप्त / ऑफ ड्यूटी (Shift Ended): रिसेप्शन काउंटर सेवा आज के लिए बंद है। इनटेक रुका हुआ है।"
+                  : "Shift Ended / Off Duty: Reception desk is currently closed. Intake is paused.")
+                : (isHi
+                  ? "चाय / अल्पाहार अवकाश (On Break): रिसेप्शन इनटेक अस्थायी रूप से रुका हुआ है।"
+                  : "On Break / Tea Break: Reception desk intake is temporarily paused.")}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleUpdateDutyStatus("ACTIVE")}
+            style={{
+              background: "linear-gradient(135deg, #10B981 0%, #059669 100%)",
+              color: "#FFFFFF",
+              border: "none",
+              borderRadius: "10px",
+              padding: "7px 16px",
+              fontSize: "12px",
+              fontWeight: 800,
+              cursor: "pointer",
+              boxShadow: "0 2px 8px rgba(16, 185, 129, 0.35)",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+            }}
+          >
+            <CheckCircle2 size={13} />
+            <span>{isHi ? "ड्यूटी पर सक्रिय हों (Go Active)" : "Resume Duty (Go Active)"}</span>
+          </button>
+        </div>
+      )}
+
       {/* 2. RECEPTION NAVIGATION TABS */}
       <div className="staff-tabs-grid">
         {/* Tab 1: Fast Walk-In Intake */}
@@ -2494,22 +2934,38 @@ export default function StaffPortalPage({
             <span className="tab-sub-text">{desksList.length} {isHi ? "डेस्क" : "Desks"} • {allClinicians.length} {isHi ? "डॉक्टर" : "Docs"} • {allStaffMembers.length} {isHi ? "स्टाफ" : "Staff"}</span>
           </div>
         </button>
+
+        {/* Tab 5: Patient Visit & Token History */}
+        <button
+          type="button"
+          onClick={() => setActiveTab("history")}
+          className={`tab-button-modern ${activeTab === "history" ? "active" : "inactive"}`}
+        >
+          <div className="tab-icon-wrapper">
+            <History size={19} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "4px" }}>
+              <span className="tab-title-text">{isHi ? "मरीज़ विज़िट एवं टोकन इतिहास" : "Patient Visit & Token History"}</span>
+            </div>
+            <span className="tab-sub-text">{isHi ? "विज़िट, टोकन व अपॉइंटमेंट ऑडिट" : "Visits, Tokens & Audit Trail"}</span>
+          </div>
+        </button>
       </div>
 
       {/* 4. TAB 1: FRONT-DESK WALK-IN INTAKE */}
       {activeTab === "walkin" && (
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: createdWalkinTicket ? "1fr 1fr" : "1fr",
-          gap: "24px",
-        }}>
+        <div className={`walkin-intake-grid ${createdWalkinTicket ? "has-ticket" : ""}`}>
           {/* Intake Form */}
           <div style={{
             background: isDark ? "#0F172A" : "#FFFFFF",
             borderRadius: "18px",
             border: isDark ? "1px solid #334155" : "1.5px solid #E2E8F0",
-            padding: "26px",
+            padding: "24px",
             boxShadow: "0 4px 20px rgba(0,0,0,0.04)",
+            minWidth: 0,
+            maxWidth: "100%",
+            boxSizing: "border-box",
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "18px" }}>
               <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: "#E0F2FE", color: "#0284C7", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -2818,7 +3274,7 @@ export default function StaffPortalPage({
                       <span>{isHi ? "खाते में नया सदस्य पंजीकृत करें" : "Register New Dependent to this Account"}</span>
                     </div>
 
-                    <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 0.8fr 1fr", gap: "10px", marginBottom: "10px" }}>
+                    <div className="dependent-intake-grid">
                       <div>
                         <label style={{ display: "block", fontSize: "11px", fontWeight: 700, color: "#64748B", marginBottom: "4px" }}>
                           Full Name *
@@ -3247,7 +3703,7 @@ export default function StaffPortalPage({
                 </div>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "14px", marginBottom: "14px" }}>
+              <div className="patient-vitals-grid">
                 <div>
                   <label style={{ display: "block", fontSize: "12px", fontWeight: 700, color: "#64748B", marginBottom: "6px" }}>
                     {isHi ? "उम्र (वर्ष)" : "Age"}
@@ -3348,7 +3804,7 @@ export default function StaffPortalPage({
                   </span>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1.9fr", gap: "10px", marginBottom: "10px" }}>
+                <div className="patient-complaint-grid">
                   <div>
                     <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "#64748B", marginBottom: "4px" }}>
                       {isHi ? "लक्षण श्रेणी (Category)" : "Primary Category"}
@@ -4023,8 +4479,14 @@ export default function StaffPortalPage({
               </div>
             </div>
           ) : (
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", textAlign: "left" }}>
+            <div
+              className="staff-table-scroll-wrapper"
+              style={{
+                border: isDark ? "1px solid #334155" : "1.5px solid #E2E8F0",
+                background: isDark ? "#0F172A" : "#FFFFFF",
+              }}
+            >
+              <table style={{ width: "100%", minWidth: "1100px", borderCollapse: "collapse", fontSize: "12.5px", textAlign: "left" }}>
                 <thead>
                   <tr style={{
                     background: isDark ? "#1E293B" : "#F1F5F9",
@@ -4586,8 +5048,14 @@ export default function StaffPortalPage({
               </div>
             </div>
           ) : (
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", textAlign: "left" }}>
+            <div
+              className="staff-table-scroll-wrapper"
+              style={{
+                border: isDark ? "1px solid #334155" : "1.5px solid #E2E8F0",
+                background: isDark ? "#0F172A" : "#FFFFFF",
+              }}
+            >
+              <table style={{ width: "100%", minWidth: "960px", borderCollapse: "collapse", fontSize: "12.5px", textAlign: "left" }}>
                 <thead>
                   <tr style={{ background: isDark ? "#1E293B" : "#F1F5F9", borderBottom: `2px solid ${isDark ? "#334155" : "#CBD5E1"}`, color: "#64748B", fontWeight: 800 }}>
                     <th style={{ padding: "12px 14px" }}>ID</th>
@@ -5074,7 +5542,7 @@ export default function StaffPortalPage({
                   ? "1fr"
                   : countersFilterType === "staff"
                     ? "1fr"
-                    : "repeat(auto-fit, minmax(360px, 1fr))",
+                    : "repeat(auto-fit, minmax(min(100%, 320px), 1fr))",
             gap: "20px",
           }}>
             {/* 1. Counter Desks Section */}
@@ -5786,6 +6254,18 @@ export default function StaffPortalPage({
         </div>
       )}
 
+      {/* 8. TAB 5: PATIENT VISIT & TOKEN AUDIT HISTORY */}
+      {activeTab === "history" && (
+        <ReceptionHistorySection
+          hospitalCode={effectiveHospitalCode}
+          currentUser={currentUser}
+          theme={theme}
+          language={language}
+          departments={departments}
+          hospitalBranding={hospitalBranding}
+        />
+      )}
+
       {/* MODAL 1: TRANSFER TICKET TO ANOTHER DEPARTMENT */}
       {showTransferModal && transferModalTicket && (
         <div style={{
@@ -5955,7 +6435,7 @@ export default function StaffPortalPage({
             borderRadius: "18px",
             border: isDark ? "1px solid #334155" : "1.5px solid #E2E8F0",
             padding: "24px",
-            maxWidth: "480px",
+            maxWidth: "min(480px, calc(100vw - 32px))",
             width: "100%",
             boxShadow: "0 20px 50px rgba(0,0,0,0.3)",
           }}>
@@ -6381,7 +6861,7 @@ export default function StaffPortalPage({
             backdropFilter: "blur(12px)",
             WebkitBackdropFilter: "blur(12px)",
             maxWidth: "480px",
-            minWidth: "300px",
+            minWidth: "min(300px, calc(100vw - 32px))",
             fontSize: "13.5px",
             fontWeight: 700,
             background:

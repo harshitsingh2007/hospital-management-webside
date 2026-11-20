@@ -7,9 +7,47 @@
 const express = require("express");
 const { optionalAuth } = require("../middleware/auth");
 const { getDoctorDutyStatus, setDoctorDutyStatus } = require("../services/ticketService");
-const { getDoctorShiftSummary } = require("../services/doctorService");
+const {
+  getDoctorShiftSummary,
+  getDoctorDeskAndScope,
+  hasActiveEmergencyDoctor,
+} = require("../services/doctorService");
+const engine = require("../services/queueEngine");
 
 const router = express.Router();
+
+/**
+ * GET /api/v1/doctor/desk-scope
+ * Resolves doctor's assigned desk, department, and whether assigned to Emergency desk.
+ */
+router.get("/doctor/desk-scope", optionalAuth, async (req, res) => {
+  try {
+    const tenantId = req.query.tenant_id || req.user?.primary_hospital_code || "city-hospital-01";
+    const hid = await engine.resolveHospitalId(tenantId);
+
+    const doctorInfo = {
+      id: req.query.doctor_id || req.user?.id || null,
+      email: req.query.doctor_email || req.user?.email || null,
+      desk_id: req.query.desk_id || null,
+    };
+
+    const scope = await getDoctorDeskAndScope(hid, doctorInfo);
+    const activeEmergDocExists = await hasActiveEmergencyDoctor(hid);
+
+    return res.json({
+      status: "success",
+      tenant_id: tenantId,
+      desk: scope.desk,
+      department: scope.department,
+      dept_code: scope.dept_code,
+      isEmergencyDesk: scope.isEmergencyDesk,
+      hasActiveEmergencyDoctor: activeEmergDocExists,
+    });
+  } catch (err) {
+    console.error("[Doctor Desk Scope Error]", err);
+    return res.status(500).json({ status: "error", message: err.message });
+  }
+});
 
 /**
  * GET /api/v1/doctor/shift-summary

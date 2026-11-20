@@ -2928,6 +2928,11 @@ async function getHospitalVisitHistory(hospitalCode, limit = 500, period = null)
       transferred_from_dept: isTransferred ? originDept : null,
       transfer_stages: stages,
       prescription_notes: combinedNotes || t.prescription_notes || "",
+      appointment_id: t.appointment_id || null,
+      source: t.source || (t.appointment_id ? "appointment" : "walkin"),
+      cancellation_reason: t.cancellation_reason || null,
+      cancelled_at: t.cancelled_at ? t.cancelled_at.toISOString() : null,
+      served_by_doctor_name: t.served_by_doctor_name || stages[0]?.served_by || null,
     });
 
     if (visits.length >= limit) break;

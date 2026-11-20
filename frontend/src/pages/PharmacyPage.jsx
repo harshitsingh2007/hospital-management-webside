@@ -944,10 +944,54 @@ export default function PharmacyPage({
     if (notesToParse) {
       try {
         let raw = typeof notesToParse === "string" ? notesToParse.trim() : notesToParse;
+        let parsed = null;
         if (typeof raw === "string") {
-          const jsonMatch = raw.match(/\{[\s\S]*\}/);
-          if (jsonMatch) raw = jsonMatch[0];
-          const parsed = JSON.parse(raw);
+          try {
+            parsed = JSON.parse(raw);
+          } catch (_) {
+            const labelPattern = /\[([^\]]+)\]:\s*\{/g;
+            let m;
+            while ((m = labelPattern.exec(raw)) !== null) {
+              const start = m.index + m[0].length - 1;
+              let depth = 0;
+              for (let i = start; i < raw.length; i++) {
+                if (raw[i] === "{") depth++;
+                else if (raw[i] === "}") {
+                  depth--;
+                  if (depth === 0) {
+                    try {
+                      const cand = JSON.parse(raw.slice(start, i + 1));
+                      if (!parsed || m[1].toLowerCase().includes("consult") || m[1].toLowerCase().includes("opd")) {
+                        parsed = cand;
+                      }
+                    } catch (_) {}
+                    break;
+                  }
+                }
+              }
+            }
+            if (!parsed) {
+              const firstBrace = raw.indexOf("{");
+              if (firstBrace !== -1) {
+                let depth = 0;
+                for (let i = firstBrace; i < raw.length; i++) {
+                  if (raw[i] === "{") depth++;
+                  else if (raw[i] === "}") {
+                    depth--;
+                    if (depth === 0) {
+                      try { parsed = JSON.parse(raw.slice(firstBrace, i + 1)); } catch (_) {}
+                      break;
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } else if (typeof raw === "object") {
+          parsed = raw;
+        }
+
+        if (parsed) {
           doctorName = parsed.doctor_name || doctorName;
           diagnosis = parsed.diagnosis || diagnosis;
           if (Array.isArray(parsed.medicines)) medicines = parsed.medicines;
@@ -959,18 +1003,6 @@ export default function PharmacyPage({
           dispensedCounter = parsed.dispensing_counter || dispensedCounter;
           dispensedCounterId = parsed.dispensed_counter_id || dispensedCounterId;
           dispensedAt = parsed.dispensed_at || dispensedAt;
-        } else if (typeof raw === "object") {
-          doctorName = raw.doctor_name || doctorName;
-          diagnosis = raw.diagnosis || diagnosis;
-          if (Array.isArray(raw.medicines)) medicines = raw.medicines;
-          advice = raw.advice || advice;
-          followUp = raw.follow_up || followUp;
-          dispensedBy = raw.dispensed_by || dispensedBy;
-          dispensedById = raw.dispensed_by_id || dispensedById;
-          dispensedByEmail = raw.dispensed_by_email || dispensedByEmail;
-          dispensedCounter = raw.dispensing_counter || dispensedCounter;
-          dispensedCounterId = raw.dispensed_counter_id || dispensedCounterId;
-          dispensedAt = raw.dispensed_at || dispensedAt;
         }
       } catch (_) { }
     }

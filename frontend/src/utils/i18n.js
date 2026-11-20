@@ -825,6 +825,15 @@ export function cleanAdviceText(val) {
   }
   if (!s) return "";
 
+  // If it contains labelled blocks like "[General Consultation (OPD)]: {..."
+  if (s.includes("[") && s.includes("]:")) {
+    const match = s.match(/"advice"\s*:\s*"([^"]*)"/);
+    if (match && match[1]) {
+      return cleanAdviceText(match[1]);
+    }
+    return "";
+  }
+
   // Check if string is a JSON object or array
   if ((s.startsWith("{") && s.endsWith("}")) || (s.startsWith("[") && s.endsWith("]"))) {
     try {
@@ -840,13 +849,18 @@ export function cleanAdviceText(val) {
   }
 
   // If it contains JSON key signatures, safely extract the advice field or discard
-  if (s.includes('"doctor_name"') || s.includes('"medicines"') || s.includes('"dispensed_by"')) {
+  if (s.includes('"doctor_name"') || s.includes('"medicines"') || s.includes('"dispensed_by"') || s.includes('"advice"')) {
     try {
       const match = s.match(/"advice"\s*:\s*"([^"]*)"/);
       if (match && match[1]) {
         return cleanAdviceText(match[1]);
       }
     } catch (_) {}
+    return "";
+  }
+
+  // Reject any string that still looks like raw JSON
+  if (s.includes('{"') || s.includes('":') || s.endsWith("}")) {
     return "";
   }
 
@@ -868,6 +882,17 @@ export function formatCleanText(val, lang = "en") {
     trimmed = trimmed.slice(1, -1).trim();
   }
   if (!trimmed) return "";
+
+  // If it contains labelled blocks like "[General Consultation (OPD)]: {..."
+  if (trimmed.includes("[") && trimmed.includes("]:")) {
+    const diagMatch = trimmed.match(/"diagnosis"\s*:\s*"([^"]*)"/);
+    if (diagMatch && diagMatch[1]) return formatCleanText(diagMatch[1], lang);
+    const condMatch = trimmed.match(/"medical_condition"\s*:\s*"([^"]*)"/);
+    if (condMatch && condMatch[1]) return formatCleanText(condMatch[1], lang);
+    const advMatch = trimmed.match(/"advice"\s*:\s*"([^"]*)"/);
+    if (advMatch && advMatch[1]) return cleanAdviceText(advMatch[1]);
+    return "";
+  }
 
   // If it's a JSON string, try to parse and extract human readable fields
   if (trimmed.startsWith("{") && trimmed.endsWith("}")) {

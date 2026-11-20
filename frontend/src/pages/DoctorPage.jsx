@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { API_BASE } from "../config/hospitalConfig";
-import { t, getCategoryLabel, getStatusLabel, formatSymptomLabel, formatRiskLabel } from "../utils/i18n";
+import { t, getCategoryLabel, getStatusLabel, formatSymptomLabel, formatRiskLabel, cleanAdviceText } from "../utils/i18n";
 import AdminHeroBanner from "../components/staff/AdminHeroBanner";
 import DoctorShiftSummaryModal from "../components/staff/DoctorShiftSummaryModal";
 import ClinicalPrescriptionWorkstation from "../components/staff/ClinicalPrescriptionWorkstation";
@@ -9,6 +9,9 @@ import PatientHistoryTimeline from "../components/patient-history/PatientHistory
 import { printPrescriptionSlip, downloadPrescriptionPDF } from "../utils/printPassHelper";
 import { usePatientHistory } from "../hooks/usePatientHistory";
 import { InAppToast, InAppConfirmModal } from "../components/common/InAppNotification";
+import DoctorHistorySection from "../components/doctor/DoctorHistorySection";
+import { History as IconHistory } from "lucide-react";
+import { apiFetch } from "../utils/apiFetch";
 import {
   IconDoctor,
   IconHospital,
@@ -151,7 +154,64 @@ export default function DoctorPage({
     });
   }, []);
 
-  const [activeTab, setActiveTab] = useState("ops"); // "ops" | "queue" | "apts"
+  const [activeTab, setActiveTab] = useState(() => {
+    try {
+      const p = new URLSearchParams(window.location.search).get("tab");
+      if (p && ["ops", "queue", "apts", "history"].includes(p)) return p;
+    } catch (_) {}
+    return "ops";
+  }); // "ops" | "queue" | "apts" | "history"
+  const [consultationHistoryCount, setConsultationHistoryCount] = useState(0);
+
+  // Pre-load consultation history count on mount for the Tab badge
+  useEffect(() => {
+    const hCode = tenantId || currentUser?.hospital_code || currentUser?.primary_hospital_code;
+    if (!hCode) return;
+    apiFetch(`${API_BASE}/api/v1/hospitals/${encodeURIComponent(hCode)}/visits?limit=500`)
+      .then((response) => response.json())
+      .then((res) => {
+        if (res && Array.isArray(res.visits)) {
+          const count = res.visits.filter((item) => {
+            const dept = String(item.department || item.department_name || "").toLowerCase();
+            const cat = String(item.service_category || "").toLowerCase();
+            const code = String(item.dept_code || "").toLowerCase();
+            const hasClinicalStage = Array.isArray(item.transfer_stages) && item.transfer_stages.some((s) => {
+              const sc = String(s.dept_code || s.department || "").toLowerCase();
+              return (
+                sc.includes("consult") ||
+                sc.includes("opd") ||
+                sc.includes("emerg") ||
+                sc.includes("triage") ||
+                Boolean(s.served_by)
+              );
+            });
+            const isDirectClinical =
+              dept.includes("consult") ||
+              dept.includes("opd") ||
+              dept.includes("emerg") ||
+              dept.includes("triage") ||
+              cat.includes("consult") ||
+              cat.includes("opd") ||
+              cat.includes("emerg") ||
+              cat.includes("triage") ||
+              code.includes("consult") ||
+              code.includes("opd") ||
+              code.includes("emerg") ||
+              code.includes("triage") ||
+              Boolean(item.served_by_doctor_name);
+            const isPureAuxiliary =
+              (cat.includes("radiology") || cat.includes("rad") || cat.includes("xray") || cat.includes("mri") ||
+               cat.includes("pharmacy") || cat.includes("laboratory") || cat.includes("pathology") || cat.includes("lab") ||
+               cat.includes("billing") || cat.includes("cashier") || cat.includes("reception")) &&
+              !hasClinicalStage && !isDirectClinical;
+            if (isPureAuxiliary) return false;
+            return isDirectClinical || hasClinicalStage;
+          }).length;
+          setConsultationHistoryCount(count);
+        }
+      })
+      .catch(() => {});
+  }, [tenantId, currentUser?.hospital_code, currentUser?.primary_hospital_code]);
   const [appointments, setAppointments] = useState([]);
   const [bookedSlotsViewMode, setBookedSlotsViewMode] = useState("pending"); // "pending" | "all"
   const [showTransferModal, setShowTransferModal] = useState(false);
@@ -195,6 +255,24 @@ export default function DoctorPage({
   const isInitialLoadRef = useRef(true);
   const autoSaveTimerRef = useRef(null);
 
+  // Triage & Disposition State (for Emergency & OPD Consultation Workstation)
+  const [rxArrivalMode, setRxArrivalMode] = useState("walk-in"); // "walk-in" | "ambulance" | "referred"
+  const [rxChiefComplaint, setRxChiefComplaint] = useState("");
+  const [rxVitals, setRxVitals] = useState({
+    bp: "",
+    pulse: "",
+    spo2: "",
+    temperature: "",
+    respiratory_rate: "",
+  });
+  const [rxTriageNotes, setRxTriageNotes] = useState("");
+  const [rxDisposition, setRxDisposition] = useState("Discharge");
+
+  // Doctor Assigned Desk & Emergency Mode Scope (derived server-side)
+  const [assignedDesk, setAssignedDesk] = useState(null);
+  const [isEmergencyDesk, setIsEmergencyDesk] = useState(false);
+  const [activeEmergencyDocPresent, setActiveEmergencyDocPresent] = useState(true);
+
   const effectiveHospitalCode =
     localBranding?.hospital_code ||
     hospitalBranding?.hospital_code ||
@@ -203,6 +281,34 @@ export default function DoctorPage({
       : tenantId) ||
     HOSPITAL_CONFIG.tenantId ||
     "city-hospital-01";
+
+  // Fetch Doctor's Desk Scope and Department server-side
+  useEffect(() => {
+    if (!effectiveHospitalCode) return;
+    let isMounted = true;
+    const fetchDeskScope = async () => {
+      try {
+        const res = await apiFetch(`${API_BASE}/api/v1/doctor/desk-scope?tenant_id=${encodeURIComponent(effectiveHospitalCode)}`);
+        const data = await res.json();
+        if (isMounted && data && data.status === "success") {
+          setAssignedDesk(data.desk || null);
+          setIsEmergencyDesk(Boolean(data.isEmergencyDesk));
+          setActiveEmergencyDocPresent(Boolean(data.hasActiveEmergencyDoctor));
+        }
+      } catch (e) {
+        console.warn("Could not load doctor desk scope:", e);
+      }
+    };
+    fetchDeskScope();
+    const handleDeskUpdate = () => fetchDeskScope();
+    window.addEventListener("desk_updated", handleDeskUpdate);
+    window.addEventListener("desks_updated", handleDeskUpdate);
+    return () => {
+      isMounted = false;
+      window.removeEventListener("desk_updated", handleDeskUpdate);
+      window.removeEventListener("desks_updated", handleDeskUpdate);
+    };
+  }, [effectiveHospitalCode, currentUser?.id, currentUser?.email]);
 
   useEffect(() => {
     if (!hospitalBranding && effectiveHospitalCode) {
@@ -239,7 +345,39 @@ export default function DoctorPage({
     };
   }, [effectiveHospitalCode]);
 
+  // If in emergency mode and user was on appointments tab, automatically switch to desk ops
+  useEffect(() => {
+    if (isEmergencyDesk && activeTab === "apts") {
+      setActiveTab("ops");
+    }
+  }, [isEmergencyDesk, activeTab]);
 
+  const isEmergencyTicketClient = useCallback((t) => {
+    if (!t) return false;
+    const cat = String(t.service_category || t.department || "").trim().toLowerCase();
+    const fromDept = String(t.transferred_from_dept || "").trim().toLowerCase();
+    const prio = Number(t.priority_level || t.priority || 2);
+    return (
+      cat === "emergency" ||
+      cat === "emergency triage" ||
+      cat.includes("emergency") ||
+      fromDept === "emergency" ||
+      prio === 1 ||
+      Boolean(t.is_emergency)
+    );
+  }, []);
+
+  const formatTimeSinceArrival = useCallback((joinTs) => {
+    if (!joinTs) return null;
+    let sec = typeof joinTs === "number" ? joinTs : new Date(joinTs).getTime() / 1000;
+    if (sec > 1e11) sec = sec / 1000;
+    const diffMins = Math.max(0, Math.floor((Date.now() / 1000 - sec) / 60));
+    if (diffMins < 1) return language === "hi" ? "अभी पहुंचे" : "Just arrived";
+    if (diffMins < 60) return language === "hi" ? `${diffMins} मि. पहले` : `Arrived ${diffMins}m ago`;
+    const hrs = Math.floor(diffMins / 60);
+    const remMins = diffMins % 60;
+    return language === "hi" ? `${hrs}घं ${remMins}मि पहले` : `Arrived ${hrs}h ${remMins}m ago`;
+  }, [language]);
 
   const adminDept = currentUser && currentUser.department ? currentUser.department.toLowerCase() : "all";
   const userRole = (currentUser?.role || "").toLowerCase();
@@ -249,15 +387,21 @@ export default function DoctorPage({
     userRole !== "doctor" &&
     (["super_admin", "superadmin", "hospital_owner"].includes(userRole) || Boolean(currentUser?.is_superadmin));
   // Clinical Consultation Tickets only (excluding pharmacy dispensing tickets)
-  const clinicalServingTickets = (servingTickets || []).filter(
-    (t) => (t.service_category || "").toLowerCase() !== "pharmacy"
-  );
-  const clinicalQueueSnapshot = (queueSnapshot || []).filter(
-    (t) => (t.service_category || "").toLowerCase() !== "pharmacy"
-  );
-  const clinicalHeldTickets = (heldTickets || []).filter(
-    (t) => (t.service_category || "").toLowerCase() !== "pharmacy"
-  );
+  const clinicalServingTickets = (servingTickets || []).filter((t) => {
+    if ((t.service_category || "").toLowerCase() === "pharmacy") return false;
+    if (isEmergencyDesk) return isEmergencyTicketClient(t);
+    return true;
+  });
+  const clinicalQueueSnapshot = (queueSnapshot || []).filter((t) => {
+    if ((t.service_category || "").toLowerCase() === "pharmacy") return false;
+    if (isEmergencyDesk) return isEmergencyTicketClient(t);
+    return true;
+  });
+  const clinicalHeldTickets = (heldTickets || []).filter((t) => {
+    if ((t.service_category || "").toLowerCase() === "pharmacy") return false;
+    if (isEmergencyDesk) return isEmergencyTicketClient(t);
+    return true;
+  });
 
 
   const primaryServing = clinicalServingTickets.length > 0 ? clinicalServingTickets[0] : null;
@@ -385,7 +529,7 @@ export default function DoctorPage({
       } else if (finalStatus === "ON_BREAK") {
         showToast(language === "hi" ? "आपकी स्थिति 'अवकाश (On Break)' पर सेट है — मरीज़ रूटिंग रोक दी गई है।" : "Doctor status: On Break — Patient routing paused.", "info");
       } else if (finalStatus === "EMERGENCY_ROUND") {
-        showToast(language === "hi" ? "स्थिति 'आपातकालीन राउंड' पर सेट है।" : "Doctor status: Emergency / ICU Round.", "warn");
+        showToast(language === "hi" ? "स्थिति 'आईसीयू / वार्ड राउंड' पर सेट है।" : "Doctor status: ICU / Ward Round.", "warn");
       }
 
       let timestamp = dutyStatusChangedAt;
@@ -524,13 +668,13 @@ export default function DoctorPage({
     },
     {
       id: "EMERGENCY_ROUND",
-      label: isHi ? "आपातकालीन / वार्ड राउंड" : "Emergency / ICU Round",
-      badgeLabel: isHi ? "इमरजेंसी राउंड" : "ICU Round",
+      label: isHi ? "आईसीयू / वार्ड राउंड" : "ICU / Ward Round",
+      badgeLabel: isHi ? "आईसीयू राउंड" : "ICU / Ward Round",
       icon: <IconSiren size={13} color="#E11D48" />,
       color: "#E11D48",
       bg: isDark ? "rgba(244, 63, 94, 0.2)" : "#FFE4E6",
       border: isDark ? "rgba(244, 63, 94, 0.5)" : "#FECDD3",
-      desc: isHi ? "आपातकालीन वार्ड या आईसीयू में उपस्थित" : "Doctor attending emergency patients",
+      desc: isHi ? "आईसीयू या वार्ड राउंड में उपस्थित" : "Doctor attending ICU / Ward Round",
     },
     {
       id: "OFF_DUTY",
@@ -565,7 +709,7 @@ export default function DoctorPage({
     if (doctorDutyStatus !== "ACTIVE") {
       const statusNames = {
         ON_BREAK: language === "hi" ? "चाय / अल्पाहार अवकाश" : "Tea / Lunch Break",
-        EMERGENCY_ROUND: language === "hi" ? "आपातकालीन राउंड" : "Emergency / ICU Round",
+        EMERGENCY_ROUND: language === "hi" ? "आईसीयू / वार्ड राउंड" : "ICU / Ward Round",
         OFF_DUTY: language === "hi" ? "ड्यूटी समाप्त" : "Off Duty (Shift Ended)",
       };
       const warnMsg =
@@ -832,6 +976,27 @@ export default function DoctorPage({
       );
       setRxTransferNotes(effectiveData.transfer_notes || "");
       setRxCustomLabTest("");
+
+      // Initialize Triage & Disposition
+      if (effectiveData.triage) {
+        setRxArrivalMode(effectiveData.triage.arrival_mode || "walk-in");
+        setRxChiefComplaint(effectiveData.triage.chief_complaint || "");
+        setRxVitals(effectiveData.triage.vitals || { bp: "", pulse: "", spo2: "", temperature: "", respiratory_rate: "" });
+        setRxTriageNotes(effectiveData.triage.note || "");
+      } else {
+        setRxArrivalMode(ticket.arrival_mode || "walk-in");
+        setRxChiefComplaint(ticket.medical_condition && ticket.medical_condition !== "general_checkup" ? ticket.medical_condition : "");
+        setRxVitals({
+          bp: ticket.bp || "",
+          pulse: ticket.pulse || "",
+          spo2: ticket.spo2 || "",
+          temperature: ticket.temperature || "",
+          respiratory_rate: ticket.respiratory_rate || "",
+        });
+        setRxTriageNotes("");
+      }
+      setRxDisposition(effectiveData.disposition || (isEmergencyDesk ? "Observation" : "Discharge"));
+
       if (localDraft) {
         setRxAutoSaveStatus("saved");
         setRxLastSavedAt(new Date());
@@ -851,6 +1016,19 @@ export default function DoctorPage({
       setRxFollowUp("After 5 days or if needed");
       setRxRoutingDept("pharmacy");
       setRxTransferNotes("");
+
+      // Fresh Triage & Disposition
+      setRxArrivalMode(ticket.arrival_mode || "walk-in");
+      setRxChiefComplaint(ticket.medical_condition && ticket.medical_condition !== "general_checkup" ? ticket.medical_condition : "");
+      setRxVitals({
+        bp: ticket.bp || "",
+        pulse: ticket.pulse || "",
+        spo2: ticket.spo2 || "",
+        temperature: ticket.temperature || "",
+        respiratory_rate: ticket.respiratory_rate || "",
+      });
+      setRxTriageNotes("");
+      setRxDisposition(isEmergencyDesk ? "Observation" : "Discharge");
     }
     setShowPrescriptionModal(true);
   };
@@ -916,7 +1094,7 @@ export default function DoctorPage({
 
     return {
       doctor_name: resolvedDocName,
-      doctor_department: prescriptionTicket?.service_category || currentUser?.department || "General Consultation",
+      doctor_department: prescriptionTicket?.service_category || currentUser?.department || (isEmergencyDesk ? "Emergency Triage" : "General Consultation"),
       doctor_employee_id: currentUser?.employee_id || "",
       diagnosis: finalDiagnosis || "Consultation & Clinical Assessment",
       medicines: rxMedicines.filter((m) => m.name && m.name.trim() !== ""),
@@ -925,6 +1103,13 @@ export default function DoctorPage({
       follow_up: rxFollowUp,
       target_department: rxRoutingDept && rxRoutingDept !== "none" ? rxRoutingDept : null,
       transfer_notes: rxTransferNotes,
+      triage: {
+        arrival_mode: rxArrivalMode,
+        chief_complaint: rxChiefComplaint,
+        vitals: rxVitals,
+        note: rxTriageNotes,
+      },
+      disposition: rxDisposition,
       prescribed_at: new Date().toISOString(),
     };
   };
@@ -984,32 +1169,68 @@ export default function DoctorPage({
       if (typeof ticket.prescription_notes === "object") {
         parsedNotes = ticket.prescription_notes;
       } else if (typeof ticket.prescription_notes === "string") {
+        const raw = ticket.prescription_notes.trim();
         try {
-          let str = ticket.prescription_notes.trim();
+          let str = raw;
           while ((str.startsWith('"') && str.endsWith('"')) || (str.startsWith("'") && str.endsWith("'"))) {
             str = str.slice(1, -1).trim();
           }
           parsedNotes = JSON.parse(str);
         } catch (e) {
-          parsedNotes = { advice: ticket.prescription_notes };
+          // Robust block extractor for labelled blocks e.g. [General Consultation (OPD)]: { ... }
+          const labelPattern = /\[([^\]]+)\]:\s*\{/g;
+          let matchedBlock = null;
+          let m;
+          while ((m = labelPattern.exec(raw)) !== null) {
+            const start = m.index + m[0].length - 1;
+            let depth = 0;
+            let end = -1;
+            for (let i = start; i < raw.length; i++) {
+              if (raw[i] === "{") depth++;
+              else if (raw[i] === "}") {
+                depth--;
+                if (depth === 0) { end = i; break; }
+              }
+            }
+            if (end !== -1) {
+              try {
+                const candidate = JSON.parse(raw.slice(start, end + 1));
+                if (!matchedBlock || m[1].toLowerCase().includes("consult") || m[1].toLowerCase().includes("opd")) {
+                  matchedBlock = candidate;
+                }
+              } catch (_) {}
+            }
+          }
+          parsedNotes = matchedBlock || null;
         }
       }
     }
 
+    const patientName = ticket.patient_name || ticket.name || parsedNotes?.patient_name || "Patient";
+    const rawDoctor = parsedNotes?.doctor_name || ticket.served_by_doctor_name || ticket.served_by || (currentUser?.name && !currentUser.name.toLowerCase().includes("staff") ? currentUser.name : "Attending Consultant");
+    const safeDoctor = (patientName && String(rawDoctor || "").toLowerCase().trim() === patientName.toLowerCase().trim())
+      ? "Attending Consultant"
+      : rawDoctor;
+
     const rxData = {
       ...(parsedNotes || {}),
-      patient_name: ticket.name || parsedNotes?.patient_name || "Patient",
-      age: ticket.age || parsedNotes?.age || 30,
-      gender: ticket.gender || parsedNotes?.gender || "male",
-      phone: ticket.phone || parsedNotes?.phone || "",
-      ticket_id: ticket.ticket_id,
+      patient_name: patientName,
+      age: ticket.patient_age || ticket.age || parsedNotes?.age || 30,
+      gender: ticket.patient_gender || ticket.gender || parsedNotes?.gender || "male",
+      phone: ticket.patient_phone || ticket.phone || parsedNotes?.phone || "",
+      ticket_id: ticket.ticket_id || ticket.token_number || "",
       appointment_id: ticket.appointment_id || "",
-      service_category: ticket.service_category,
-      doctor_name: parsedNotes?.doctor_name || currentUser?.name || currentUser?.username || "Dr. Staff Desk",
-      doctor_department: parsedNotes?.doctor_department || ticket.service_category || currentUser?.department,
+      service_category: ticket.service_category || "General Consultation (OPD)",
+      doctor_name: safeDoctor,
+      doctor_department: parsedNotes?.doctor_department || ticket.department || ticket.service_category || currentUser?.department || "General Consultation (OPD)",
       doctor_employee_id: parsedNotes?.doctor_employee_id || currentUser?.employee_id || currentUser?.employee_code || "",
+      diagnosis: parsedNotes?.diagnosis || ticket.medical_condition || "Consultation & Clinical Assessment",
+      medicines: Array.isArray(parsedNotes?.medicines) ? parsedNotes.medicines : [],
+      advice: cleanAdviceText(parsedNotes?.advice || parsedNotes?.clinical_notes || ""),
+      lab_tests: parsedNotes?.lab_tests || "",
+      follow_up: parsedNotes?.follow_up || "",
       hospital_name: localBranding?.hospital_name || currentUser?.hospital_name || "City General Hospital",
-      prescribed_at: parsedNotes?.prescribed_at || new Date().toISOString(),
+      prescribed_at: parsedNotes?.prescribed_at || ticket.created_at || new Date().toISOString(),
     };
 
     if (asPdf) {
@@ -1284,9 +1505,16 @@ export default function DoctorPage({
 
         .admin-tabs-bar {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
+          grid-template-columns: repeat(4, 1fr);
           gap: 12px;
           margin-bottom: 24px;
+          width: 100%;
+          max-width: 100%;
+          box-sizing: border-box;
+        }
+
+        .admin-tabs-bar.emergency-tabs-bar {
+          grid-template-columns: repeat(3, 1fr);
         }
 
         .tab-button-modern {
@@ -1373,17 +1601,30 @@ export default function DoctorPage({
           align-items: start;
         }
 
-        @media (max-width: 1040px) {
-          .admin-portal-dashboard {
-            grid-template-columns: 1fr;
-          }
+        @media (max-width: 1100px) {
           .admin-tabs-bar {
+            grid-template-columns: repeat(2, 1fr);
+          }
+          .admin-tabs-bar.emergency-tabs-bar {
+            grid-template-columns: repeat(3, 1fr);
+          }
+        }
+
+        @media (max-width: 860px) {
+          .admin-tabs-bar.emergency-tabs-bar {
             grid-template-columns: repeat(2, 1fr);
           }
         }
 
-        @media (max-width: 580px) {
-          .admin-tabs-bar {
+        @media (max-width: 1040px) {
+          .admin-portal-dashboard {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        @media (max-width: 600px) {
+          .admin-tabs-bar,
+          .admin-tabs-bar.emergency-tabs-bar {
             grid-template-columns: 1fr;
           }
         }
@@ -1793,6 +2034,17 @@ export default function DoctorPage({
           rxAutoSaveStatus={rxAutoSaveStatus}
           rxLastSavedAt={rxLastSavedAt}
           rxPreFillWarning={rxPreFillWarning}
+          isEmergencyDesk={isEmergencyDesk}
+          rxArrivalMode={rxArrivalMode}
+          setRxArrivalMode={setRxArrivalMode}
+          rxChiefComplaint={rxChiefComplaint}
+          setRxChiefComplaint={setRxChiefComplaint}
+          rxVitals={rxVitals}
+          setRxVitals={setRxVitals}
+          rxTriageNotes={rxTriageNotes}
+          setRxTriageNotes={setRxTriageNotes}
+          rxDisposition={rxDisposition}
+          setRxDisposition={setRxDisposition}
           patient={servingPatient}
           summary={servingPatientSummary}
           visits={servingPatientVisits}
@@ -1819,7 +2071,7 @@ export default function DoctorPage({
             heldCount={clinicalHeldTickets.length}
             servingTicket={primaryServing}
             nextTicket={clinicalQueueSnapshot.length > 0 ? clinicalQueueSnapshot[0] : null}
-            appointmentsCount={scheduledBookedSlots.length}
+            appointmentsCount={isEmergencyDesk ? 0 : scheduledBookedSlots.length}
             handleCounterChange={canModifyDesks ? handleCounterChange : null}
             handleServeNext={onCallNextPatient}
             isDoctorBusy={isDoctorBusy}
@@ -1895,8 +2147,24 @@ export default function DoctorPage({
                       marginTop: "2px",
                     }}>
                       <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                        <IconHospital size={12} color="#0284C7" />
-                        {getCategoryLabel(adminDept, language)}
+                        <IconHospital size={12} color={isEmergencyDesk ? "#DC2626" : "#0284C7"} />
+                        {isEmergencyDesk
+                          ? (language === "hi" ? "आपातकालीन ट्राइएज (Emergency Triage)" : "Emergency Triage")
+                          : (assignedDesk?.department_name || getCategoryLabel(adminDept, language))}
+                        {assignedDesk?.desk_name && (
+                          <span style={{
+                            padding: "1px 6px",
+                            borderRadius: "4px",
+                            background: isEmergencyDesk ? (isDark ? "rgba(220, 38, 38, 0.2)" : "#FEF2F2") : (isDark ? "#334155" : "#E0F2FE"),
+                            color: isEmergencyDesk ? "#DC2626" : "#0284C7",
+                            border: `1px solid ${isEmergencyDesk ? "#FECDD3" : "#BAE6FD"}`,
+                            fontSize: "10.5px",
+                            fontWeight: 800,
+                            marginLeft: "4px",
+                          }}>
+                            {assignedDesk.desk_name}
+                          </span>
+                        )}
                       </span>
                       {currentUser?.specialization && (
                         <span style={{ color: isDark ? "#94A3B8" : "#64748B" }}>• {currentUser.specialization}</span>
@@ -2105,7 +2373,7 @@ export default function DoctorPage({
               </div>
             </div>
 
-            <div className="admin-tabs-bar">
+            <div className={`admin-tabs-bar ${isEmergencyDesk ? "emergency-tabs-bar" : ""}`}>
               {/* Tab 1: Desk Operations & Calling */}
               <button
                 type="button"
@@ -2191,47 +2459,79 @@ export default function DoctorPage({
                 </div>
               </button>
 
-              {/* Tab 3: Today's Booked Appointments */}
+              {/* Tab 3: Today's Booked Appointments (Hidden in Emergency Mode) */}
+              {!isEmergencyDesk && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("apts")}
+                  className={`tab-button-modern ${activeTab === "apts" ? "active" : "inactive"}`}
+                >
+                  <div className="tab-icon-wrapper">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                      <line x1="16" y1="2" x2="16" y2="6" />
+                      <line x1="8" y1="2" x2="8" y2="6" />
+                      <line x1="3" y1="10" x2="21" y2="10" />
+                    </svg>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <span className="tab-title-text">
+                        {language === "hi" ? "आज के अपॉइंटमेंट्स" : "Booked Slots"}
+                      </span>
+                      <span
+                        className="tab-count-badge"
+                        style={{
+                          background: activeTab === "apts" ? "#38BDF8" : "#E0F2FE",
+                          color: activeTab === "apts" ? "#0F172A" : "#0284C7",
+                        }}
+                      >
+                        {scheduledBookedSlots.length}
+                      </span>
+                    </div>
+                    <span className="tab-sub-text" style={{ color: activeTab === "apts" ? "#BAE6FD" : "#64748B" }}>
+                      {language === "hi" ? "आगमन हेतु प्रतीक्षारत" : "Awaiting Arrival"}
+                    </span>
+                  </div>
+                </button>
+              )}
+
+              {/* Tab 4: Patient Consultation History */}
               <button
                 type="button"
-                onClick={() => setActiveTab("apts")}
-                className={`tab-button-modern ${activeTab === "apts" ? "active" : "inactive"}`}
+                onClick={() => setActiveTab("history")}
+                className={`tab-button-modern ${activeTab === "history" ? "active" : "inactive"}`}
               >
                 <div className="tab-icon-wrapper">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-                    <line x1="16" y1="2" x2="16" y2="6" />
-                    <line x1="8" y1="2" x2="8" y2="6" />
-                    <line x1="3" y1="10" x2="21" y2="10" />
-                  </svg>
+                  <IconHistory size={20} strokeWidth={2.2} />
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                     <span className="tab-title-text">
-                      {language === "hi" ? "आज के अपॉइंटमेंट्स" : "Booked Slots"}
+                      {language === "hi" ? "परामर्श इतिहास" : "Patient History"}
                     </span>
                     <span
                       className="tab-count-badge"
                       style={{
-                        background: activeTab === "apts" ? "#38BDF8" : "#E0F2FE",
-                        color: activeTab === "apts" ? "#0F172A" : "#0284C7",
+                        background: activeTab === "history" ? "#38BDF8" : "#E0F2FE",
+                        color: activeTab === "history" ? "#0F172A" : "#0284C7",
                       }}
                     >
-                      {scheduledBookedSlots.length}
+                      {consultationHistoryCount}
                     </span>
                   </div>
-                  <span className="tab-sub-text" style={{ color: activeTab === "apts" ? "#BAE6FD" : "#64748B" }}>
-                    {language === "hi" ? "आगमन हेतु प्रतीक्षारत" : "Awaiting Arrival"}
+                  <span className="tab-sub-text" style={{ color: activeTab === "history" ? "#BAE6FD" : "#64748B" }}>
+                    {language === "hi" ? "ऑडिट, दवा पर्ची व एक्सेल" : "Audits, Rx & Excel"}
                   </span>
                 </div>
               </button>
 
-
             </div>
           </section>
 
-          {/* 3. MAIN RESPONSIVE 2-COLUMN DASHBOARD */}
-          <div className="admin-portal-dashboard">
+          {/* 3. MAIN RESPONSIVE DASHBOARD */}
+          {activeTab !== "history" ? (
+            <div className="admin-portal-dashboard">
             {/* Left Column: Active Workspace */}
             <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
               {/* TAB 1: DESK OPERATIONS & LIVE CALLING */}
@@ -2272,7 +2572,7 @@ export default function DoctorPage({
                           : doctorDutyStatus === "ON_BREAK"
                             ? (language === "hi" ? "अवकाश पर हैं (कतार कॉलिंग रुकी है)" : "On Break: Patient routing paused")
                             : doctorDutyStatus === "EMERGENCY_ROUND"
-                              ? (language === "hi" ? "इमरजेंसी राउंड पर हैं" : "Emergency Round: Patient routing paused")
+                              ? (language === "hi" ? "आईसीयू / वार्ड राउंड पर हैं" : "ICU / Ward Round: Patient routing paused")
                               : doctorDutyStatus === "OFF_DUTY"
                                 ? (language === "hi" ? "ड्यूटी समाप्त" : "Shift Ended: Desk Closed")
                                 : "Call Next Patient in AI Priority Order"
@@ -2381,7 +2681,7 @@ export default function DoctorPage({
                             {doctorDutyStatus === "ON_BREAK"
                               ? (language === "hi" ? "चाय / अल्पाहार अवकाश सक्रिय" : "Duty Paused: Doctor on Break")
                               : doctorDutyStatus === "EMERGENCY_ROUND"
-                                ? (language === "hi" ? "आपातकालीन / वार्ड राउंड सक्रिय" : "Duty Paused: Emergency / ICU Round")
+                                ? (language === "hi" ? "आईसीयू / वार्ड राउंड सक्रिय" : "Duty Paused: ICU / Ward Round")
                                 : (language === "hi" ? "ड्यूटी समाप्त (ऑफ ड्यूटी)" : "Shift Ended: Desk Consultation Closed")}
                             {dutyTimerText && (
                               <span style={{ marginLeft: "8px", fontWeight: 900, background: "rgba(0,0,0,0.06)", padding: "2px 8px", borderRadius: "6px" }}>
@@ -3027,7 +3327,7 @@ export default function DoctorPage({
                             <th style={staffThStyle}>{t("patientDemographics", language)}</th>
                             <th style={staffThStyle}>{t("symptomRisk", language)}</th>
                             <th style={staffThStyle}>{t("aiComplexity", language)}</th>
-                            <th style={staffThStyle}>{t("estWaitCol", language)}</th>
+                            <th style={staffThStyle}>{isEmergencyDesk ? (language === "hi" ? "आगमन का समय" : "Time Since Arrival") : t("estWaitCol", language)}</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -3038,6 +3338,27 @@ export default function DoctorPage({
                               </td>
                               <td style={{ ...staffTdStyle, fontWeight: 900, color: "#0284C7" }}>
                                 <div style={{ fontSize: "14px", fontWeight: 900 }}>#{ticket.ticket_id}</div>
+                                {isEmergencyTicketClient(ticket) && (
+                                  <span
+                                    style={{
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: "4px",
+                                      marginTop: "3px",
+                                      padding: "2px 7px",
+                                      borderRadius: "6px",
+                                      fontSize: "10.5px",
+                                      fontWeight: 800,
+                                      background: isDark ? "rgba(220, 38, 38, 0.2)" : "#FEF2F2",
+                                      color: "#DC2626",
+                                      border: "1px solid #FECDD3",
+                                    }}
+                                  >
+                                    {ticket.is_emergency_unassigned || ticket.emergency_unassigned
+                                      ? (language === "hi" ? "आपातकालीन - अनिर्दिष्ट" : "Emergency - unassigned")
+                                      : (language === "hi" ? "आपातकालीन" : "Emergency")}
+                                  </span>
+                                )}
                                 {ticket.appointment_id && (
                                   <span
                                     style={{
@@ -3079,8 +3400,10 @@ export default function DoctorPage({
                                   {ticket.complexity_score || 1.0}x
                                 </span>
                               </td>
-                              <td style={{ ...staffTdStyle, fontWeight: 800, color: "#0284C7" }}>
-                                {ticket.estimated_wait_minutes} {language === "hi" ? "मिनट" : "min"}
+                              <td style={{ ...staffTdStyle, fontWeight: 800, color: isEmergencyDesk ? "#DC2626" : "#0284C7" }}>
+                                {isEmergencyDesk
+                                  ? (formatTimeSinceArrival(ticket.join_timestamp || ticket.created_at) || `${ticket.estimated_wait_minutes} min`)
+                                  : `${ticket.estimated_wait_minutes} ${language === "hi" ? "मिनट" : "min"}`}
                               </td>
                             </tr>
                           ))}
@@ -3091,8 +3414,8 @@ export default function DoctorPage({
                 </div>
               )}
 
-              {/* TAB 3: TODAY'S BOOKED APPOINTMENTS */}
-              {activeTab === "apts" && (
+              {/* TAB 3: TODAY'S BOOKED APPOINTMENTS (Hidden in Emergency Mode) */}
+              {!isEmergencyDesk && activeTab === "apts" && (
                 <div style={standaloneCardStyle}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px", flexWrap: "wrap", gap: "12px" }}>
                     <div>
@@ -3390,14 +3713,14 @@ export default function DoctorPage({
               </div>
 
               {/* 2. Next Up in Queue Preview */}
-              {queueSnapshot.length > 0 && (
+              {clinicalQueueSnapshot.length > 0 && (
                 <div className="telemetry-sidebar-card" style={isDark ? { background: "#0F172A", borderColor: "#334155" } : {}}>
                   <span style={{ fontSize: "12.5px", fontWeight: 800, color: isDark ? "#F8FAFC" : "#0F172A", display: "flex", alignItems: "center", gap: "6px" }}>
                     <IconClipboard size={14} color="#0284C7" />
                     {language === "hi" ? "कतार में अगले टोकन" : "Next Up in Queue"}
                   </span>
                   <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                    {queueSnapshot.slice(0, 3).map((item) => (
+                    {clinicalQueueSnapshot.slice(0, 3).map((item) => (
                       <div key={item.ticket_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", borderRadius: "8px", background: isDark ? "#1E293B" : "#F8FAFC", border: isDark ? "1px solid #334155" : "1px solid #E2E8F0" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                           <span style={{ fontSize: "11px", fontWeight: 800, color: isDark ? "#94A3B8" : "#64748B" }}>#{item.position}</span>
@@ -3406,8 +3729,10 @@ export default function DoctorPage({
                             <span style={{ fontSize: "11px", color: isDark ? "#94A3B8" : "#64748B", display: "block" }}>{item.name}</span>
                           </div>
                         </div>
-                        <span style={{ fontSize: "11px", fontWeight: 700, color: "#38BDF8" }}>
-                          ~{item.estimated_wait_minutes}{language === "hi" ? "मि" : "m"}
+                        <span style={{ fontSize: "11px", fontWeight: 700, color: isEmergencyDesk ? "#DC2626" : "#38BDF8" }}>
+                          {isEmergencyDesk
+                            ? (formatTimeSinceArrival(item.join_timestamp || item.created_at) || `~${item.estimated_wait_minutes}m`)
+                            : `~${item.estimated_wait_minutes}${language === "hi" ? "मि" : "m"}`}
                         </span>
                       </div>
                     ))}
@@ -3453,6 +3778,22 @@ export default function DoctorPage({
 
             </div>
           </div>
+          ) : (
+            /* TAB 4: PATIENT CONSULTATION & OPD VISIT HISTORY VIEW */
+            <DoctorHistorySection
+              hospitalCode={tenantId || currentUser?.hospital_code || currentUser?.primary_hospital_code}
+              currentUser={currentUser}
+              assignedDesk={assignedDesk}
+              isEmergencyDesk={isEmergencyDesk}
+              theme={theme}
+              language={language}
+              isDark={isDark}
+              hospitalBranding={localBranding}
+              onCountChange={setConsultationHistoryCount}
+              onPrintPrescription={handlePrintTicketPrescription}
+              onUsePreviousPrescription={handleUsePreviousPrescription}
+            />
+          )}
 
 
 
@@ -3499,6 +3840,17 @@ export default function DoctorPage({
           rxAutoSaveStatus={rxAutoSaveStatus}
           rxLastSavedAt={rxLastSavedAt}
           rxPreFillWarning={rxPreFillWarning}
+          isEmergencyDesk={isEmergencyDesk}
+          rxArrivalMode={rxArrivalMode}
+          setRxArrivalMode={setRxArrivalMode}
+          rxChiefComplaint={rxChiefComplaint}
+          setRxChiefComplaint={setRxChiefComplaint}
+          rxVitals={rxVitals}
+          setRxVitals={setRxVitals}
+          rxTriageNotes={rxTriageNotes}
+          setRxTriageNotes={setRxTriageNotes}
+          rxDisposition={rxDisposition}
+          setRxDisposition={setRxDisposition}
           patient={servingPatient}
           summary={servingPatientSummary}
           visits={servingPatientVisits}
