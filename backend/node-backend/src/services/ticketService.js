@@ -774,10 +774,16 @@ async function serveNext(tenantId, department = null, deskId = null, doctorInfo 
   }
 
   // Server-side Doctor Desk & Emergency Scope Enforcement:
-  // Determine doctor's department from the desk they are assigned to (desks.assigned_employee_id -> desks.department_id)
-  let doctorScope = await getDoctorDeskAndScope(hid, actualDocInfo || { desk_id: deskId });
-  if (!doctorScope.desk && deskId) {
+  // Determine doctor's department from the desk being operated (if deskId given) or assigned employee desk
+  let doctorScope = null;
+  if (deskId) {
     doctorScope = await getDoctorDeskAndScope(hid, { desk_id: deskId });
+  }
+  if (!doctorScope?.desk && actualDocInfo) {
+    doctorScope = await getDoctorDeskAndScope(hid, actualDocInfo);
+  }
+  if (!doctorScope) {
+    doctorScope = { desk: null, department: null, dept_code: null, isEmergencyDesk: false, employee: null };
   }
   const isEmergencyDesk = Boolean(doctorScope.isEmergencyDesk);
   const deskDeptCode = doctorScope.dept_code;
@@ -1132,7 +1138,11 @@ async function transferTicket(tenantId, ticketId, targetDepartment, prescription
     tenant_id: tenantId,
     consumer_type: origTicket.consumer_type || "hospital",
     service_category: targetDepartment,
+    department: targetDepartment,
+    dept_code: targetDepartment,
+    department_name: targetDepartment,
     name: origTicket.name,
+    phone: origTicket.phone || "",
     priority_level: newPriority,
     priority: newPriority,
     is_emergency: isTargetEmerg || newPriority === 1,

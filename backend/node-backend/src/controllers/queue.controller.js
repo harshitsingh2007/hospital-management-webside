@@ -537,7 +537,17 @@ async function getQueueEndpoint(req, res, next) {
       req.query.doctor_id ||
       req.query.doctor_email;
 
-    if (isDocReq) {
+    const isExplicitDoctorScope =
+      req.query.scope === "doctor" ||
+      req.query.view === "doctor" ||
+      Boolean(req.query.doctor_id) ||
+      Boolean(req.query.doctor_email);
+
+    // If caller explicitly asked for a specific non-emergency department (e.g. laboratory, pharmacy, radiology),
+    // do not restrict or filter it by doctor emergency desk restrictions.
+    const isNonEmergencyDeptQuery = department && department !== "all" && department !== "emergency";
+
+    if (isExplicitDoctorScope && !isNonEmergencyDeptQuery) {
       const docScope = await getDoctorDeskAndScope(hid, req.user || {
         id: req.query.doctor_id,
         email: req.query.doctor_email,

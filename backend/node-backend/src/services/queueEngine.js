@@ -174,7 +174,10 @@ class NodeQueueEngine {
    * Looks up department_id by hospital_id and dept_code. Auto-creates department if missing.
    */
   async resolveDepartmentId(hospitalId, deptCode) {
-    const cleanCode = String(deptCode || "consultation").trim().toLowerCase();
+    let cleanCode = String(deptCode || "consultation").trim().toLowerCase();
+    if (cleanCode === "pathology" || cleanCode === "lab" || cleanCode === "pathologist") {
+      cleanCode = "laboratory";
+    }
     const dept = await prisma.departments.findFirst({
       where: {
         hospital_id: hospitalId,
@@ -637,6 +640,8 @@ class NodeQueueEngine {
         },
         include: {
           hospitals: true,
+          departments: true,
+          patients: true,
         },
         orderBy: [{ priority_level: "asc" }, { join_timestamp: "asc" }],
       });
@@ -651,8 +656,13 @@ class NodeQueueEngine {
           tenant_id: hCode,
           consumer_type: row.consumer_type || "hospital",
           service_category: row.service_category,
+          department: row.departments?.name || row.service_category,
+          dept_code: row.departments?.dept_code || "",
+          department_name: row.departments?.name || "",
           name: row.name,
+          phone: row.patients?.phone || "",
           priority_level: row.priority_level || 2,
+          is_emergency: row.priority_level === 1 || String(row.departments?.dept_code || "").toLowerCase() === "emergency",
           join_timestamp: joinTs,
           effective_timestamp: effTs,
           queue_date: today,
@@ -718,7 +728,11 @@ class NodeQueueEngine {
       });
 
       if (deptFilter && deptFilter !== "all") {
-        waiting = waiting.filter((t) => String(t.service_category).trim().toLowerCase() === deptFilter);
+        const normFilter = (deptFilter === "pathology" || deptFilter === "lab" || deptFilter === "pathologist") ? "laboratory" : deptFilter;
+        waiting = waiting.filter((t) => {
+          const sc = String(t.service_category || "").trim().toLowerCase();
+          return sc === normFilter || (normFilter === "laboratory" && (sc === "pathology" || sc === "laboratory"));
+        });
       }
 
       return waiting;
@@ -764,7 +778,11 @@ class NodeQueueEngine {
       );
 
       if (deptFilter && deptFilter !== "all") {
-        serving = serving.filter((t) => String(t.service_category).trim().toLowerCase() === deptFilter);
+        const normFilter = (deptFilter === "pathology" || deptFilter === "lab" || deptFilter === "pathologist") ? "laboratory" : deptFilter;
+        serving = serving.filter((t) => {
+          const sc = String(t.service_category || "").trim().toLowerCase();
+          return sc === normFilter || (normFilter === "laboratory" && (sc === "pathology" || sc === "laboratory"));
+        });
       }
 
       return serving;
@@ -809,7 +827,11 @@ class NodeQueueEngine {
       );
 
       if (deptFilter && deptFilter !== "all") {
-        held = held.filter((t) => String(t.service_category).trim().toLowerCase() === deptFilter);
+        const normFilter = (deptFilter === "pathology" || deptFilter === "lab" || deptFilter === "pathologist") ? "laboratory" : deptFilter;
+        held = held.filter((t) => {
+          const sc = String(t.service_category || "").trim().toLowerCase();
+          return sc === normFilter || (normFilter === "laboratory" && (sc === "pathology" || sc === "laboratory"));
+        });
       }
 
       held.sort((a, b) => {

@@ -269,23 +269,36 @@ export default function PathologyPage({
         const myCode = String(currentUser?.employee_code || currentUser?.employee_id || "").toLowerCase().trim();
         const myName = String(currentUser?.name || currentUser?.username || "").toLowerCase().trim();
 
-        const match = data.desks.find((d) => {
+        const labDesksList = data.desks.filter((d) => {
+          const dc = String(d.dept_code || "").toLowerCase();
+          const dn = String(d.department_name || "").toLowerCase();
+          const dName = String(d.desk_name || "").toLowerCase();
+          return dc === "laboratory" || dc.includes("path") || dn.includes("pathology") || dn.includes("lab") || dName.includes("path") || dName.includes("lab");
+        });
+
+        const myEmail = String(currentUser?.email || "").toLowerCase().trim();
+
+        const match = labDesksList.find((d) => {
           const aId = Number(d.assigned_user_id || d.assigned_employee_id);
           const aCode = String(d.assigned_employee_code || "").toLowerCase().trim();
-          const aName = String(d.assigned_user_name || d.assigned_name || "").toLowerCase().trim();
+          const aName = String(d.assigned_employee_name || d.assigned_user_name || d.assigned_name || "").toLowerCase().trim();
+          const aEmail = String(d.assigned_email || "").toLowerCase().trim();
           return (
             (myId && aId && myId === aId) ||
             (myCode && aCode && myCode === aCode) ||
-            (myName && aName && myName === aName)
+            (myName && aName && myName === aName) ||
+            (myEmail && aEmail && myEmail === aEmail)
           );
         });
 
-        if (match) {
-          setAssignedDesk(match);
-          setSelectedDesk(match);
-          setActiveDesk(match.desk_name || String(match.id));
+        const effectiveDesk = match || (labDesksList.length > 0 ? labDesksList[0] : null);
+
+        if (effectiveDesk) {
+          setAssignedDesk(effectiveDesk);
+          setSelectedDesk(effectiveDesk);
+          setActiveDesk(effectiveDesk.desk_name || String(effectiveDesk.id));
           try {
-            localStorage.setItem("ai_queue_pathology_desk", match.desk_name || String(match.id));
+            localStorage.setItem("ai_queue_pathology_desk", effectiveDesk.desk_name || String(effectiveDesk.id));
           } catch (_) { }
         }
       }
@@ -446,10 +459,15 @@ export default function PathologyPage({
   // Robust Queue Filter (Requirement 3: strict rejection of labour, available, osteopathy, homeopathy)
   const isExcludedDept = useCallback((str) => {
     if (!str) return false;
-    const s = String(str).toLowerCase();
+    const s = String(str).toLowerCase().trim();
+    if (s.includes("laboratory") || s.includes("pathology")) return false;
     return (
       s.includes("labour") ||
-      s.includes("labor") ||
+      /\blabor\b/i.test(s) ||
+      s.includes("labor room") ||
+      s.includes("labour room") ||
+      s.includes("labor ward") ||
+      s.includes("labour ward") ||
       s.includes("osteopath") ||
       s.includes("homeopath") ||
       s.includes("available")
@@ -464,22 +482,26 @@ export default function PathologyPage({
   const isPathologyTicket = useCallback(
     (t) => {
       if (!t) return false;
-      const dept = String(t.department || t.department_name || "");
+      const dept = String(t.department || t.department_name || t.dept_code || t.departments?.name || t.departments?.dept_code || "");
       const cat = String(t.service_category || "");
       const med = String(t.medical_condition || "");
       const transFrom = String(t.transferred_from_dept || "");
+      const targetDept = String(t.target_department || "");
       const pNotes = typeof t.prescription_notes === "object" ? JSON.stringify(t.prescription_notes) : String(t.prescription_notes || "");
 
-      if (isExcludedDept(dept) || isExcludedDept(cat) || isExcludedDept(transFrom)) return false;
+      if (isExcludedDept(dept) || isExcludedDept(cat) || isExcludedDept(transFrom) || isExcludedDept(targetDept)) return false;
 
       return (
         pathWordRegex.test(dept) ||
         pathWordRegex.test(cat) ||
         pathWordRegex.test(med) ||
         pathWordRegex.test(transFrom) ||
+        pathWordRegex.test(targetDept) ||
         pNotes.includes("pathology_report") ||
         pNotes.includes("lab_report") ||
-        pNotes.includes("lab_test")
+        pNotes.includes("lab_test") ||
+        pNotes.includes("laboratory") ||
+        pNotes.includes("pathology")
       );
     },
     [isExcludedDept, pathWordRegex]
@@ -2517,12 +2539,8 @@ export default function PathologyPage({
                 display: "inline-flex",
                 alignItems: "center",
                 gap: "8px",
-                background: assignedDesk
-                  ? "rgba(255, 255, 255, 0.12)"
-                  : "rgba(100, 116, 139, 0.14)",
-                border: assignedDesk
-                  ? "1px solid rgba(255, 255, 255, 0.25)"
-                  : "1px solid rgba(100, 116, 139, 0.4)",
+                background: "rgba(255, 255, 255, 0.12)",
+                border: "1px solid rgba(255, 255, 255, 0.25)",
                 borderRadius: "12px",
                 padding: "8px 14px",
                 backdropFilter: "blur(8px)",
@@ -2530,9 +2548,9 @@ export default function PathologyPage({
                 userSelect: "none",
               }}
               title={
-                assignedDesk
-                  ? (isHi ? `सुपरएडमिन द्वारा आवंटित डेस्क: ${assignedDesk.desk_name}` : `Assigned Desk: ${assignedDesk.desk_name}`)
-                  : (isHi ? "सुपरएडमिन पोर्टल द्वारा कोई डेस्क आवंटित नहीं है" : "No desk assigned in SuperAdmin portal")
+                assignedDesk?.assigned_employee_name
+                  ? (isHi ? `आवंटित पैथोलॉजिस्ट: ${assignedDesk.assigned_employee_name}` : `Assigned Pathologist: ${assignedDesk.assigned_employee_name}`)
+                  : (isHi ? `सक्रिय स्टेशन: ${(assignedDesk?.desk_name || selectedDesk?.desk_name || "PATHOLOGY")}` : `Active Station: ${(assignedDesk?.desk_name || selectedDesk?.desk_name || "PATHOLOGY")}`)
               }
             >
               <span
@@ -2554,11 +2572,11 @@ export default function PathologyPage({
                 style={{
                   fontSize: "12px",
                   fontWeight: 900,
-                  color: assignedDesk ? "#FFFFFF" : "#CBD5E1",
+                  color: "#FFFFFF",
                   letterSpacing: "0.3px",
                 }}
               >
-                {(assignedDesk?.desk_name || (isHi ? "अनअसाइंड" : "Unassigned")).replace(/pathogoly/gi, "PATHOLOGY")}
+                {(assignedDesk?.desk_name || selectedDesk?.desk_name || activeCounter || "PATHOLOGY").replace(/pathogoly/gi, "PATHOLOGY")}
               </span>
             </div>
 
@@ -2745,9 +2763,9 @@ export default function PathologyPage({
                   ? (isHi ? "काउंटर सेवा बंद है" : "Station offline")
                   : dutyStatus === "BREAK"
                     ? (isHi ? "अवकाश पर (कॉलिंग रुकी है)" : "Testing paused")
-                    : assignedDesk?.desk_name
-                      ? (isHi ? `${assignedDesk.desk_name.replace(/pathogoly/gi, "PATHOLOGY")} उपलब्ध` : `${assignedDesk.desk_name.replace(/pathogoly/gi, "PATHOLOGY")} ready`)
-                      : (isHi ? "अनअसाइंड" : "Unassigned")}
+                    : (assignedDesk?.desk_name || selectedDesk?.desk_name || activeCounter)
+                      ? (isHi ? `${(assignedDesk?.desk_name || selectedDesk?.desk_name || activeCounter).replace(/pathogoly/gi, "PATHOLOGY")} उपलब्ध` : `${(assignedDesk?.desk_name || selectedDesk?.desk_name || activeCounter).replace(/pathogoly/gi, "PATHOLOGY")} ready`)
+                      : (isHi ? "पैथोलॉजी स्टेशन उपलब्ध" : "PATHOLOGY ready")}
             </div>
           </div>
 

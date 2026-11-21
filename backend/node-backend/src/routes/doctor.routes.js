@@ -12,9 +12,20 @@ const {
   getDoctorDeskAndScope,
   hasActiveEmergencyDoctor,
 } = require("../services/doctorService");
+const { getQueueEndpoint } = require("../controllers/queue.controller");
 const engine = require("../services/queueEngine");
 
 const router = express.Router();
+
+/**
+ * GET /api/v1/doctor/queue
+ * Scoped queue specifically for this authenticated doctor / desk.
+ */
+router.get("/doctor/queue", optionalAuth, (req, res, next) => {
+  req.query.scope = "doctor";
+  req.params.tenant_id = req.query.tenant_id || req.user?.primary_hospital_code || "city-hospital-01";
+  return getQueueEndpoint(req, res, next);
+});
 
 /**
  * GET /api/v1/doctor/desk-scope

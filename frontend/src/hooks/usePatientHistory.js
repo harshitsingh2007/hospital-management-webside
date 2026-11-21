@@ -1,5 +1,3 @@
-
-
 import { useState, useEffect, useCallback } from "react";
 import { fetchPatientHistoryByTicket, fetchPatientHistory } from "../services/patientHistoryService";
 
