@@ -347,7 +347,12 @@ async function serveNextEndpoint(req, res, next) {
       now_serving: ticket,
     });
   } catch (error) {
-    if (error.code === "DOCTOR_ALREADY_SERVING" || error.code === "DESK_ALREADY_SERVING" || error.code === "MAX_SERVING_REACHED") {
+    if (
+      error.code === "DOCTOR_ALREADY_SERVING" ||
+      error.code === "DESK_ALREADY_SERVING" ||
+      error.code === "MAX_SERVING_REACHED" ||
+      error.code === "EMERGENCY_DESK_RESTRICTION"
+    ) {
       return res.status(error.status || 409).json({
         status: "error",
         code: error.code,
@@ -530,36 +535,40 @@ async function getQueueEndpoint(req, res, next) {
 
     const hid = await engine.resolveHospitalId(tenantId);
     const userRole = req.user?.role ? req.user.role.toLowerCase() : null;
-    const isDocReq =
-      userRole === "doctor" ||
-      userRole === "physician" ||
-      req.query.role === "doctor" ||
-      req.query.doctor_id ||
-      req.query.doctor_email;
-
-    const isExplicitDoctorScope =
-      req.query.scope === "doctor" ||
-      req.query.view === "doctor" ||
+    const staffRoles = ["doctor", "physician", "pathologist", "radiologist", "pharmacist", "cashier", "staff", "nurse", "admin", "superadmin", "super_admin"];
+    const isStaffOrDoctor = staffRoles.includes(userRole) ||
+      Boolean(req.query.role && staffRoles.includes(req.query.role.toLowerCase())) ||
       Boolean(req.query.doctor_id) ||
-      Boolean(req.query.doctor_email);
+      Boolean(req.query.doctor_email) ||
+      Boolean(req.query.desk_id);
 
-    // If caller explicitly asked for a specific non-emergency department (e.g. laboratory, pharmacy, radiology),
-    // do not restrict or filter it by doctor emergency desk restrictions.
-    const isNonEmergencyDeptQuery = department && department !== "all" && department !== "emergency";
-
-    if (isExplicitDoctorScope && !isNonEmergencyDeptQuery) {
-      const docScope = await getDoctorDeskAndScope(hid, req.user || {
-        id: req.query.doctor_id,
-        email: req.query.doctor_email,
+    let docScope = null;
+    if (isStaffOrDoctor && hid) {
+      docScope = await getDoctorDeskAndScope(hid, req.user || {
+        id: req.query.doctor_id || req.query.employee_id,
+        email: req.query.doctor_email || req.query.employee_email,
         desk_id: req.query.desk_id,
       });
+    }
 
-      if (docScope.isEmergencyDesk) {
-        // Doctor on Emergency Desk: ONLY sees emergency tickets
-        snapshot = snapshot.filter(isEmergencyTicket);
-        serving = serving.filter(isEmergencyTicket);
-        held = held.filter(isEmergencyTicket);
-      } else {
+    if (docScope?.isEmergencyDesk) {
+      // User is assigned to an Emergency Desk: ONLY sees emergency tickets across all queues
+      snapshot = snapshot.filter(isEmergencyTicket);
+      serving = serving.filter(isEmergencyTicket);
+      held = held.filter(isEmergencyTicket);
+    } else {
+      const isExplicitDoctorScope =
+        req.query.scope === "doctor" ||
+        req.query.view === "doctor" ||
+        userRole === "doctor" ||
+        userRole === "physician" ||
+        Boolean(req.query.doctor_id) ||
+        Boolean(req.query.doctor_email);
+
+      const isNonEmergencyDeptQuery = department && department !== "all" && department !== "emergency";
+      const isConsultationDesk = !docScope?.dept_code || docScope?.dept_code === "all" || docScope?.dept_code === "consultation" || docScope?.dept_code === "opd";
+
+      if ((isExplicitDoctorScope || (docScope?.desk && isConsultationDesk)) && !isNonEmergencyDeptQuery) {
         // Doctor on non-emergency (e.g. OPD) desk:
         const hasActiveEmerg = await hasActiveEmergencyDoctor(hid);
         if (hasActiveEmerg) {
@@ -592,7 +601,9 @@ async function getQueueEndpoint(req, res, next) {
           }
         }
       }
-    } else if (
+    }
+
+    if (
       !req.user ||
       req.query.consumer_type === "kiosk" ||
       req.query.view === "display" ||

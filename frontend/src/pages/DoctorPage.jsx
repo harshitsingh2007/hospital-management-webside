@@ -13,6 +13,11 @@ import DoctorHistorySection from "../components/doctor/DoctorHistorySection";
 import { History as IconHistory } from "lucide-react";
 import { apiFetch } from "../utils/apiFetch";
 import {
+  isEmergencyTicket as isEmergencyTicketClient,
+  formatTimeSinceArrival as formatTimeSinceArrivalShared,
+  scopeTicketsForDesk,
+} from "../utils/deskScope";
+import {
   IconDoctor,
   IconHospital,
   IconDesk,
@@ -352,31 +357,8 @@ export default function DoctorPage({
     }
   }, [isEmergencyDesk, activeTab]);
 
-  const isEmergencyTicketClient = useCallback((t) => {
-    if (!t) return false;
-    const cat = String(t.service_category || t.department || "").trim().toLowerCase();
-    const fromDept = String(t.transferred_from_dept || "").trim().toLowerCase();
-    const prio = Number(t.priority_level || t.priority || 2);
-    return (
-      cat === "emergency" ||
-      cat === "emergency triage" ||
-      cat.includes("emergency") ||
-      fromDept === "emergency" ||
-      prio === 1 ||
-      Boolean(t.is_emergency)
-    );
-  }, []);
-
   const formatTimeSinceArrival = useCallback((joinTs) => {
-    if (!joinTs) return null;
-    let sec = typeof joinTs === "number" ? joinTs : new Date(joinTs).getTime() / 1000;
-    if (sec > 1e11) sec = sec / 1000;
-    const diffMins = Math.max(0, Math.floor((Date.now() / 1000 - sec) / 60));
-    if (diffMins < 1) return language === "hi" ? "अभी पहुंचे" : "Just arrived";
-    if (diffMins < 60) return language === "hi" ? `${diffMins} मि. पहले` : `Arrived ${diffMins}m ago`;
-    const hrs = Math.floor(diffMins / 60);
-    const remMins = diffMins % 60;
-    return language === "hi" ? `${hrs}घं ${remMins}मि पहले` : `Arrived ${hrs}h ${remMins}m ago`;
+    return formatTimeSinceArrivalShared(joinTs, language);
   }, [language]);
 
   const adminDept = currentUser && currentUser.department ? currentUser.department.toLowerCase() : "all";

@@ -5,6 +5,16 @@ import { printPrescriptionSlip } from "../utils/printPassHelper";
 import { apiFetch } from "../utils/apiFetch";
 import Footer from "../components/common/Footer";
 import {
+  isEmergencyTicket,
+  formatTimeSinceArrival,
+  scopeTicketsForDesk,
+  useAssignedDesk,
+  DeskDepartmentBadge,
+  EmergencyDeskBanner,
+  NoDeskNotice,
+  EmergencyBadge,
+} from "../utils/deskScope";
+import {
   Pill,
   CheckCircle2,
   CheckCircle,
@@ -476,93 +486,32 @@ export default function PharmacyPage({
     if (setTheme) setTheme(nextTheme);
   };
 
-  // Station Counter & Assigned Desk State (Configured by Super Admin)
-  const [hospitalDesks, setHospitalDesks] = useState([]);
-  const [assignedDesk, setAssignedDesk] = useState(null);
-  const [selectedDesk, setSelectedDesk] = useState(null);
-  const [activeCounter, setActiveCounter] = useState(() => {
-    try {
-      const saved = localStorage.getItem("pharmacy_active_counter");
-      if (saved) return saved;
-    } catch (_) { }
-    return "Pharma Desk-1";
+  // Station Counter & Assigned Desk State via unified hook
+  const {
+    desks: hospitalDesks,
+    assignedDesk,
+    deskScope,
+    desksLoaded,
+    refetchDesks: fetchHospitalDesks,
+  } = useAssignedDesk({
+    hospitalCode: effectiveHospitalCode,
+    currentUser,
+    socketRef,
+    storageKey: "ai_queue_pharmacy_desks",
   });
 
-  // Fetch Desks from SuperAdmin management API
+  const [selectedDesk, setSelectedDesk] = useState(null);
   useEffect(() => {
-    let isMounted = true;
-    const fetchHospitalDesks = async () => {
-      if (!effectiveHospitalCode) return;
+    if (assignedDesk) {
+      setSelectedDesk(assignedDesk);
       try {
-        const headers = { "Content-Type": "application/json" };
-        if (currentUser?.email) headers["X-User-Email"] = currentUser.email;
-        try {
-          const token = localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || currentUser?.token;
-          if (token) headers["Authorization"] = `Bearer ${token}`;
-        } catch (_) { }
+        localStorage.setItem("pharmacy_active_counter", assignedDesk.desk_name);
+      } catch (_) { }
+    }
+  }, [assignedDesk]);
 
-        const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${effectiveHospitalCode}/desks`, {
-          headers,
-        });
-        const data = await res.json();
-        if (isMounted && data && data.status === "success" && Array.isArray(data.desks)) {
-          setHospitalDesks(data.desks);
-
-          // Find pharmacy-specific desks
-          const pharmaDesks = data.desks.filter((d) => {
-            const dCode = (d.dept_code || "").toLowerCase();
-            const dName = (d.department_name || "").toLowerCase();
-            const deskName = (d.desk_name || "").toLowerCase();
-            return dCode === "pharmacy" || dName.includes("pharm") || deskName.includes("pharm");
-          });
-
-          // Match the desk specifically assigned to currentUser by Super Admin
-          const currentUserId = Number(currentUser?.id);
-          const currentEmpCode = String(currentUser?.employee_id || "").trim().toLowerCase();
-          const currentUsername = String(currentUser?.username || "").trim().toLowerCase();
-          const currentName = String(currentUser?.name || "").trim().toLowerCase();
-
-          const candidateList = pharmaDesks.length > 0 ? pharmaDesks : data.desks;
-          const myDesk = candidateList.find((d) => {
-            const assignedUserId = Number(d.assigned_user_id);
-            const assignedEmpId = Number(d.assigned_employee_id);
-            const assignedEmpName = String(d.assigned_employee_name || "").trim().toLowerCase();
-            const assignedEmpCode = String(d.assigned_employee_code || "").trim().toLowerCase();
-
-            return (
-              (assignedUserId && assignedUserId === currentUserId) ||
-              (assignedEmpId && assignedEmpId === currentUserId) ||
-              (currentEmpCode && assignedEmpCode === currentEmpCode) ||
-              (currentUsername && assignedEmpName === currentUsername) ||
-              (currentName && assignedEmpName === currentName)
-            );
-          });
-
-          if (myDesk) {
-            setAssignedDesk(myDesk);
-            setSelectedDesk(myDesk);
-            setActiveCounter(myDesk.desk_name);
-            try {
-              localStorage.setItem("pharmacy_active_counter", myDesk.desk_name);
-            } catch (_) { }
-          } else if (candidateList.length > 0) {
-            setSelectedDesk(candidateList[0]);
-            setActiveCounter((prev) => {
-              const exists = candidateList.some((d) => d.desk_name === prev);
-              return exists ? prev : candidateList[0].desk_name;
-            });
-          }
-        }
-      } catch (e) {
-        console.error("Failed to load desks from superadmin:", e);
-      }
-    };
-
-    fetchHospitalDesks();
-    return () => {
-      isMounted = false;
-    };
-  }, [effectiveHospitalCode, currentUser?.id, currentUser?.username, currentUser?.email, currentUser?.employee_id, currentUser?.name]);
+  const activeCounter = assignedDesk?.desk_name || (deskScope?.isEmergencyDesk ? "Emergency Bay" : "Pharma Desk-1");
+  const isEmergencyDesk = Boolean(deskScope?.isEmergencyDesk);
 
   const counterOptions = useMemo(() => {
     const pharmaDesks = (hospitalDesks || []).filter((d) => {
@@ -1623,33 +1572,28 @@ export default function PharmacyPage({
     toastTimerRef.current = setTimeout(() => setToastMsg(null), 4500);
   }, []);
 
-  // Filter queue specifically for Pharmacy Department
+  // Filter queue specifically for Pharmacy Department (scoped to desk)
+  const isPharmaTicket = useCallback((t) => {
+    if (!t) return false;
+    const cat = (t.service_category || "").toLowerCase();
+    const dept = (t.department_name || t.department || "").toLowerCase();
+    return cat === "pharmacy" || dept === "pharmacy" || cat.includes("pharm");
+  }, []);
+
   const pharmacyQueue = useMemo(() => {
-    return (queueSnapshot || []).filter((t) => {
-      const cat = (t.service_category || "").toLowerCase();
-      const dept = (t.department_name || t.department || "").toLowerCase();
-      return cat === "pharmacy" || dept === "pharmacy" || cat.includes("pharm");
-    });
-  }, [queueSnapshot]);
+    return scopeTicketsForDesk(queueSnapshot, deskScope, isPharmaTicket);
+  }, [queueSnapshot, deskScope, isPharmaTicket]);
 
-  // Serving ticket specifically for pharmacy
+  // Serving ticket specifically for pharmacy (scoped to desk)
   const pharmacyServing = useMemo(() => {
-    const fromServing = (servingTickets || []).find((t) => {
-      const cat = (t.service_category || "").toLowerCase();
-      const dept = (t.department_name || t.department || "").toLowerCase();
-      return cat === "pharmacy" || dept === "pharmacy" || cat.includes("pharm");
-    });
-    return fromServing || null;
-  }, [servingTickets]);
+    const scoped = scopeTicketsForDesk(servingTickets, deskScope, isPharmaTicket);
+    return scoped[0] || null;
+  }, [servingTickets, deskScope, isPharmaTicket]);
 
-  // Held tickets specifically for pharmacy
+  // Held tickets specifically for pharmacy (scoped to desk)
   const pharmacyHeldTickets = useMemo(() => {
-    return (heldTickets || []).filter((t) => {
-      const cat = (t.service_category || "").toLowerCase();
-      const dept = (t.department_name || t.department || "").toLowerCase();
-      return cat === "pharmacy" || dept === "pharmacy" || cat.includes("pharm");
-    });
-  }, [heldTickets]);
+    return scopeTicketsForDesk(heldTickets, deskScope, isPharmaTicket);
+  }, [heldTickets, deskScope, isPharmaTicket]);
 
   // Selected ticket being actively dispensed at the counter
   const [activeServingTicket, setActiveServingTicket] = useState(null);
@@ -1704,13 +1648,23 @@ export default function PharmacyPage({
       return;
     }
 
+    if (pharmacyQueue.length === 0) {
+      showToast(
+        isEmergencyDesk
+          ? (isHi ? "आपातकालीन कतार में कोई मरीज़ प्रतीक्षारत नहीं है।" : "No emergency patients waiting in queue.")
+          : (isHi ? "फार्मेसी कतार में कोई मरीज़ प्रतीक्षारत नहीं है।" : "No waiting patients in pharmacy queue."),
+        "info"
+      );
+      return;
+    }
+
     setCallingNext(true);
     try {
       if (socketRef && socketRef.current) {
         socketRef.current.emit("serve_next", {
           tenant_id: effectiveHospitalCode,
-          department: "pharmacy",
-          service_category: "pharmacy",
+          department: isEmergencyDesk ? "emergency" : "pharmacy",
+          service_category: isEmergencyDesk ? "emergency" : "pharmacy",
           doctor_id: currentUser?.id,
           doctor_name: currentUser?.name || currentUser?.username || "Head Pharmacist",
           doctor_email: currentUser?.email,
@@ -1723,7 +1677,8 @@ export default function PharmacyPage({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             tenant_id: effectiveHospitalCode,
-            department: "pharmacy",
+            department: isEmergencyDesk ? "emergency" : "pharmacy",
+            service_category: isEmergencyDesk ? "emergency" : "pharmacy",
             doctor_id: currentUser?.id,
             doctor_name: currentUser?.name || currentUser?.username || "Head Pharmacist",
             desk_id: selectedDesk?.id || assignedDesk?.id || null,
@@ -1734,7 +1689,9 @@ export default function PharmacyPage({
       }
 
       showToast(
-        isHi ? "फार्मेसी कतार से अगले मरीज को बुलाया गया!" : "Called next patient to Pharmacy Counter!",
+        isEmergencyDesk
+          ? (isHi ? "आपातकालीन कतार से अगले मरीज को बुलाया गया!" : "Called next emergency patient to station!")
+          : (isHi ? "फार्मेसी कतार से अगले मरीज को बुलाया गया!" : "Called next patient to Pharmacy Counter!"),
         "success"
       );
     } catch (e) {
@@ -2877,6 +2834,14 @@ export default function PharmacyPage({
               </span>
             </div>
 
+            {/* Department Scope Badge */}
+            <DeskDepartmentBadge
+              deskScope={deskScope}
+              assignedDesk={assignedDesk}
+              isDark={isDark}
+              language={isHi ? "hi" : "en"}
+            />
+
             {/* Pharmacist Duty Status Dropdown (Active on Duty, On Tea Break, Shift Ended) */}
             <div style={{ position: "relative" }} ref={dutyDropdownRef}>
               <button
@@ -3070,6 +3035,12 @@ export default function PharmacyPage({
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Super Admin Desk Notices and Emergency Desk Banner */}
+      <div style={{ maxWidth: "1600px", margin: "16px auto 0 auto", padding: "0 24px" }}>
+        <NoDeskNotice desksLoaded={desksLoaded} assignedDesk={assignedDesk} isDark={isDark} language={isHi ? "hi" : "en"} />
+        <EmergencyDeskBanner isEmergencyDesk={isEmergencyDesk} isDark={isDark} language={isHi ? "hi" : "en"} />
       </div>
 
       {/* Duty Status Alert Banner when On Break or Shift Ended */}
@@ -4352,7 +4323,7 @@ export default function PharmacyPage({
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px", flexWrap: "wrap", gap: "8px" }}>
                 <div>
                   <h3 style={{ margin: 0, fontSize: "15px", fontWeight: 900, color: textColor, display: "flex", alignItems: "center", gap: "6px" }}>
-                    <span>{isHi ? "लाइव फार्मेसी कतार स्ट्रीम" : "Live Pharmacy & Dispensing Queue"}</span>
+                    <span>{isEmergencyDesk ? (isHi ? "आपातकालीन कतार" : "Emergency Queue") : (isHi ? "लाइव फार्मेसी कतार स्ट्रीम" : "Live Pharmacy & Dispensing Queue")}</span>
                     <span style={{ fontSize: "11px", fontWeight: 800, padding: "2px 8px", borderRadius: "12px", background: isDark ? "rgba(2, 132, 199, 0.2)" : "#E0F2FE", color: "#0284C7" }}>
                       {combinedLiveQueue.length} {isHi ? "मरीज़" : "Patients"}
                     </span>
@@ -4381,7 +4352,9 @@ export default function PharmacyPage({
                 <div style={{ textAlign: "center", padding: "40px 10px", color: mutedText }}>
                   <Pill size={40} style={{ opacity: 0.3, margin: "0 auto 10px auto" }} />
                   <div style={{ fontSize: "14px", fontWeight: 800, color: textColor }}>
-                    {isHi ? "कतार में कोई मरीज़ नहीं है" : "No patients in live pharmacy queue"}
+                    {isEmergencyDesk
+                      ? (isHi ? "कोई आपातकालीन मरीज़ प्रतीक्षारत नहीं है" : "No emergency patients waiting")
+                      : (isHi ? "कतार में कोई मरीज़ नहीं है" : "No patients in live pharmacy queue")}
                   </div>
                   <div style={{ fontSize: "12px", color: mutedText, marginTop: "4px" }}>
                     {queueSearchQuery || queueCategoryFilter !== "all" || queuePriorityFilter !== "all"
@@ -4506,19 +4479,23 @@ export default function PharmacyPage({
                                 </span>
 
                                 {/* Priority Badge */}
-                                <span
-                                  style={{
-                                    fontSize: "10px",
-                                    fontWeight: 900,
-                                    padding: "2px 7px",
-                                    borderRadius: "9999px",
-                                    background: isEmergency ? "#FEE2E2" : isUrgent ? "#F1F5F9" : "#EFF6FF",
-                                    color: isEmergency ? "#DC2626" : isUrgent ? "#475569" : "#0284C7",
-                                    border: isEmergency ? "1px solid #FECACA" : isUrgent ? "1px solid #CBD5E1" : "1px solid #BAE6FD",
-                                  }}
-                                >
-                                  {isEmergency ? (isHi ? "आपातकालीन" : "Emergency (P1)") : isUrgent ? (isHi ? "अत्यावश्यक" : "Urgent (P2)") : (isHi ? "सामान्य" : "Routine (P3)")}
-                                </span>
+                                {isEmergency ? (
+                                  <EmergencyBadge ticket={ticket} language={isHi ? "hi" : "en"} isDark={isDark} showTime={true} />
+                                ) : (
+                                  <span
+                                    style={{
+                                      fontSize: "10px",
+                                      fontWeight: 900,
+                                      padding: "2px 7px",
+                                      borderRadius: "9999px",
+                                      background: isUrgent ? "#F1F5F9" : "#EFF6FF",
+                                      color: isUrgent ? "#475569" : "#0284C7",
+                                      border: isUrgent ? "1px solid #CBD5E1" : "1px solid #BAE6FD",
+                                    }}
+                                  >
+                                    {isUrgent ? (isHi ? "अत्यावश्यक" : "Urgent (P2)") : (isHi ? "सामान्य" : "Routine (P3)")}
+                                  </span>
+                                )}
 
                                 {/* Status Badge */}
                                 {isServing ? (

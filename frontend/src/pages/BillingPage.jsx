@@ -3,6 +3,16 @@ import { API_BASE } from "../config/hospitalConfig";
 import { printBillInvoice, printPaymentReceipt } from "../utils/printPassHelper";
 import Footer from "../components/common/Footer";
 import {
+  isEmergencyTicket,
+  formatTimeSinceArrival,
+  scopeTicketsForDesk,
+  useAssignedDesk,
+  DeskDepartmentBadge,
+  EmergencyDeskBanner,
+  NoDeskNotice,
+  EmergencyBadge,
+} from "../utils/deskScope";
+import {
   CreditCard,
   Receipt,
   DollarSign,
@@ -204,84 +214,35 @@ export default function BillingPage({
     [currentUser, effectiveHospitalCode, cashierName, socketRef, dutyStatusOptions, isHi, showToast]
   );
 
-  // Desks & Desk Assignment (Assigned by SuperAdmin Portal - Read-Only)
-  const [hospitalDesks, setHospitalDesks] = useState([]);
-  const [assignedDesk, setAssignedDesk] = useState(null);
-  const [selectedDesk, setSelectedDesk] = useState(null);
-  const [activeDesk, setActiveDesk] = useState(() => {
-    try {
-      return localStorage.getItem("ai_queue_billing_desk") || "";
-    } catch (_) {
-      return "";
-    }
+  // Desks & Desk Assignment via unified hook
+  const {
+    desks: hospitalDesks,
+    assignedDesk,
+    deskScope,
+    desksLoaded,
+    refetchDesks: fetchHospitalDesks,
+  } = useAssignedDesk({
+    hospitalCode: effectiveHospitalCode,
+    currentUser,
+    socketRef,
+    storageKey: "ai_queue_billing_desks",
   });
 
-  const activeDeskName = assignedDesk?.desk_name || activeDesk || (currentUser?.name ? `${currentUser.name}'s Desk` : "Billing Desk");
-
-  // Fetch Desks from SuperAdmin management API
-  const fetchHospitalDesks = useCallback(async () => {
-    if (!effectiveHospitalCode) return;
-    try {
-      const headers = { "Content-Type": "application/json" };
-      if (currentUser?.email) headers["X-User-Email"] = currentUser.email;
-      try {
-        const token = localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || currentUser?.token;
-        if (token) headers["Authorization"] = `Bearer ${token}`;
-      } catch (_) { }
-
-      const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${effectiveHospitalCode}/desks`, {
-        headers,
-      });
-      const data = await res.json();
-      if (data && data.status === "success" && Array.isArray(data.desks)) {
-        setHospitalDesks(data.desks);
-
-        // Match the desk specifically assigned to currentUser by Super Admin
-        const currentUserId = Number(currentUser?.id || currentUser?.user_id);
-        const currentEmpCode = String(currentUser?.employee_code || currentUser?.employee_id || "").trim().toLowerCase();
-        const currentUsername = String(currentUser?.username || "").trim().toLowerCase();
-        const currentName = String(currentUser?.name || currentUser?.full_name || "").trim().toLowerCase();
-
-        const allDesks = Array.isArray(data.desks) ? data.desks : [];
-        const myDesk = allDesks.find((d) => {
-          const assignedUserId = Number(d.assigned_user_id);
-          const assignedEmpId = Number(d.assigned_employee_id);
-          const assignedEmpName = String(d.assigned_employee_name || "").trim().toLowerCase();
-          const assignedEmpCode = String(d.assigned_employee_code || "").trim().toLowerCase();
-
-          return (
-            (assignedUserId && assignedUserId === currentUserId) ||
-            (assignedEmpId && assignedEmpId === currentUserId) ||
-            (currentEmpCode && (assignedEmpCode === currentEmpCode || String(assignedEmpId) === currentEmpCode)) ||
-            (currentUsername && assignedEmpName && assignedEmpName === currentUsername) ||
-            (currentName && assignedEmpName && assignedEmpName === currentName)
-          );
-        });
-
-        if (myDesk) {
-          setAssignedDesk(myDesk);
-          setSelectedDesk(myDesk);
-          setActiveDesk(myDesk.desk_name);
-          try {
-            localStorage.setItem("ai_queue_billing_desk", myDesk.desk_name);
-          } catch (_) { }
-        } else {
-          setAssignedDesk(null);
-          setSelectedDesk(null);
-          setActiveDesk("");
-          try {
-            localStorage.removeItem("ai_queue_billing_desk");
-          } catch (_) { }
-        }
-      }
-    } catch (e) {
-      console.error("Failed to load desks from superadmin in billing:", e);
-    }
-  }, [effectiveHospitalCode, currentUser?.id, currentUser?.user_id, currentUser?.username, currentUser?.email, currentUser?.employee_id, currentUser?.employee_code, currentUser?.name, currentUser?.full_name]);
-
+  const [selectedDesk, setSelectedDesk] = useState(null);
   useEffect(() => {
-    fetchHospitalDesks();
-  }, [fetchHospitalDesks]);
+    if (assignedDesk) {
+      setSelectedDesk(assignedDesk);
+      try {
+        localStorage.setItem("ai_queue_billing_desk", assignedDesk.desk_name);
+      } catch (_) { }
+    } else {
+      setSelectedDesk(null);
+    }
+  }, [assignedDesk]);
+
+  const activeDesk = assignedDesk?.desk_name || "";
+  const isEmergencyDesk = Boolean(deskScope?.isEmergencyDesk);
+  const activeDeskName = assignedDesk?.desk_name || activeDesk || (isEmergencyDesk ? "Emergency Cashier Bay" : (currentUser?.name ? `${currentUser.name}'s Desk` : "Billing Desk"));
 
   // Tariff Master Cache
   const [tariffs, setTariffs] = useState([]);
@@ -429,33 +390,39 @@ export default function BillingPage({
     }
   };
 
-  // Filter Live Billing Queue (waiting and serving)
+  // Filter Live Billing Queue (scoped to desk)
+  const isBillingMatch = useCallback((d) => ["billing", "cashier", "central_billing", "accounts", "cash_counter"].includes(String(d || "").toLowerCase()), []);
+
+  const isBillingTicket = useCallback((t) => {
+    if (!t) return false;
+    const cat = String(t.service_category || "").toLowerCase();
+    const dept = String(t.department || t.department_name || "").toLowerCase();
+    return isBillingMatch(cat) || isBillingMatch(dept);
+  }, [isBillingMatch]);
+
   const billingQueue = useMemo(() => {
     if (!queueSnapshot || !Array.isArray(queueSnapshot)) return [];
-    const isBillingMatch = (d) => ["billing", "cashier", "central_billing", "accounts", "cash_counter"].includes(String(d || "").toLowerCase());
-    return queueSnapshot.filter(
-      (t) => (t.status === "waiting" || t.status === "queued" || t.status === "called") && (isBillingMatch(t.service_category) || isBillingMatch(t.department))
+    const waitingTickets = queueSnapshot.filter(
+      (t) => t.status === "waiting" || t.status === "queued" || t.status === "called"
     );
-  }, [queueSnapshot]);
+    return scopeTicketsForDesk(waitingTickets, deskScope, isBillingTicket);
+  }, [queueSnapshot, deskScope, isBillingTicket]);
 
-  // Active Serving Ticket at this desk
+  // Active Serving Ticket at this desk (scoped to desk)
   const activeServingTicket = useMemo(() => {
     if (!servingTickets || !Array.isArray(servingTickets)) return null;
-    const isBillingMatch = (d) => ["billing", "cashier", "central_billing", "accounts", "cash_counter"].includes(String(d || "").toLowerCase());
+    const scoped = scopeTicketsForDesk(servingTickets, deskScope, isBillingTicket);
     const myDeskId = selectedDesk?.id || assignedDesk?.id ? String(selectedDesk?.id || assignedDesk?.id) : null;
     const myDeskName = assignedDesk?.desk_name || activeDesk;
 
-    return (
-      servingTickets.find(
-        (t) =>
-          (isBillingMatch(t.service_category) || isBillingMatch(t.department)) &&
-          (String(t.doctor_name || "").toLowerCase() === String(cashierName).toLowerCase() ||
-            (myDeskId && String(t.desk_id || "") === myDeskId) ||
-            (myDeskName && String(t.desk_name || "") === String(myDeskName)) ||
-            !t.doctor_name)
-      ) || servingTickets.find((t) => isBillingMatch(t.service_category) || isBillingMatch(t.department)) || null
+    const myDirect = scoped.find(
+      (t) =>
+        (String(t.doctor_name || "").toLowerCase() === String(cashierName).toLowerCase() ||
+          (myDeskId && String(t.desk_id || "") === myDeskId) ||
+          (myDeskName && String(t.desk_name || "") === String(myDeskName)))
     );
-  }, [servingTickets, cashierName, selectedDesk, assignedDesk, activeDesk]);
+    return myDirect || scoped[0] || null;
+  }, [servingTickets, deskScope, isBillingTicket, cashierName, selectedDesk, assignedDesk, activeDesk]);
 
   // Call Next Patient from Queue
   const [callingNext, setCallingNext] = useState(false);
@@ -469,15 +436,20 @@ export default function BillingPage({
       return;
     }
     if (billingQueue.length === 0) {
-      showToast(isHi ? "बिलिंग कतार में कोई मरीज़ प्रतीक्षारत नहीं है।" : "No patients waiting in billing queue.", "info");
+      showToast(
+        isEmergencyDesk
+          ? (isHi ? "आपातकालीन कतार में कोई मरीज़ प्रतीक्षारत नहीं है।" : "No emergency patients waiting in queue.")
+          : (isHi ? "बिलिंग कतार में कोई मरीज़ प्रतीक्षारत नहीं है।" : "No patients waiting in billing queue."),
+        "info"
+      );
       return;
     }
 
     setCallingNext(true);
     const payload = {
       tenant_id: effectiveHospitalCode,
-      department: "billing",
-      service_category: "billing",
+      department: isEmergencyDesk ? "emergency" : "billing",
+      service_category: isEmergencyDesk ? "emergency" : "billing",
       doctor_id: currentUser?.id || currentUser?.user_id || null,
       doctor_name: cashierName,
       doctor_email: currentUser?.email || null,
@@ -1522,6 +1494,14 @@ export default function BillingPage({
               </span>
             </div>
 
+            {/* Department Scope Badge */}
+            <DeskDepartmentBadge
+              deskScope={deskScope}
+              assignedDesk={assignedDesk}
+              isDark={isDark}
+              language={isHi ? "hi" : "en"}
+            />
+
             {/* Interactive Duty Status Dropdown (Matches Pathology style) */}
             <div style={{ position: "relative" }} ref={dutyDropdownRef}>
               <button
@@ -1697,6 +1677,12 @@ export default function BillingPage({
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Super Admin Desk Notices and Emergency Desk Banner */}
+      <div style={{ maxWidth: "1600px", margin: "16px auto 0 auto", padding: "0 24px" }}>
+        <NoDeskNotice desksLoaded={desksLoaded} assignedDesk={assignedDesk} isDark={isDark} language={isHi ? "hi" : "en"} />
+        <EmergencyDeskBanner isEmergencyDesk={isEmergencyDesk} isDark={isDark} language={isHi ? "hi" : "en"} />
       </div>
 
       {/* 2. Modern Tab Segmented Switcher matching Pathology & Radiology */}
@@ -2252,7 +2238,7 @@ export default function BillingPage({
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
                 <h3 style={{ margin: 0, fontSize: "14px", fontWeight: 800, display: "flex", alignItems: "center", gap: "7px" }}>
                   <Clock size={15} style={{ color: "#0284C7" }} />
-                  <span>{isHi ? "लाइव बिलिंग कतार" : "Live Billing Queue"}</span>
+                  <span>{isEmergencyDesk ? (isHi ? "आपातकालीन कतार" : "Emergency Queue") : (isHi ? "लाइव बिलिंग कतार" : "Live Billing Queue")}</span>
                 </h3>
                 <span
                   style={{
@@ -2329,9 +2315,10 @@ export default function BillingPage({
                     }}
                   >
                     <div>
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                         <span style={{ fontWeight: 900, color: "#0284C7", fontSize: "13px", fontFamily: "monospace" }}>#{t.ticket_id}</span>
                         <strong style={{ fontSize: "12.5px" }}>{t.name || "Patient"}</strong>
+                        <EmergencyBadge ticket={t} language={isHi ? "hi" : "en"} isDark={isDark} showTime={true} />
                       </div>
                       <div style={{ fontSize: "10.5px", color: mutedText, marginTop: "2px" }}>
                         {t.age || "-"} Yrs • {t.gender || "-"} • Dept: {t.department || "Consultation"}
@@ -2362,10 +2349,14 @@ export default function BillingPage({
                   <div style={{ textAlign: "center", padding: "32px 10px", color: mutedText }}>
                     <CheckCircle2 size={28} color="#0284C7" style={{ margin: "0 auto 8px auto", opacity: 0.6 }} />
                     <div style={{ fontSize: "12.5px", fontWeight: 700 }}>
-                      {isHi ? "कतार खाली है" : "Billing Queue is Clear"}
+                      {isEmergencyDesk
+                        ? (isHi ? "कोई आपातकालीन मरीज़ प्रतीक्षारत नहीं है" : "No emergency patients waiting")
+                        : (isHi ? "कतार खाली है" : "Billing Queue is Clear")}
                     </div>
                     <div style={{ fontSize: "11px", opacity: 0.7 }}>
-                      {isHi ? "सभी प्रतीक्षारत मरीज़ों का बिलिंग पूर्ण हो चुका है।" : "No pending patients waiting at the billing desk."}
+                      {isEmergencyDesk
+                        ? (isHi ? "आपातकालीन डेस्क पर कोई मरीज़ प्रतीक्षारत नहीं है।" : "No pending emergency patients waiting.")
+                        : (isHi ? "सभी प्रतीक्षारत मरीज़ों का बिलिंग पूर्ण हो चुका है।" : "No pending patients waiting at the billing desk.")}
                     </div>
                   </div>
                 )}

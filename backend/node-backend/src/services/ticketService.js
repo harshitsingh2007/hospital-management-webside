@@ -542,6 +542,8 @@ async function serveNext(tenantId, department = null, deskId = null, doctorInfo 
     if (isRad(req) && isRad(cat)) return true;
     const isBilling = (d) => ["billing", "cashier", "central_billing", "accounts", "cash_counter"].includes(d);
     if (isBilling(req) && isBilling(cat)) return true;
+    const isConsultation = (d) => ["consultation", "opd", "general", "general_consultation", "general medicine", "gen_med", "general_checkup"].includes(d);
+    if (isConsultation(req) && (isConsultation(cat) || !cat || cat === "consultation" || cat === "general_checkup")) return true;
     return false;
   };
 
@@ -811,16 +813,18 @@ async function serveNext(tenantId, department = null, deskId = null, doctorInfo 
     const isEmerg = isEmergencyTicket(t);
 
     if (isEmergencyDesk) {
-      // Rule 1: A doctor on an Emergency desk can only serve tickets that are in the emergency department or priority 1 (is_emergency).
+      // Rule 1: A doctor/staff on an Emergency desk can only serve tickets that are in the emergency department or priority 1 (is_emergency).
       if (!isEmerg) {
         tempPopped.push(item);
         continue;
       }
     } else {
-      // Rule 2: Doctors on other desks no longer receive emergency tickets, except in fallback.
-      if (isEmerg) {
+      // Rule 2: Doctors on other desks
+      const isConsultationDesk = !effectiveFilterDept || effectiveFilterDept === "all" || effectiveFilterDept === "consultation" || effectiveFilterDept === "opd";
+
+      if (isEmerg && isConsultationDesk) {
         if (hasActiveEmerg) {
-          // Emergency doctor is active: skip emergency ticket, reserved for emergency desk
+          // Emergency doctor is active: skip emergency ticket for normal OPD consultation desks
           tempPopped.push(item);
           continue;
         } else {
@@ -830,7 +834,7 @@ async function serveNext(tenantId, department = null, deskId = null, doctorInfo 
           t.emergency_unassigned = true;
         }
       } else {
-        // Normal OPD ticket: check department match if filter is set
+        // Department-based filtering (for pharmacy, pathology/lab, radiology, billing, or normal OPD)
         if (
           effectiveFilterDept &&
           effectiveFilterDept !== "all" &&
@@ -859,12 +863,13 @@ async function serveNext(tenantId, department = null, deskId = null, doctorInfo 
 
   // Safety validation:
   if (isEmergencyDesk && !isEmergencyTicket(foundTicket)) {
-    const err = new Error("Emergency desk doctors can only serve emergency patients.");
+    const err = new Error("Emergency desk doctors and staff can only serve emergency patients.");
     err.status = 403;
     err.code = "EMERGENCY_DESK_RESTRICTION";
     throw err;
   }
-  if (!isEmergencyDesk && isEmergencyTicket(foundTicket) && hasActiveEmerg) {
+  const isConsultationDesk = !effectiveFilterDept || effectiveFilterDept === "all" || effectiveFilterDept === "consultation" || effectiveFilterDept === "opd";
+  if (!isEmergencyDesk && isEmergencyTicket(foundTicket) && hasActiveEmerg && isConsultationDesk) {
     const err = new Error("Emergency patients are assigned to the Emergency Triage desk.");
     err.status = 403;
     err.code = "EMERGENCY_DESK_RESTRICTION";
@@ -1785,14 +1790,15 @@ async function recallTicket(tenantId, ticketId, doctorInfo = null, targetMode = 
   if (shouldServeImmediately && (docId || docEmail)) {
     const doctorScope = await getDoctorDeskAndScope(hid, doctorInfo);
     const isEmerg = isEmergencyTicket(ticket);
+    const isConsultationDesk = !doctorScope.dept_code || doctorScope.dept_code === "all" || doctorScope.dept_code === "consultation" || doctorScope.dept_code === "opd";
     if (doctorScope.isEmergencyDesk) {
       if (!isEmerg) {
-        const err = new Error("Emergency desk doctors can only serve emergency patients.");
+        const err = new Error("Emergency desk doctors and staff can only serve emergency patients.");
         err.status = 403;
         err.code = "EMERGENCY_DESK_RESTRICTION";
         throw err;
       }
-    } else if (isEmerg) {
+    } else if (isEmerg && isConsultationDesk) {
       const hasActiveEmerg = await hasActiveEmergencyDoctor(hid);
       if (hasActiveEmerg) {
         const err = new Error("Emergency patients are assigned to the Emergency Triage desk.");

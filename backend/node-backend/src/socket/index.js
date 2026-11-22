@@ -133,6 +133,7 @@ function initSocket(server, corsOrigin = "*") {
 
     if (authTenant) {
       if (socket.isPublic || !socket.user) {
+        socket.join(authTenant);
         socket.join(`${authTenant}:public`);
       } else {
         const allowed = await verifyHospitalAccess(authTenant, socket.user);
@@ -150,8 +151,9 @@ function initSocket(server, corsOrigin = "*") {
         return;
       }
 
-      // Public connection mode: restricted to ${tenantId}:public
+      // Public connection mode: join tenant and public rooms
       if (socket.isPublic || !socket.user || data.is_public) {
+        socket.join(tenantId);
         socket.join(`${tenantId}:public`);
         const snapshot = await engine.getQueueSnapshot(tenantId);
         const serving = await engine.getServingTickets(tenantId);
@@ -223,7 +225,7 @@ function initSocket(server, corsOrigin = "*") {
           socket.emit("error", { message: "tenant_id required to join queue" });
           return;
         }
-        const allowed = await verifyHospitalAccess(tenantId, socket.user);
+        const allowed = await verifyHospitalAccess(tenantId, socket.user, { allowPublic: true });
         if (!allowed) {
           socket.emit("error", { message: `Unauthorized: No access to hospital ${tenantId}` });
           return;

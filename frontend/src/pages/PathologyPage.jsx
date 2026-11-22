@@ -22,6 +22,16 @@ import { API_BASE, HOSPITAL_CONFIG } from "../config/hospitalConfig";
 import { printLabReportSlip } from "../utils/printPassHelper";
 import Footer from "../components/common/Footer";
 import {
+  isEmergencyTicket,
+  formatTimeSinceArrival,
+  scopeTicketsForDesk,
+  useAssignedDesk,
+  DeskDepartmentBadge,
+  EmergencyDeskBanner,
+  NoDeskNotice,
+  EmergencyBadge,
+} from "../utils/deskScope";
+import {
   Activity,
   AlertCircle,
   AlertTriangle,
@@ -237,79 +247,33 @@ export default function PathologyPage({
     () => currentUser?.name || currentUser?.username || (isHi ? "डॉ. आर. के. सिन्हा, एमडी (पैथोलॉजी)" : "Dr. R. K. Sinha, MD (Pathologist)")
   );
 
-  // Desks & Desk Assignment (Assigned by SuperAdmin Portal)
-  const [hospitalDesks, setHospitalDesks] = useState([]);
-  const [assignedDesk, setAssignedDesk] = useState(null);
-  const [selectedDesk, setSelectedDesk] = useState(null);
-  const [activeDesk, setActiveDesk] = useState(() => {
-    try {
-      return localStorage.getItem("ai_queue_pathology_desk") || "";
-    } catch (_) {
-      return "";
-    }
+  // Unified Desk & Department Scope Management
+  const {
+    desks: hospitalDesks,
+    assignedDesk,
+    deskScope,
+    desksLoaded,
+    refetchDesks: fetchHospitalDesks,
+  } = useAssignedDesk({
+    hospitalCode: effectiveHospitalCode,
+    currentUser,
+    socketRef,
+    storageKey: "ai_queue_pathology_desks",
   });
 
-  const activeCounter = assignedDesk?.desk_name || activeDesk || currentUser?.name || "Pathology Station 1";
-
-  const fetchHospitalDesks = useCallback(async () => {
-    if (!effectiveHospitalCode) return;
-    try {
-      const headers = { "Content-Type": "application/json" };
-      if (currentUser?.email) headers["X-User-Email"] = currentUser.email;
-      try {
-        const token = localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || currentUser?.token;
-        if (token) headers["Authorization"] = `Bearer ${token}`;
-      } catch (_) { }
-
-      const res = await fetch(`${API_BASE}/api/v1/superadmin/hospitals/${effectiveHospitalCode}/desks`, { headers });
-      const data = await res.json();
-      if (data && data.status === "success" && Array.isArray(data.desks)) {
-        setHospitalDesks(data.desks);
-        const myId = Number(currentUser?.id || currentUser?.user_id);
-        const myCode = String(currentUser?.employee_code || currentUser?.employee_id || "").toLowerCase().trim();
-        const myName = String(currentUser?.name || currentUser?.username || "").toLowerCase().trim();
-
-        const labDesksList = data.desks.filter((d) => {
-          const dc = String(d.dept_code || "").toLowerCase();
-          const dn = String(d.department_name || "").toLowerCase();
-          const dName = String(d.desk_name || "").toLowerCase();
-          return dc === "laboratory" || dc.includes("path") || dn.includes("pathology") || dn.includes("lab") || dName.includes("path") || dName.includes("lab");
-        });
-
-        const myEmail = String(currentUser?.email || "").toLowerCase().trim();
-
-        const match = labDesksList.find((d) => {
-          const aId = Number(d.assigned_user_id || d.assigned_employee_id);
-          const aCode = String(d.assigned_employee_code || "").toLowerCase().trim();
-          const aName = String(d.assigned_employee_name || d.assigned_user_name || d.assigned_name || "").toLowerCase().trim();
-          const aEmail = String(d.assigned_email || "").toLowerCase().trim();
-          return (
-            (myId && aId && myId === aId) ||
-            (myCode && aCode && myCode === aCode) ||
-            (myName && aName && myName === aName) ||
-            (myEmail && aEmail && myEmail === aEmail)
-          );
-        });
-
-        const effectiveDesk = match || (labDesksList.length > 0 ? labDesksList[0] : null);
-
-        if (effectiveDesk) {
-          setAssignedDesk(effectiveDesk);
-          setSelectedDesk(effectiveDesk);
-          setActiveDesk(effectiveDesk.desk_name || String(effectiveDesk.id));
-          try {
-            localStorage.setItem("ai_queue_pathology_desk", effectiveDesk.desk_name || String(effectiveDesk.id));
-          } catch (_) { }
-        }
-      }
-    } catch (e) {
-      console.warn("Could not fetch hospital desks:", e);
-    }
-  }, [effectiveHospitalCode, currentUser]);
-
+  const [selectedDesk, setSelectedDesk] = useState(null);
   useEffect(() => {
-    fetchHospitalDesks();
-  }, [fetchHospitalDesks]);
+    if (assignedDesk) {
+      setSelectedDesk(assignedDesk);
+      try {
+        localStorage.setItem("ai_queue_pathology_desk", assignedDesk.desk_name || String(assignedDesk.id));
+      } catch (_) {}
+    }
+  }, [assignedDesk]);
+
+  const activeDesk = assignedDesk?.desk_name || "";
+  const isEmergencyDesk = Boolean(deskScope?.isEmergencyDesk);
+  const activeCounter = assignedDesk?.desk_name || activeDesk || currentUser?.name || (isEmergencyDesk ? "Emergency Bay" : "Pathology Station 1");
 
   // Duty Status: "ACTIVE" | "PROCESSING" | "BREAK" | "OFF_DUTY"
   const [dutyStatus, setDutyStatus] = useState(() => {
@@ -507,17 +471,15 @@ export default function PathologyPage({
     [isExcludedDept, pathWordRegex]
   );
 
-  // Waiting Patients Queue
+  // Waiting Patients Queue Scoped to Desk
   const pathologyQueue = useMemo(() => {
     if (!Array.isArray(queueSnapshot)) return [];
-    return queueSnapshot.filter((t) => {
+    const waitingOnly = queueSnapshot.filter((t) => {
       const s = (t.status || "").toLowerCase();
-      if (s === "on_hold" || s === "hold" || s === "serving" || s === "completed" || s === "cancelled" || s === "no_show") {
-        return false;
-      }
-      return isPathologyTicket(t);
+      return s !== "on_hold" && s !== "hold" && s !== "serving" && s !== "completed" && s !== "cancelled" && s !== "no_show";
     });
-  }, [queueSnapshot, isPathologyTicket]);
+    return scopeTicketsForDesk(waitingOnly, deskScope, isPathologyTicket);
+  }, [queueSnapshot, deskScope, isPathologyTicket]);
 
   // Combined Held Tickets List
   const combinedHeldList = useMemo(() => {
@@ -533,9 +495,9 @@ export default function PathologyPage({
     return list;
   }, [heldTickets, queueSnapshot]);
 
-  // Pathology Held Tickets (10-minute grace period window)
+  // Pathology Held Tickets (Scoped to Desk)
   const pathologyHeldTickets = useMemo(() => {
-    return combinedHeldList.filter((t) => {
+    return scopeTicketsForDesk(combinedHeldList, deskScope, (t) => {
       const isPath = isPathologyTicket(t);
       const isMyDesk = Boolean(
         (t.served_by_doctor_id && currentUser?.id && String(t.served_by_doctor_id) === String(currentUser?.id)) ||
@@ -545,13 +507,18 @@ export default function PathologyPage({
       );
       return isPath || isMyDesk;
     });
-  }, [combinedHeldList, isPathologyTicket, currentUser, selectedDesk, assignedDesk]);
+  }, [combinedHeldList, deskScope, isPathologyTicket, currentUser, selectedDesk, assignedDesk]);
 
   // Active Serving Lab Ticket
   const [selectedServingTicket, setSelectedServingTicket] = useState(null);
 
   const labServing = useMemo(() => {
     if (Array.isArray(servingTickets) && servingTickets.length > 0) {
+      if (deskScope?.isEmergencyDesk) {
+        const emergServing = servingTickets.find((t) => isEmergencyTicket(t));
+        if (emergServing) return emergServing;
+      }
+
       const myId = currentUser?.id || currentUser?.user_id;
       const myEmail = String(currentUser?.email || "").toLowerCase().trim();
       const myName = String(currentUser?.name || currentUser?.username || "").toLowerCase().trim();
@@ -578,7 +545,7 @@ export default function PathologyPage({
       if (labMatch) return labMatch;
     }
     return null;
-  }, [servingTickets, currentUser, selectedDesk, assignedDesk, isPathologyTicket]);
+  }, [servingTickets, currentUser, selectedDesk, assignedDesk, isPathologyTicket, deskScope]);
 
   useEffect(() => {
     if (labServing) {
@@ -717,7 +684,9 @@ export default function PathologyPage({
 
     if (pathologyQueue.length === 0) {
       showToast(
-        isHi ? "पैथोलॉजी कतार में कोई मरीज़ प्रतीक्षारत नहीं है।" : "No patients waiting in the lab queue.",
+        isEmergencyDesk
+          ? (isHi ? "आपातकालीन कतार में कोई मरीज़ प्रतीक्षारत नहीं है।" : "No emergency patients waiting in queue.")
+          : (isHi ? "पैथोलॉजी कतार में कोई मरीज़ प्रतीक्षारत नहीं है।" : "No patients waiting in the lab queue."),
         "info"
       );
       return;
@@ -726,8 +695,8 @@ export default function PathologyPage({
     setCallingNext(true);
     const payload = {
       tenant_id: effectiveHospitalCode,
-      department: "laboratory",
-      service_category: "laboratory",
+      department: isEmergencyDesk ? "emergency" : "laboratory",
+      service_category: isEmergencyDesk ? "emergency" : "laboratory",
       doctor_id: currentUser?.id || currentUser?.user_id || null,
       doctor_name: currentUser?.name || currentUser?.username || pathologistName || "Pathologist",
       doctor_email: currentUser?.email || null,
@@ -739,7 +708,9 @@ export default function PathologyPage({
       if (socketRef && socketRef.current && socketRef.current.connected) {
         socketRef.current.emit("serve_next", payload);
         showToast(
-          isHi ? "अगले पैथोलॉजी मरीज़ को पुकारा जा रहा है..." : "Calling next pathology patient on waiting-room display...",
+          isEmergencyDesk
+            ? (isHi ? "अगले आपातकालीन मरीज़ को पुकारा जा रहा है..." : "Calling next emergency patient on waiting-room display...")
+            : (isHi ? "अगले पैथोलॉजी मरीज़ को पुकारा जा रहा है..." : "Calling next pathology patient on waiting-room display..."),
           "info"
         );
       } else {
@@ -2580,6 +2551,14 @@ export default function PathologyPage({
               </span>
             </div>
 
+            {/* Department Scope Badge */}
+            <DeskDepartmentBadge
+              deskScope={deskScope}
+              assignedDesk={assignedDesk}
+              isDark={isDark}
+              language={isHi ? "hi" : "en"}
+            />
+
             {/* Interactive Duty Status Dropdown */}
             <div style={{ position: "relative" }} ref={dutyDropdownRef}>
               <button
@@ -2799,6 +2778,12 @@ export default function PathologyPage({
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Super Admin Desk Notices and Emergency Desk Banner */}
+      <div style={{ maxWidth: "1600px", margin: "16px auto 0 auto", padding: "0 24px" }}>
+        <NoDeskNotice desksLoaded={desksLoaded} assignedDesk={assignedDesk} isDark={isDark} language={isHi ? "hi" : "en"} />
+        <EmergencyDeskBanner isEmergencyDesk={isEmergencyDesk} isDark={isDark} language={isHi ? "hi" : "en"} />
       </div>
 
       {/* Duty Status Alert Banner when On Break or Shift Ended */}
@@ -4408,7 +4393,7 @@ export default function PathologyPage({
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px", flexWrap: "wrap", gap: "8px" }}>
                   <div>
                     <h3 style={{ margin: 0, fontSize: "15px", fontWeight: 900, color: textColor, display: "flex", alignItems: "center", gap: "6px" }}>
-                      <span>{isHi ? "लाइव पैथोलॉजी कतार स्ट्रीम" : "Live Pathology & Diagnostic Stream"}</span>
+                      <span>{isEmergencyDesk ? (isHi ? "आपातकालीन कतार" : "Emergency Queue") : (isHi ? "लाइव पैथोलॉजी कतार स्ट्रीम" : "Live Pathology & Diagnostic Stream")}</span>
                       <span style={{ fontSize: "11px", fontWeight: 800, padding: "2px 8px", borderRadius: "12px", background: isDark ? "rgba(2, 132, 199, 0.2)" : "#E0F2FE", color: "#0284C7" }}>
                         {combinedLiveQueue.length} {isHi ? "मरीज़" : "Patients"}
                       </span>
@@ -4437,7 +4422,9 @@ export default function PathologyPage({
                   <div style={{ textAlign: "center", padding: "40px 10px", color: mutedText }}>
                     <FlaskConical size={40} style={{ opacity: 0.3, margin: "0 auto 10px auto" }} />
                     <div style={{ fontSize: "14px", fontWeight: 800, color: textColor }}>
-                      {isHi ? "कतार में कोई मरीज़ नहीं है" : "No patients in live pathology queue"}
+                      {isEmergencyDesk
+                        ? (isHi ? "कोई आपातकालीन मरीज़ प्रतीक्षारत नहीं है" : "No emergency patients waiting")
+                        : (isHi ? "कतार में कोई मरीज़ नहीं है" : "No patients in live pathology queue")}
                     </div>
                     <div style={{ fontSize: "12px", color: mutedText, marginTop: "4px" }}>
                       {queueSearchQuery || queueCategoryFilter !== "all" || queuePriorityFilter !== "all"
@@ -4568,19 +4555,23 @@ export default function PathologyPage({
                                   </span>
 
                                   {/* Priority Badge */}
-                                  <span
-                                    style={{
-                                      fontSize: "10px",
-                                      fontWeight: 900,
-                                      padding: "2px 7px",
-                                      borderRadius: "9999px",
-                                      background: isEmergency ? "#FEE2E2" : isUrgent ? "#F1F5F9" : "#EFF6FF",
-                                      color: isEmergency ? "#DC2626" : isUrgent ? "#475569" : "#0284C7",
-                                      border: isEmergency ? "1px solid #FECACA" : isUrgent ? "1px solid #CBD5E1" : "1px solid #BAE6FD",
-                                    }}
-                                  >
-                                    {isEmergency ? (isHi ? "आपातकालीन" : "Emergency") : isUrgent ? (isHi ? "अत्यावश्यक" : "Urgent") : (isHi ? "सामान्य" : "Routine")}
-                                  </span>
+                                  {isEmergency ? (
+                                    <EmergencyBadge ticket={ticket} language={isHi ? "hi" : "en"} isDark={isDark} showTime={true} />
+                                  ) : (
+                                    <span
+                                      style={{
+                                        fontSize: "10px",
+                                        fontWeight: 900,
+                                        padding: "2px 7px",
+                                        borderRadius: "9999px",
+                                        background: isUrgent ? "#F1F5F9" : "#EFF6FF",
+                                        color: isUrgent ? "#475569" : "#0284C7",
+                                        border: isUrgent ? "1px solid #CBD5E1" : "1px solid #BAE6FD",
+                                      }}
+                                    >
+                                      {isUrgent ? (isHi ? "अत्यावश्यक" : "Urgent") : (isHi ? "सामान्य" : "Routine")}
+                                    </span>
+                                  )}
 
                                   {/* Status Badge */}
                                   {isServing ? (

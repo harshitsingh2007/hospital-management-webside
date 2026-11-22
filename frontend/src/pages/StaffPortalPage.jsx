@@ -5,6 +5,16 @@ import { printTokenPass } from "../utils/printPassHelper";
 import Footer from "../components/common/Footer";
 import ReceptionHistorySection from "../components/staff/ReceptionHistorySection";
 import {
+  isEmergencyTicket,
+  formatTimeSinceArrival,
+  scopeTicketsForDesk,
+  useAssignedDesk,
+  DeskDepartmentBadge,
+  EmergencyDeskBanner,
+  NoDeskNotice,
+  EmergencyBadge,
+} from "../utils/deskScope";
+import {
   Users,
   CalendarCheck,
   Megaphone,
@@ -86,6 +96,20 @@ export default function StaffPortalPage({
   });
 
   // Telemetry & Data States
+  const {
+    desks: hospitalDesks,
+    assignedDesk,
+    deskScope,
+    desksLoaded,
+    refetchDesks,
+  } = useAssignedDesk({
+    hospitalCode: effectiveHospitalCode,
+    currentUser,
+    socketRef,
+    storageKey: "ai_queue_staff_desks",
+  });
+  const isEmergencyDesk = Boolean(deskScope?.isEmergencyDesk);
+
   const [appointments, setAppointments] = useState([]);
   const [appointmentsLoading, setAppointmentsLoading] = useState(false);
   const [departments, setDepartments] = useState([]);
@@ -1411,7 +1435,12 @@ export default function StaffPortalPage({
       }
     });
 
-    return Array.from(map.values()).sort((a, b) => {
+    const allList = Array.from(map.values());
+    if (isEmergencyDesk) {
+      return scopeTicketsForDesk(allList, deskScope);
+    }
+
+    return allList.sort((a, b) => {
       // 1. Emergency P1 first
       const pA = Number(a.priority_level || 2);
       const pB = Number(b.priority_level || 2);
@@ -2501,9 +2530,17 @@ export default function StaffPortalPage({
                   letterSpacing: "0.3px",
                 }}
               >
-                {currentUser?.assigned_desk_name || currentUser?.desk_name || currentUser?.employee_code || "RECEPTION-BAY-1"}
+                {assignedDesk?.desk_name || currentUser?.assigned_desk_name || currentUser?.desk_name || currentUser?.employee_code || (isEmergencyDesk ? "EMERGENCY-1" : "RECEPTION-BAY-1")}
               </span>
             </div>
+
+            {/* Department Scope Badge */}
+            <DeskDepartmentBadge
+              deskScope={deskScope}
+              assignedDesk={assignedDesk}
+              isDark={isDark}
+              language={isHi ? "hi" : "en"}
+            />
 
             {/* Receptionist Duty Status Dropdown (Active on Duty, On Break, Shift Ended) */}
             <div style={{ position: "relative" }} ref={dutyDropdownRef}>
@@ -2859,6 +2896,12 @@ export default function StaffPortalPage({
           </button>
         </div>
       )}
+
+      {/* Super Admin Desk Notices and Emergency Desk Banner */}
+      <div style={{ maxWidth: "1600px", margin: "16px auto 0 auto", padding: "0 24px" }}>
+        <NoDeskNotice desksLoaded={desksLoaded} assignedDesk={assignedDesk} isDark={isDark} language={isHi ? "hi" : "en"} />
+        <EmergencyDeskBanner isEmergencyDesk={isEmergencyDesk} isDark={isDark} language={isHi ? "hi" : "en"} />
+      </div>
 
       {/* 2. RECEPTION NAVIGATION TABS */}
       <div className="staff-tabs-grid">
@@ -4582,14 +4625,12 @@ export default function StaffPortalPage({
                             <span style={{ fontWeight: 900, fontSize: "14px", color: isEmergency ? "#DC2626" : "#0284C7" }}>
                               #{tkt.ticket_id}
                             </span>
-                            <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                            <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", alignItems: "center" }}>
                               {isEmergency ? (
-                                <span style={{ background: "#FEE2E2", color: "#B91C1C", border: "1px solid #FCA5A5", padding: "1px 6px", borderRadius: "4px", fontSize: "10.5px", fontWeight: 800 }}>
-                                  🚨 Emergency (P1)
-                                </span>
+                                <EmergencyBadge ticket={tkt} language={isHi ? "hi" : "en"} isDark={isDark} showTime={true} />
                               ) : (
                                 <span style={{ background: isDark ? "#1E293B" : "#F1F5F9", color: "#64748B", padding: "1px 6px", borderRadius: "4px", fontSize: "10.5px", fontWeight: 700 }}>
-                                  🟢 Routine (P2)
+                                  Routine (P2)
                                 </span>
                               )}
                               {tkt.appointment_id && (
