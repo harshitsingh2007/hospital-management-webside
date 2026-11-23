@@ -5,7 +5,8 @@
  */
 
 const express = require("express");
-const { optionalAuth } = require("../middleware/auth");
+const { authenticate } = require("../middleware/auth");
+const { requireManager, ADMIN_ROLES } = require("../middleware/role");
 const { getDoctorDutyStatus, setDoctorDutyStatus } = require("../services/ticketService");
 const {
   getDoctorShiftSummary,
@@ -17,11 +18,28 @@ const engine = require("../services/queueEngine");
 
 const router = express.Router();
 
+const requireDeskOperator = requireManager(
+  [
+    ...ADMIN_ROLES,
+    "doctor",
+    "staff",
+    "receptionist",
+    "pharmacist",
+    "nurse",
+    "technician",
+    "pathologist",
+    "radiologist",
+    "billing",
+    "cashier",
+  ],
+  { requireJwt: true }
+);
+
 /**
  * GET /api/v1/doctor/queue
  * Scoped queue specifically for this authenticated doctor / desk.
  */
-router.get("/doctor/queue", optionalAuth, (req, res, next) => {
+router.get("/doctor/queue", authenticate, requireDeskOperator, (req, res, next) => {
   req.query.scope = "doctor";
   req.params.tenant_id = req.query.tenant_id || req.user?.primary_hospital_code || "city-hospital-01";
   return getQueueEndpoint(req, res, next);
@@ -31,7 +49,7 @@ router.get("/doctor/queue", optionalAuth, (req, res, next) => {
  * GET /api/v1/doctor/desk-scope
  * Resolves doctor's assigned desk, department, and whether assigned to Emergency desk.
  */
-router.get("/doctor/desk-scope", optionalAuth, async (req, res) => {
+router.get("/doctor/desk-scope", authenticate, requireDeskOperator, async (req, res) => {
   try {
     const tenantId = req.query.tenant_id || req.user?.primary_hospital_code || "city-hospital-01";
     const hid = await engine.resolveHospitalId(tenantId);
@@ -65,7 +83,7 @@ router.get("/doctor/desk-scope", optionalAuth, async (req, res) => {
  * Query params: doctor_id, doctor_email, doctor_name, tenant_id, days
  * Returns today's consulted count, avg duration, transfers breakdown, and last 7-day analytics.
  */
-router.get("/doctor/shift-summary", optionalAuth, async (req, res) => {
+router.get("/doctor/shift-summary", authenticate, requireDeskOperator, async (req, res) => {
   try {
     const doctorId = req.query.doctor_id || req.user?.id || null;
     const doctorEmail = req.query.doctor_email || req.user?.email || null;
@@ -110,8 +128,8 @@ const getDutyStatusHandler = async (req, res) => {
   }
 };
 
-router.get("/doctor/duty-status/:identifier", optionalAuth, getDutyStatusHandler);
-router.get("/staff/duty-status/:identifier", optionalAuth, getDutyStatusHandler);
+router.get("/doctor/duty-status/:identifier", authenticate, getDutyStatusHandler);
+router.get("/staff/duty-status/:identifier", authenticate, getDutyStatusHandler);
 
 
 /**
@@ -201,9 +219,9 @@ const updateDutyStatusHandler = async (req, res) => {
   }
 };
 
-router.put("/doctor/duty-status", optionalAuth, updateDutyStatusHandler);
-router.post("/doctor/duty-status", optionalAuth, updateDutyStatusHandler);
-router.put("/staff/duty-status", optionalAuth, updateDutyStatusHandler);
-router.post("/staff/duty-status", optionalAuth, updateDutyStatusHandler);
+router.put("/doctor/duty-status", authenticate, requireDeskOperator, updateDutyStatusHandler);
+router.post("/doctor/duty-status", authenticate, requireDeskOperator, updateDutyStatusHandler);
+router.put("/staff/duty-status", authenticate, requireDeskOperator, updateDutyStatusHandler);
+router.post("/staff/duty-status", authenticate, requireDeskOperator, updateDutyStatusHandler);
 
 module.exports = router;

@@ -165,7 +165,6 @@ export default function PatientPage({
 
     fetch(`${API_BASE}/api/v1/family-members?${q.toString()}`, {
       headers: {
-        ...(ident ? { "X-User-Email": ident } : {}),
         ...(phone ? { "X-User-Phone": phone } : {}),
         ...(validToken ? { Authorization: `Bearer ${validToken}` } : {}),
       },
@@ -1142,7 +1141,11 @@ export default function PatientPage({
       "";
     if (!ident.trim()) return;
     const encodedIdent = encodeURIComponent(ident.trim());
-    fetch(`${API_BASE}/api/v1/plugin/appointments/user/${encodedIdent}`)
+    const token = currentUser?.token || localStorage.getItem("ai_queue_token") || localStorage.getItem("token");
+    const headers = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+
+    fetch(`${API_BASE}/api/v1/plugin/appointments/user/${encodedIdent}`, { headers })
       .then((r) => r.json())
       .then((d) => {
         const apts = Array.isArray(d?.appointments) ? d.appointments : [];
@@ -1291,7 +1294,12 @@ export default function PatientPage({
     const extraName = (!overrideName && name && name.trim() && name.trim().toLowerCase() !== ident.trim().toLowerCase())
       ? `?name=${encodeURIComponent(name.trim())}`
       : "";
-    fetch(`${API_BASE}/api/v1/plugin/tickets/history/${encodedIdent}${extraName}`)
+    const token = currentUser?.token || localStorage.getItem("ai_queue_token") || localStorage.getItem("token");
+    const headers = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    if (currentUser?.phone) headers["X-User-Phone"] = currentUser.phone;
+
+    fetch(`${API_BASE}/api/v1/plugin/tickets/history/${encodedIdent}${extraName}`, { headers })
       .then((r) => r.json())
       .then((d) => {
         const tickets = Array.isArray(d?.tickets) ? d.tickets : [];
@@ -2161,7 +2169,6 @@ export default function PatientPage({
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "X-User-Email": currentUser.email,
             ...(token ? { Authorization: `Bearer ${token}` } : {})
           },
           body: JSON.stringify(newMember),
@@ -2210,7 +2217,6 @@ export default function PatientPage({
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
-            "X-User-Email": currentUser.email,
             ...(token ? { Authorization: `Bearer ${token}` } : {})
           },
           body: JSON.stringify(updatedMember),
@@ -2253,7 +2259,6 @@ export default function PatientPage({
         await fetch(`${API_BASE}/api/v1/family-members/${encodeURIComponent(memberId)}`, {
           method: "DELETE",
           headers: {
-            "X-User-Email": currentUser.email,
             ...(token ? { Authorization: `Bearer ${token}` } : {})
           }
         });
@@ -2684,7 +2689,6 @@ export default function PatientPage({
           ...(localStorage.getItem("token") || localStorage.getItem("ai_queue_token")
             ? { Authorization: `Bearer ${localStorage.getItem("token") || localStorage.getItem("ai_queue_token")}` }
             : {}),
-          ...(currentUser?.email ? { "X-User-Email": currentUser.email } : {}),
         },
         body: JSON.stringify({
           tenant_id: tenantId,
@@ -2760,7 +2764,6 @@ export default function PatientPage({
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              ...(currentUser?.email ? { "X-User-Email": currentUser.email } : {}),
               ...((currentUser?.token || localStorage.getItem("ai_queue_token") || localStorage.getItem("token")) ? { Authorization: `Bearer ${currentUser?.token || localStorage.getItem("ai_queue_token") || localStorage.getItem("token")}` } : {}),
             },
             body: JSON.stringify({
@@ -2829,7 +2832,6 @@ export default function PatientPage({
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(currentUser?.email ? { "X-User-Email": currentUser.email } : {}),
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({

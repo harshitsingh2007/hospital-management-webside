@@ -24,8 +24,31 @@ const server = http.createServer(app);
 // Initialize Socket.IO
 initSocket(server, env.FRONTEND_URL || "*");
 
+function validateProductionConfig() {
+  if (env.NODE_ENV === "production") {
+    const missing = [];
+    if (!env.JWT_SECRET || String(env.JWT_SECRET).length < 32) {
+      missing.push("JWT_SECRET (must be at least 32 characters long)");
+    }
+    if (!env.AI_INTERNAL_SECRET || String(env.AI_INTERNAL_SECRET).length < 16) {
+      missing.push("AI_INTERNAL_SECRET (must be at least 16 characters long)");
+    }
+    if (!env.DATABASE_URL) missing.push("DATABASE_URL");
+    if (!env.FRONTEND_URL) missing.push("FRONTEND_URL");
+
+    if (missing.length > 0) {
+      const errMsg = `[FATAL STARTUP ERROR] Missing or insecure production environment variables:\n${missing.map((m) => `  - ${m}`).join("\n")}`;
+      console.error(errMsg);
+      throw new Error(errMsg);
+    }
+  }
+}
+
 async function startServer() {
   try {
+    // 0. Validate production secrets
+    validateProductionConfig();
+
     // 1. Verify Database Connection
     await prisma.$connect();
     console.log("[PostgreSQL] Connected successfully via Prisma ORM.");
@@ -89,4 +112,4 @@ if (require.main === module) {
   startServer();
 }
 
-module.exports = { server, startServer };
+module.exports = { server, startServer, validateProductionConfig };

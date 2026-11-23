@@ -47,7 +47,9 @@ import {
   HelpCircle,
   UserPlus,
   ArrowUpRight,
-  Volume2
+  Volume2,
+  MapPin,
+  X,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -140,7 +142,6 @@ export default function BillingPage({
         color: "#10B981",
         border: "rgba(16, 185, 129, 0.4)",
         bg: isDark ? "rgba(16, 185, 129, 0.15)" : "#ECFDF5",
-        icon: "🟢",
       },
       {
         id: "BREAK",
@@ -149,7 +150,6 @@ export default function BillingPage({
         color: "#F59E0B",
         border: "rgba(245, 158, 11, 0.4)",
         bg: isDark ? "rgba(245, 158, 11, 0.15)" : "#FFFBEB",
-        icon: "☕",
       },
       {
         id: "OFF_DUTY",
@@ -158,7 +158,6 @@ export default function BillingPage({
         color: "#EF4444",
         border: "rgba(239, 68, 68, 0.4)",
         bg: isDark ? "rgba(239, 68, 68, 0.15)" : "#FEF2F2",
-        icon: "🔴",
       },
     ],
     [isHi, isDark]
@@ -356,7 +355,7 @@ export default function BillingPage({
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.message || "Failed to open shift");
       setShowOpenShiftModal(false);
-      showToast(isHi ? "कैश शिफ्ट सफलतापूर्वक प्रारंभ हुई ✓" : "Cash shift opened successfully ✓", "success");
+      showToast(isHi ? "कैश शिफ्ट सफलतापूर्वक प्रारंभ हुई" : "Cash shift opened successfully", "success");
       fetchShiftStatus();
     } catch (err) {
       showToast(err.message, "warn");
@@ -382,7 +381,7 @@ export default function BillingPage({
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.message || "Failed to close shift");
       setShowCloseShiftModal(false);
-      showToast(isHi ? "कैश रजिस्टर बंद एवं ऑडिट पूर्ण ✓" : "Shift closed and reconciled ✓", "success");
+      showToast(isHi ? "कैश रजिस्टर बंद एवं ऑडिट पूर्ण" : "Shift closed and reconciled", "success");
       fetchShiftStatus();
       fetchDailyReport();
     } catch (err) {
@@ -468,7 +467,6 @@ export default function BillingPage({
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            ...(currentUser?.email ? { "X-User-Email": currentUser.email } : {}),
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
           body: JSON.stringify(payload),
@@ -549,7 +547,7 @@ export default function BillingPage({
         setActivePatientData(data.data.patient || null);
         if (Array.isArray(data.data.items) && data.data.items.length > 0) {
           setActiveBillItems(data.data.items);
-          showToast(isHi ? `पर्चे एवं जांच से ${data.data.items.length} मदें जोड़ी गईं ✓` : `Auto-pulled ${data.data.items.length} billable items ✓`, "success");
+          showToast(isHi ? `पर्चे एवं जांच से ${data.data.items.length} मदें जोड़ी गईं` : `Auto-pulled ${data.data.items.length} billable items`, "success");
         }
       }
     } catch (err) {
@@ -724,7 +722,7 @@ export default function BillingPage({
 
       setCurrentCreatedBill(data.data);
       setPaymentAmount(String(data.data.balance_due || data.data.grand_total));
-      showToast(isHi ? `चालान #${data.data.bill_number} सृजित हुआ ✓` : `Invoice #${data.data.bill_number} generated ✓`, "success");
+      showToast(isHi ? `चालान #${data.data.bill_number} सृजित हुआ` : `Invoice #${data.data.bill_number} generated`, "success");
       fetchDailyReport();
       setShowPaymentModal(true);
     } catch (err) {
@@ -772,7 +770,7 @@ export default function BillingPage({
       if (!res.ok || !data.success) throw new Error(data.message || "Payment recording failed");
 
       setShowPaymentModal(false);
-      showToast(isHi ? "भुगतान दर्ज एवं रसीद सृजित ✓" : "Payment received & receipt generated ✓", "success");
+      showToast(isHi ? "भुगतान दर्ज एवं रसीद सृजित" : "Payment received & receipt generated", "success");
       fetchDailyReport();
 
       // Print Receipt
@@ -881,7 +879,7 @@ export default function BillingPage({
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Hospital_Billing_Audit");
     XLSX.writeFile(wb, `Billing_Audit_${new Date().toISOString().slice(0, 10)}.xlsx`);
-    showToast(isHi ? "वित्तीय स्प्रेडशीट डाउनलोड हो गई ✓" : "Excel audit exported successfully ✓", "success");
+    showToast(isHi ? "वित्तीय स्प्रेडशीट डाउनलोड हो गई" : "Excel audit exported successfully", "success");
   };
 
   return (
@@ -1595,7 +1593,7 @@ export default function BillingPage({
                         width: "100%",
                       }}
                     >
-                      <span style={{ fontSize: "13px" }}>{opt.icon}</span>
+                      <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: opt.color, display: "inline-block", flexShrink: 0 }} />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: "11.5px", fontWeight: 800, color: opt.color }}>
                           {opt.label}
@@ -1605,7 +1603,7 @@ export default function BillingPage({
                         </div>
                       </div>
                       {dutyStatus === opt.id && (
-                        <span style={{ color: opt.color, fontSize: "11px", fontWeight: 900 }}>✓</span>
+                        <Check size={11} style={{ color: opt.color }} />
                       )}
                     </button>
                   ))}
@@ -1901,8 +1899,8 @@ export default function BillingPage({
                       </span>
                     )}
                   </div>
-                  <div style={{ fontSize: "10px", color: mutedText, marginTop: "2px" }}>
-                    📱 {activeServingTicket?.phone || activePatientData?.phone || "N/A"}
+                  <div style={{ fontSize: "10px", color: mutedText, marginTop: "2px", display: "flex", alignItems: "center", gap: "4px" }}>
+                    <Phone size={10} /> {activeServingTicket?.phone || activePatientData?.phone || "N/A"}
                   </div>
                 </div>
 
@@ -1931,10 +1929,10 @@ export default function BillingPage({
                   }}
                 >
                   {activePatientData?.address && (
-                    <span>📍 <strong>Address:</strong> {activePatientData.address}{activePatientData.city ? `, ${activePatientData.city}` : ""}</span>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: "3px" }}><MapPin size={11} /> <strong>Address:</strong> {activePatientData.address}{activePatientData.city ? `, ${activePatientData.city}` : ""}</span>
                   )}
                   {activePatientData?.notes && (
-                    <span>📝 <strong>Indication:</strong> {activePatientData.notes}</span>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: "3px" }}><FileText size={11} /> <strong>Indication:</strong> {activePatientData.notes}</span>
                   )}
                 </div>
               )}
@@ -2803,7 +2801,7 @@ export default function BillingPage({
                 </h3>
                 <span style={{ fontSize: "11px", color: mutedText }}>Invoice: {currentCreatedBill.bill_number}</span>
               </div>
-              <button type="button" onClick={() => setShowPaymentModal(false)} style={{ background: "none", border: "none", color: mutedText, fontSize: "16px", cursor: "pointer" }}>✕</button>
+              <button type="button" onClick={() => setShowPaymentModal(false)} style={{ background: "none", border: "none", color: mutedText, fontSize: "16px", cursor: "pointer", display: "inline-flex", alignItems: "center" }}><X size={16} /></button>
             </div>
 
             {/* Total Balance Due Box */}
@@ -2944,9 +2942,9 @@ export default function BillingPage({
               <button
                 type="button"
                 onClick={() => setIsWalkInModalOpen(false)}
-                style={{ background: "none", border: "none", color: mutedText, fontSize: "18px", cursor: "pointer", padding: "2px 6px" }}
+                style={{ background: "none", border: "none", color: mutedText, fontSize: "18px", cursor: "pointer", padding: "2px 6px", display: "inline-flex", alignItems: "center" }}
               >
-                ✕
+                <X size={18} />
               </button>
             </div>
 
@@ -2954,7 +2952,7 @@ export default function BillingPage({
               {/* SECTION 1: Patient Demographics */}
               <div style={{ background: isDark ? "rgba(255,255,255,0.03)" : "#F8FAFC", border: `1px solid ${cardBorder}`, borderRadius: "10px", padding: "12px 14px" }}>
                 <div style={{ fontSize: "11px", fontWeight: 800, color: "#0284C7", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "10px", display: "flex", alignItems: "center", gap: "6px" }}>
-                  <span>👤</span>
+                  <User size={13} />
                   <span>{isHi ? "1. मरीज़ पहचान एवं जनसांख्यिकी" : "1. Patient Identification & Demographics"}</span>
                 </div>
 
@@ -3040,7 +3038,7 @@ export default function BillingPage({
               {/* SECTION 2: Contact & Guardian Details */}
               <div style={{ background: isDark ? "rgba(255,255,255,0.03)" : "#F8FAFC", border: `1px solid ${cardBorder}`, borderRadius: "10px", padding: "12px 14px" }}>
                 <div style={{ fontSize: "11px", fontWeight: 800, color: "#0284C7", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "10px", display: "flex", alignItems: "center", gap: "6px" }}>
-                  <span>📞</span>
+                  <Phone size={13} />
                   <span>{isHi ? "2. संपर्क एवं अभिभावक विवरण" : "2. Contact & Guardian Details"}</span>
                 </div>
 
@@ -3103,7 +3101,7 @@ export default function BillingPage({
               {/* SECTION 3: Clinical & Billing Classification */}
               <div style={{ background: isDark ? "rgba(255,255,255,0.03)" : "#F8FAFC", border: `1px solid ${cardBorder}`, borderRadius: "10px", padding: "12px 14px" }}>
                 <div style={{ fontSize: "11px", fontWeight: 800, color: "#0284C7", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "10px", display: "flex", alignItems: "center", gap: "6px" }}>
-                  <span>🏥</span>
+                  <Building2 size={13} />
                   <span>{isHi ? "3. बिलिंग श्रेणी एवं क्लिनिकल संदर्भ" : "3. Clinical & Billing Classification"}</span>
                 </div>
 
@@ -3240,7 +3238,7 @@ export default function BillingPage({
                   });
                   setCurrentCreatedBill(null);
                   setIsWalkInModalOpen(false);
-                  showToast(isHi ? "वॉक-इन मरीज़ विवरण सफलतापूर्वक सेट हुआ ✓" : "Walk-in patient profile initialized ✓", "success");
+                  showToast(isHi ? "वॉक-इन मरीज़ विवरण सफलतापूर्वक सेट हुआ" : "Walk-in patient profile initialized", "success");
                 }}
                 style={{
                   flex: 1,

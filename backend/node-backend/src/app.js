@@ -73,6 +73,10 @@ if (env.NODE_ENV !== "test") {
 // Static uploaded files
 app.use("/uploads", express.static(path.resolve(__dirname, "../../uploads")));
 
+// Global Rate Limiter on API routes
+const { globalLimiter } = require("./middleware/rateLimiter");
+app.use("/api", globalLimiter);
+
 // API Routes
 app.use("/", routes);
 

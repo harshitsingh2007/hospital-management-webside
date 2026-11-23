@@ -1074,7 +1074,11 @@ async function completeTicket(tenantId, ticketId, department = null, prescriptio
   }
 
   await saveTicketToDb(ticket);
-  logCompletedService(ticket, { queueLength: tenant.queue.size(), activeCounters: tenant.active_counters });
+  try {
+    await logCompletedService(ticket, { queueLength: tenant.queue.size(), activeCounters: tenant.active_counters });
+  } catch (logErr) {
+    console.error("Non-fatal: failed to log completed service:", logErr.message);
+  }
 
   const hid = await engine.resolveHospitalId(tenantId);
   await engine.logQueueEvent({
@@ -1208,7 +1212,11 @@ async function transferTicket(tenantId, ticketId, targetDepartment, prescription
   }
   origTicket.prescription_notes = prescriptionNotes;
   await saveTicketToDb(origTicket);
-  logCompletedService(origTicket, { queueLength: tenant.queue.size(), activeCounters: tenant.active_counters });
+  try {
+    await logCompletedService(origTicket, { queueLength: tenant.queue.size(), activeCounters: tenant.active_counters });
+  } catch (logErr) {
+    console.error("Non-fatal: failed to log completed service:", logErr.message);
+  }
 
   // 2. Create new transferred ticket
   const now = Date.now() / 1000.0;

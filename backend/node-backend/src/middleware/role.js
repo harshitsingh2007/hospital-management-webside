@@ -96,10 +96,34 @@ function requirePatientRole(req, res, next) {
   next();
 }
 
+function requirePlatformSuperAdmin(req, res, next) {
+  if (!req.user) {
+    return res.status(401).json({
+      status: "error",
+      success: false,
+      message: "Unauthorized: Authentication required.",
+    });
+  }
+
+  const userRole = (req.user.role || "").toLowerCase();
+  const isSuperAdminFlag = !!req.user.is_superadmin;
+
+  if (userRole === "superadmin" || userRole === "super_admin" || isSuperAdminFlag) {
+    return next();
+  }
+
+  return res.status(403).json({
+    status: "error",
+    success: false,
+    message: "Forbidden: Access restricted to platform super administrators only.",
+  });
+}
+
 module.exports = {
   SUPER_ROLES,
   ADMIN_ROLES,
   requireRole,
   requireManager,
   requirePatientRole,
+  requirePlatformSuperAdmin,
 };

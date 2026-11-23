@@ -15,7 +15,7 @@ const {
   getModelMonitoringEndpoint,
   getModelStatusEndpoint,
 } = require("../controllers/historical.controller");
-const { authenticate, optionalAuth } = require("../middleware/auth");
+const { authenticate } = require("../middleware/auth");
 const { requireMLAdminAccess } = require("../middleware/mlAuth");
 
 const router = express.Router();
@@ -79,7 +79,8 @@ router.get(
 );
 router.get(
   "/plugin/model-status/:tenant_id",
-  optionalAuth,
+  authenticate,
+  requireMLAdminAccess,
   getModelStatusEndpoint
 );
 

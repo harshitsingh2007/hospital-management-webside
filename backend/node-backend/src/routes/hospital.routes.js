@@ -43,10 +43,15 @@ const {
   getHospitalLiveSummaryEndpoint,
   bulkAddHospitalEmployeesEndpoint,
   bulkAddHospitalVisitsEndpoint,
+  getHospitalRequestsEndpoint,
+  getHospitalRequestDetailEndpoint,
+  approveHospitalRequestEndpoint,
+  rejectHospitalRequestEndpoint,
+  getMyHospitalRequestEndpoint,
 } = require("../controllers/hospital.controller");
 
 const { authenticate } = require("../middleware/auth");
-const { requireManager, SUPER_ROLES, ADMIN_ROLES } = require("../middleware/role");
+const { requireManager, requirePlatformSuperAdmin, SUPER_ROLES, ADMIN_ROLES } = require("../middleware/role");
 const { hospitalIsolation } = require("../middleware/hospitalIsolation");
 
 const router = express.Router();
@@ -88,7 +93,14 @@ router.get("/hospitals/:hospital_code/departments", getHospitalDepartmentsEndpoi
 router.get("/superadmin/overview", authenticate, requireAdmin, getSuperadminOverviewEndpoint);
 router.get("/superadmin/hospitals", authenticate, requireAdmin, getSuperadminHospitalsEndpoint);
 router.get("/superadmin/hospitals/check-code", authenticate, requireSuper, checkHospitalCodeEndpoint);
-router.post("/superadmin/hospitals", authenticate, requireSuper, createHospitalEndpoint);
+router.post("/superadmin/hospitals", authenticate, requirePlatformSuperAdmin, createHospitalEndpoint);
+
+// Hospital Registration Requests (Request-and-Approve Flow)
+router.get("/superadmin/hospital-requests", authenticate, requirePlatformSuperAdmin, getHospitalRequestsEndpoint);
+router.get("/superadmin/hospital-requests/:id", authenticate, requirePlatformSuperAdmin, getHospitalRequestDetailEndpoint);
+router.post("/superadmin/hospital-requests/:id/approve", authenticate, requirePlatformSuperAdmin, approveHospitalRequestEndpoint);
+router.post("/superadmin/hospital-requests/:id/reject", authenticate, requirePlatformSuperAdmin, rejectHospitalRequestEndpoint);
+router.get("/hospital-requests/my-request", authenticate, getMyHospitalRequestEndpoint);
 router.delete("/superadmin/hospitals/:hospital_code", authenticate, requireSuper, hospitalIsolation("hospital_code"), deleteHospitalEndpoint);
 router.post("/superadmin/hospitals/:hospital_code/restore", authenticate, requireSuper, hospitalIsolation("hospital_code"), restoreHospitalEndpoint);
 router.get("/superadmin/hospitals/:hospital_code/purge-summary", authenticate, requireSuper, hospitalIsolation("hospital_code"), getHospitalPurgeSummaryEndpoint);

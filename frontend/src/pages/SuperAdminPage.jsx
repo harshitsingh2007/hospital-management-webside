@@ -307,9 +307,7 @@ export default function SuperAdminPage({
 
     const getAuthHeaders = useCallback(() => {
         const headers = { "Content-Type": "application/json" };
-        if (currentUser?.email) {
-            headers["X-User-Email"] = currentUser.email;
-        }
+
         try {
             const token = localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || currentUser?.token;
             if (token) {

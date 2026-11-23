@@ -46,7 +46,10 @@ from train_model import (
     CATEGORY_CONFIG
 )
 
-AI_INTERNAL_SECRET = os.getenv("AI_INTERNAL_SECRET", "internal-queue-ai-secret-key-2026")
+AI_INTERNAL_SECRET = os.getenv("AI_INTERNAL_SECRET")
+_env = os.getenv("ENVIRONMENT") or os.getenv("NODE_ENV") or "development"
+if _env == "production" and (not AI_INTERNAL_SECRET or len(AI_INTERNAL_SECRET) < 16):
+    raise RuntimeError("FATAL: AI_INTERNAL_SECRET must be set and at least 16 characters in production.")
 
 def verify_internal_secret(x_ai_internal_secret: Optional[str] = Header(None)):
     """Verifies internal microservice secret header.

@@ -5,7 +5,7 @@
  * Theme: Soft Green Clinical (Clean Healthcare Palette 4)
  */
 
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from "react";
 import { io } from "socket.io-client";
 import { API_BASE, WS_URL, HOSPITAL_CONFIG } from "./config/hospitalConfig";
 
@@ -18,18 +18,29 @@ import ErrorBoundary from "./components/common/ErrorBoundary";
 import EmergencyBroadcastBanner from "./components/common/EmergencyBroadcastBanner";
 import { useIdleTimeout } from "./hooks/useIdleTimeout";
 
-import PatientPage from "./pages/PatientPage";
-import DoctorPage from "./pages/DoctorPage";
-import StaffPortalPage from "./pages/StaffPortalPage";
-import ReceptionHistoryPage from "./pages/ReceptionHistoryPage";
-import MLAdminPage from "./pages/MLAdminPage";
-import DatabaseInspectorPage from "./pages/DatabaseInspectorPage";
-import KioskPage from "./pages/KioskPage";
-import SuperAdminPage from "./pages/SuperAdminPage";
-import PharmacyPage from "./pages/PharmacyPage";
-import PathologyPage from "./pages/PathologyPage";
-import RadiologyPage from "./pages/RadiologyPage";
-import BillingPage from "./pages/BillingPage";
+// Code-split lazy-loaded pages
+const PatientPage = lazy(() => import("./pages/PatientPage"));
+const DoctorPage = lazy(() => import("./pages/DoctorPage"));
+const StaffPortalPage = lazy(() => import("./pages/StaffPortalPage"));
+const ReceptionHistoryPage = lazy(() => import("./pages/ReceptionHistoryPage"));
+const MLAdminPage = lazy(() => import("./pages/MLAdminPage"));
+const DatabaseInspectorPage = lazy(() => import("./pages/DatabaseInspectorPage"));
+const KioskPage = lazy(() => import("./pages/KioskPage"));
+const SuperAdminPage = lazy(() => import("./pages/SuperAdminPage"));
+const PharmacyPage = lazy(() => import("./pages/PharmacyPage"));
+const PathologyPage = lazy(() => import("./pages/PathologyPage"));
+const RadiologyPage = lazy(() => import("./pages/RadiologyPage"));
+const BillingPage = lazy(() => import("./pages/BillingPage"));
+
+function PageLoadingFallback() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "60vh", gap: "12px", color: "#0284C7" }}>
+      <div style={{ width: "36px", height: "36px", border: "3px solid #E0F2FE", borderTopColor: "#0284C7", borderRadius: "50%", animation: "pageSpin 0.8s linear infinite" }} />
+      <span style={{ fontSize: "13px", fontWeight: 700, letterSpacing: "0.5px" }}>Loading portal...</span>
+      <style>{`@keyframes pageSpin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+}
 
 import { announceTicketVoice } from "./utils/voiceSynthesizer";
 import { updateBrowserTabBrand } from "./utils/dynamicFavicon";
@@ -682,7 +693,6 @@ export default function App() {
 
     fetch(`${API_BASE}/api/v1/family-members?${q.toString()}`, {
       headers: {
-        ...(ident ? { "X-User-Email": ident } : {}),
         ...(phone ? { "X-User-Phone": phone } : {}),
         ...(validToken ? { Authorization: `Bearer ${validToken}` } : {})
       }
@@ -781,7 +791,6 @@ export default function App() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-User-Email": currentUser.email,
           ...(token ? { Authorization: `Bearer ${token}` } : {})
         },
         body: JSON.stringify(newMember)
@@ -2058,7 +2067,7 @@ export default function App() {
 
         {/* Main Content View with Access Control Guard */}
         <main style={(activePage === "staff" || activePage === "reception-history") ? { minHeight: "auto" } : mainContentStyle}>
-          <>
+          <Suspense fallback={<PageLoadingFallback />}>
             {activePage === "patient" && (
               !isPatientOrGuest ? (
                 <AccessDeniedGuard
@@ -2392,7 +2401,7 @@ export default function App() {
                 />
               )
             )}
-          </>
+          </Suspense>
         </main>
 
         {/* Auth Modal Overlay */}

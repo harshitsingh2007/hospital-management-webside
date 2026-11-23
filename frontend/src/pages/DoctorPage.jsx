@@ -10,7 +10,7 @@ import { printPrescriptionSlip, downloadPrescriptionPDF } from "../utils/printPa
 import { usePatientHistory } from "../hooks/usePatientHistory";
 import { InAppToast, InAppConfirmModal } from "../components/common/InAppNotification";
 import DoctorHistorySection from "../components/doctor/DoctorHistorySection";
-import { History as IconHistory } from "lucide-react";
+import { History as IconHistory, Check, X, User, Printer, Download, BarChart2 } from "lucide-react";
 import { apiFetch } from "../utils/apiFetch";
 import {
   isEmergencyTicket as isEmergencyTicketClient,
@@ -877,8 +877,8 @@ export default function DoctorPage({
             await handleCompleteTicket(ticket.ticket_id);
           }
           const msg = isHi
-            ? `✓ टोकन #${ticket.ticket_id} (${ticket.name}) का परामर्श पूर्ण हुआ!`
-            : `✓ Consultation completed for Token #${ticket.ticket_id} (${ticket.name})!`;
+            ? `टोकन #${ticket.ticket_id} (${ticket.name}) का परामर्श पूर्ण हुआ!`
+            : `Consultation completed for Token #${ticket.ticket_id} (${ticket.name})!`;
           showToast(msg, "success");
           if (refreshData) refreshData();
         } catch (e) {
@@ -1264,11 +1264,11 @@ export default function DoctorPage({
             const isToPharma = (rxRoutingDept || "").toLowerCase() === "pharmacy";
             const successMsg =
               language === "hi"
-                ? `✓ परामर्श पूर्ण हुआ! टोकन #${newTid} को ${getCategoryLabel(rxRoutingDept, language)} में ई-प्रिस्क्रिप्शन सहित स्थानांतरित किया गया।`
-                : `✓ Consultation Complete! Token #${newTid} routed to ${getCategoryLabel(rxRoutingDept, language)} with prescription.`;
+                ? `परामर्श पूर्ण हुआ! टोकन #${newTid} को ${getCategoryLabel(rxRoutingDept, language)} में ई-प्रिस्क्रिप्शन सहित स्थानांतरित किया गया।`
+                : `Consultation Complete! Token #${newTid} routed to ${getCategoryLabel(rxRoutingDept, language)} with prescription.`;
             setRxStatusMsg(successMsg);
             showToast({
-              title: isToPharma ? (language === "hi" ? "फार्मेसी में प्रेषित ✓" : "Patient Routed to Pharmacy ✓") : null,
+              title: isToPharma ? (language === "hi" ? "फार्मेसी में प्रेषित" : "Patient Routed to Pharmacy") : null,
               message: successMsg,
               type: "success",
             }, "success", 5000);
@@ -1293,8 +1293,8 @@ export default function DoctorPage({
           }
           const compMsg =
             language === "hi"
-              ? "✓ परामर्श पूर्ण हुआ एवं ई-प्रिस्क्रिप्शन मरीज़ पोर्टल पर प्रेषित!"
-              : "✓ Consultation Completed & E-Prescription Sent to Patient Portal!";
+              ? "परामर्श पूर्ण हुआ एवं ई-प्रिस्क्रिप्शन मरीज़ पोर्टल पर प्रेषित!"
+              : "Consultation Completed & E-Prescription Sent to Patient Portal!";
           setRxStatusMsg(compMsg);
           showToast(compMsg, "success");
           setTimeout(() => {
@@ -1325,8 +1325,8 @@ export default function DoctorPage({
           setRxLastSavedAt(new Date());
           const draftMsg =
             language === "hi"
-              ? "✓ ई-प्रिस्क्रिप्शन ड्राफ्ट सफलतापूर्वक सहेजा गया!"
-              : "✓ E-Prescription draft saved & updated on Patient Portal!";
+              ? "ई-प्रिस्क्रिप्शन ड्राफ्ट सफलतापूर्वक सहेजा गया!"
+              : "E-Prescription draft saved & updated on Patient Portal!";
           setRxStatusMsg(draftMsg);
           showToast(draftMsg, "success");
           if (refreshData) refreshData();
@@ -2246,7 +2246,7 @@ export default function DoctorPage({
                             </div>
                           </div>
                           {doctorDutyStatus === opt.id && (
-                            <span style={{ color: opt.color, fontSize: "12px", fontWeight: 900 }}>✓</span>
+                            <Check size={12} style={{ color: opt.color }} />
                           )}
                         </button>
                       ))}
@@ -2276,7 +2276,7 @@ export default function DoctorPage({
                   }}
                   title={isHi ? "दैनिक शिफ्ट सारांश और 7-दिवसीय प्रदर्शन ग्राफ़ देखें" : "View End-of-Day Shift Summary & 7-Day Performance Analytics"}
                 >
-                  <span style={{ fontSize: "14px" }}>📊</span>
+                  <BarChart2 size={14} />
                   <span>{isHi ? "शिफ्ट सारांश व एनालिटिक्स" : "Shift Summary & Stats"}</span>
                 </button>
 
@@ -2313,7 +2313,7 @@ export default function DoctorPage({
                       className="duty-resume-action-btn"
                       title={isHi ? "ड्यूटी पुनः प्रारंभ करें" : "Resume Active Duty"}
                     >
-                      <span>✓</span>
+                      <Check size={12} />
                       <span>{isHi ? "प्रारंभ" : "Resume"}</span>
                     </button>
                   </div>
@@ -2698,7 +2698,7 @@ export default function DoctorPage({
                           transition: "all 0.15s ease",
                         }}
                       >
-                        <span>✓</span>
+                        <Check size={12} />
                         <span>{language === "hi" ? "ड्यूटी पुनः प्रारंभ करें" : "Resume Active Duty"}</span>
                       </button>
                     </div>
@@ -2733,9 +2733,11 @@ export default function DoctorPage({
                           fontSize: "16px",
                           cursor: "pointer",
                           padding: "0 4px",
+                          display: "inline-flex",
+                          alignItems: "center",
                         }}
                       >
-                        ✕
+                        <X size={14} />
                       </button>
                     </div>
                   )}
@@ -2842,7 +2844,7 @@ export default function DoctorPage({
                                       color: isDark ? "#E2E8F0" : "#334155",
                                     }}
                                   >
-                                    <span style={{ opacity: 0.75 }}>👤</span>
+                                    <User size={13} style={{ opacity: 0.75 }} />
                                     <span style={{ fontWeight: 800, color: isDark ? "#94A3B8" : "#64748B" }}>
                                       {language === "hi" ? "उम्र:" : "Age:"}
                                     </span>
@@ -3004,7 +3006,7 @@ export default function DoctorPage({
                                     }}
                                     title={language === "hi" ? "मुद्रित दवा पर्ची प्रिंट करें" : "Print Official Branded Rx Slip"}
                                   >
-                                    <span style={{ fontSize: "14px" }}>🖨️</span>
+                                    <Printer size={13} />
                                     <span>{language === "hi" ? "पर्ची प्रिंट" : "Print Rx"}</span>
                                   </button>
 
@@ -3027,7 +3029,7 @@ export default function DoctorPage({
                                     }}
                                     title={language === "hi" ? "दवा पर्ची पीडीएफ डाउनलोड करें" : "Download Rx PDF Document"}
                                   >
-                                    <span>📥</span>
+                                    <Download size={13} />
                                     <span>PDF</span>
                                   </button>
                                 </>

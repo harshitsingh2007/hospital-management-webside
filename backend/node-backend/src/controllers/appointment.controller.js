@@ -215,6 +215,9 @@ async function getUserAppointmentsEndpoint(req, res, next) {
     if (results.length === 0 && name && name.trim().toLowerCase() !== email.trim().toLowerCase()) {
       results = await getUserAppointments(name);
     }
+    if (results.length === 0 && req.user?.email && req.user.email.toLowerCase() !== email.trim().toLowerCase()) {
+      results = await getUserAppointments(req.user.email);
+    }
 
     return res.status(200).json({
       appointments: results,

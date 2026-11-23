@@ -53,6 +53,7 @@ async function runMasterTestSuite() {
     process.exit(1);
   } finally {
     await prisma.$disconnect();
+    process.exit(0);
   }
 }
 

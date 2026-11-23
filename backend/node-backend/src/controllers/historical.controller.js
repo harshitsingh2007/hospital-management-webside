@@ -28,7 +28,7 @@ async function previewHistoricalDataEndpoint(req, res, next) {
       headers: {
         ...req.headers,
         host: undefined,
-        "X-AI-Internal-Secret": env.AI_INTERNAL_SECRET || "internal-queue-ai-secret-key-2026",
+        "X-AI-Internal-Secret": env.AI_INTERNAL_SECRET,
       },
     });
 
@@ -56,7 +56,7 @@ async function uploadHistoricalDataEndpoint(req, res, next) {
       headers: {
         ...req.headers,
         host: undefined,
-        "X-AI-Internal-Secret": env.AI_INTERNAL_SECRET || "internal-queue-ai-secret-key-2026",
+        "X-AI-Internal-Secret": env.AI_INTERNAL_SECRET,
       },
     });
 

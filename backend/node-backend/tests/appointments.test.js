@@ -80,8 +80,8 @@ async function runAppointmentTests() {
   assert.strictEqual(earlyCheckInRejected, true, "Early check-in for future appointment must be rejected");
   console.log("[PASS] Test 2: Early check-in for future appointment strictly rejected.");
 
-  // 3. Book a Slot within Active Check-In Window (e.g. 5 minutes from now, within 30m window)
-  const currentSlotDate = new Date(Date.now() + 5 * 60 * 1000);
+  // 3. Book a Slot within Active Check-In Window (e.g. within 30m window on today's queue date)
+  const currentSlotDate = new Date(Date.now() - 2 * 60 * 1000);
   let slotH = currentSlotDate.getHours();
   const slotM = currentSlotDate.getMinutes();
   const slotMeridian = slotH >= 12 ? "PM" : "AM";

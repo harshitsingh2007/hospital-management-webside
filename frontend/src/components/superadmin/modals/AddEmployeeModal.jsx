@@ -237,7 +237,7 @@ export default function AddEmployeeModal({
                                 type="text"
                                 required
                                 minLength={6}
-                                placeholder="Min 6 characters (e.g. 000000 / pass123)"
+                                placeholder="Min 6 characters (e.g. secure password)"
                                 value={newEmployeeForm.password || ""}
                                 onChange={(e) => setNewEmployeeForm({ ...newEmployeeForm, password: e.target.value })}
                                 style={fieldInputStyle}

@@ -64,7 +64,22 @@ async function linkPastWalkinRecordsToUser(userId, phone, username = "") {
 
 async function signupSuperAdmin(req, res, next) {
   try {
-    const { email, username, password, phone = "", hospital_name = "", hospital_code = "" } = req.body;
+    const {
+      email,
+      username,
+      password,
+      phone = "",
+      hospital_name = "",
+      hospital_code = "",
+      address = "",
+      city = "",
+      state = "",
+      pincode = "",
+      registration_number = "",
+      bed_capacity = 50,
+      documents = [],
+      notes = ""
+    } = req.body;
     const cleanEmail = String(email || "").trim().toLowerCase();
 
     if (!cleanEmail || !username || !password) {
@@ -95,42 +110,71 @@ async function signupSuperAdmin(req, res, next) {
       }
     }
 
+    const hCode = (hospital_code || `hosp-${Math.floor(Date.now() / 1000)}`).trim().toLowerCase();
+    const hName = (hospital_name || `${username}'s Hospital`).trim();
+
+    const existingHosp = await prisma.hospitals.findUnique({ where: { hospital_code: hCode } });
+    if (existingHosp) {
+      return res.status(400).json({ status: "error", message: `Hospital code '${hCode}' is already in use.` });
+    }
+    const existingReq = await prisma.hospital_requests.findUnique({ where: { hospital_code: hCode } });
+    if (existingReq) {
+      return res.status(400).json({ status: "error", message: `A hospital request with code '${hCode}' is already pending review.` });
+    }
+
     const pwdHash = await hashPassword(password);
     const user = await prisma.users.create({
       data: {
         email: cleanEmail,
         username,
         password_hash: pwdHash,
-        role: "superadmin",
-        status: "active",
+        role: "hospital_owner",
+        status: "pending_approval",
         phone: phone || "",
+        primary_hospital_code: hCode,
+        must_change_password: false,
       },
     });
 
-    const hCode = (hospital_code || `hosp-${Math.floor(Date.now() / 1000)}`).trim().toLowerCase();
-    const hName = (hospital_name || `${username}'s Hospital`).trim();
+    const initialTimeline = [
+      {
+        event: "REQUEST_SUBMITTED",
+        status: "PENDING",
+        actor: cleanEmail,
+        timestamp: new Date().toISOString(),
+        notes: "Hospital registration request submitted for platform administrator review.",
+      },
+    ];
 
-    const hospital = await createHospital({
-      hospitalCode: hCode,
-      name: hName,
-      phone,
-      email: cleanEmail,
-      ownerUserId: user.id,
+    const hospitalRequest = await prisma.hospital_requests.create({
+      data: {
+        user_id: user.id,
+        hospital_name: hName,
+        hospital_code: hCode,
+        phone: phone || "",
+        email: cleanEmail,
+        address: address || "",
+        city: city || "",
+        state: state || "",
+        pincode: pincode || "",
+        registration_number: registration_number || "",
+        bed_capacity: Number(bed_capacity) || 50,
+        documents_json: Array.isArray(documents) ? documents : [],
+        status: "PENDING",
+        timeline_json: initialTimeline,
+        notes: notes || "",
+      },
     });
 
-    const token = generateToken({ id: user.id, email: user.email, role: user.role, hospitalId: hospital.id });
-
-    return res.status(200).json({
+    return res.status(201).json({
       status: "success",
-      token,
-      user: {
-        id: user.id,
-        email: user.email,
-        username: user.username,
-        role: user.role,
-        hospital_code: hCode,
-        hospital_name: hName,
-        hospital_id: hospital.id,
+      message: "Hospital registration request submitted successfully. A platform administrator must approve your application before activation.",
+      request: {
+        id: hospitalRequest.id,
+        hospital_code: hospitalRequest.hospital_code,
+        hospital_name: hospitalRequest.hospital_name,
+        status: hospitalRequest.status,
+        created_at: hospitalRequest.created_at,
       },
     });
   } catch (error) {
@@ -408,10 +452,18 @@ async function login(req, res, next) {
       return res.status(401).json({ status: "error", message: "Invalid email or password." });
     }
 
-    if (user.status === "deactivated" || user.status === "suspended" || user.status === "blocked") {
+    if (user.status === "pending_approval") {
+      return res.status(403).json({
+        status: "error",
+        code: "PENDING_APPROVAL",
+        message: "Your hospital registration request is pending review and approval by the platform administrator.",
+      });
+    }
+
+    if (user.status === "deactivated" || user.status === "suspended" || user.status === "blocked" || user.status === "rejected") {
       return res.status(401).json({
         status: "error",
-        message: "Account is deactivated or suspended. Please contact your hospital administrator.",
+        message: "Account is deactivated, suspended, or rejected. Please contact support or your hospital administrator.",
       });
     }
 
@@ -439,6 +491,7 @@ async function login(req, res, next) {
       email: user.email,
       role: user.role,
       hospitalId: user.employees[0]?.hospital_id || user.hospitals[0]?.id || null,
+      must_change_password: !!user.must_change_password,
     });
 
     const pat = user.patients[0] || null;
@@ -452,6 +505,7 @@ async function login(req, res, next) {
       role: user.role,
       status: "active",
       phone: user.phone || "",
+      must_change_password: !!user.must_change_password,
     };
 
     if (pat) {
@@ -656,7 +710,64 @@ async function updateProfile(req, res, next) {
 
 async function getAllUsers(req, res, next) {
   try {
+    const isPlatformAdmin = !!req.user?.is_superadmin || (req.user?.role || "").toLowerCase() === "super_admin" || (req.user?.role || "").toLowerCase() === "superadmin";
+    const userRole = (req.user?.role || "").toLowerCase();
+
+    // Restricted to admins
+    if (!isPlatformAdmin && !["admin", "superadmin", "hospital_owner"].includes(userRole)) {
+      return res.status(403).json({
+        status: "error",
+        message: "Forbidden: Access restricted to hospital administrators.",
+      });
+    }
+
+    const requestedHospitalCode = req.query.hospital_code || req.headers["x-hospital-code"] || req.user?.primary_hospital_code;
+    let whereClause = {};
+
+    if (!isPlatformAdmin) {
+      const adminEmp = await prisma.employees.findFirst({
+        where: { user_id: req.user.id },
+        select: { hospital_id: true }
+      });
+
+      const adminHosp = await prisma.hospitals.findFirst({
+        where: {
+          OR: [
+            ...(adminEmp?.hospital_id ? [{ id: adminEmp.hospital_id }] : []),
+            ...(requestedHospitalCode ? [{ hospital_code: String(requestedHospitalCode).trim().toLowerCase() }] : []),
+            { owner_user_id: req.user.id }
+          ]
+        },
+        select: { id: true, hospital_code: true }
+      });
+
+      if (!adminHosp) {
+        return res.status(403).json({
+          status: "error",
+          message: "Forbidden: No hospital association found for this administrator."
+        });
+      }
+
+      whereClause = {
+        OR: [
+          { primary_hospital_code: adminHosp.hospital_code },
+          { employees: { some: { hospital_id: adminHosp.id } } },
+          { hospitals: { some: { id: adminHosp.id } } },
+          { patients: { some: { tickets: { some: { hospital_id: adminHosp.id } } } } }
+        ]
+      };
+    } else if (req.query.hospital_code) {
+      const hCode = String(req.query.hospital_code).trim().toLowerCase();
+      whereClause = {
+        OR: [
+          { primary_hospital_code: hCode },
+          { employees: { some: { hospitals: { hospital_code: hCode } } } },
+        ]
+      };
+    }
+
     const users = await prisma.users.findMany({
+      where: whereClause,
       select: {
         id: true,
         email: true,
@@ -664,6 +775,8 @@ async function getAllUsers(req, res, next) {
         role: true,
         status: true,
         phone: true,
+        primary_hospital_code: true,
+        must_change_password: true,
         created_at: true,
       },
       orderBy: { id: "asc" },
@@ -672,6 +785,44 @@ async function getAllUsers(req, res, next) {
     return res.status(200).json({
       status: "success",
       users,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function changePassword(req, res, next) {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ status: "error", message: "Authentication required." });
+    }
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ status: "error", message: "Current password and new password are required." });
+    }
+    if (String(newPassword).length < 8) {
+      return res.status(400).json({ status: "error", message: "New password must be at least 8 characters long." });
+    }
+    const user = await prisma.users.findUnique({ where: { id: req.user.id } });
+    if (!user) {
+      return res.status(404).json({ status: "error", message: "User not found." });
+    }
+    const valid = await verifyPassword(currentPassword, user.password_hash);
+    if (!valid) {
+      return res.status(400).json({ status: "error", message: "Incorrect current password." });
+    }
+    const newHash = await hashPassword(newPassword);
+    await prisma.users.update({
+      where: { id: user.id },
+      data: {
+        password_hash: newHash,
+        must_change_password: false,
+        updated_at: new Date(),
+      },
+    });
+    return res.status(200).json({
+      status: "success",
+      message: "Password changed successfully.",
     });
   } catch (error) {
     next(error);
@@ -700,6 +851,9 @@ async function getUserHistory(req, res, next) {
     const cleanPhone = String(phoneHeader).replace(/\D/g, "");
 
     const uids = [];
+    if (req.user && req.user.id && !uids.includes(req.user.id)) {
+      uids.push(req.user.id);
+    }
     if (user) {
       uids.push(user.id);
       if (user.phone && user.phone.replace(/\D/g, "").length >= 7) {
@@ -1965,4 +2119,5 @@ module.exports = {
   forgotPassword,
   verifyResetOtp,
   resetPassword,
+  changePassword,
 };

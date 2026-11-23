@@ -21,7 +21,7 @@ const patientHistoryRoutes = require("./patientHistory.routes");
 const radiologyRoutes = require("./radiology.routes");
 const billingRoutes = require("./billing.routes");
 const { getUserHistory, lookupPatientAccount, addFamilyMemberFromStaff } = require("../controllers/auth.controller");
-const { optionalAuth } = require("../middleware/auth");
+const { authenticate, optionalAuth } = require("../middleware/auth");
 
 const router = express.Router();
 
@@ -46,12 +46,12 @@ router.use("/api/v1/billing", billingRoutes);
 // Ticket routes (/api/v1/* and /api/v1/plugin/*)
 router.use("/api/v1", ticketRoutes);
 
-// Additional ticket history alias: /api/v1/plugin/tickets/history/:identifier
+// Additional ticket history alias: /api/v1/plugin/tickets/history/:identifier (supports patient & guest ticket tracking)
 router.get("/api/v1/plugin/tickets/history/:identifier", optionalAuth, getUserHistory);
 
-// Walk-in patient & family lookup for staff desk
-router.get("/api/v1/plugin/patient-lookup", optionalAuth, lookupPatientAccount);
-router.post("/api/v1/plugin/staff-add-family", optionalAuth, addFamilyMemberFromStaff);
+// Walk-in patient & family lookup for staff desk (requires authentication)
+router.get("/api/v1/plugin/patient-lookup", authenticate, lookupPatientAccount);
+router.post("/api/v1/plugin/staff-add-family", authenticate, addFamilyMemberFromStaff);
 
 // Appointment routes (/api/v1/plugin/appointments/*)
 router.use("/api/v1", appointmentRoutes);

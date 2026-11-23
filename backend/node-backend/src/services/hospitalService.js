@@ -1,5 +1,11 @@
+const crypto = require("crypto");
 const prisma = require("../config/prisma");
 const { hashPassword } = require("../utils/password");
+
+function generateSecureTempPassword() {
+  const hex = crypto.randomBytes(4).toString("hex");
+  return `Hosp@${hex}1`;
+}
 const { getCurrentQueueDate, queueDateToPrismaDate } = require("../utils/timezone");
 const { getDoctorDutyStatus, setDoctorDutyStatus } = require("./ticketService");
 
@@ -1560,7 +1566,7 @@ async function addHospitalEmployee({
   department,
   employeeId = "",
   phone = "",
-  password = "pass123",
+  password = "",
   qualification = "",
   specialization = "",
   license_number = "",
@@ -1583,14 +1589,22 @@ async function addHospitalEmployee({
   const allDepts = await prisma.departments.findMany({ where: { hospital_id: hosp.id } });
   const dept = findMatchingDepartment(cleanDeptStr, allDepts);
 
-  const pwdHash = await hashPassword(password);
+  const isGeneratedPassword = !password || String(password).trim() === "" || String(password).trim() === "pass123";
+  const finalPassword = isGeneratedPassword ? generateSecureTempPassword() : String(password).trim();
+  const pwdHash = await hashPassword(finalPassword);
 
   // 1. Create or resolve user
   let user = await prisma.users.findUnique({ where: { email: cleanEmail } });
   if (user) {
     user = await prisma.users.update({
       where: { id: user.id },
-      data: { role, phone, updated_at: new Date() },
+      data: {
+        role,
+        phone,
+        password_hash: pwdHash,
+        must_change_password: isGeneratedPassword,
+        updated_at: new Date()
+      },
     });
   } else {
     user = await prisma.users.create({
@@ -1601,6 +1615,8 @@ async function addHospitalEmployee({
         role,
         status: "active",
         phone,
+        primary_hospital_code: hosp.hospital_code,
+        must_change_password: isGeneratedPassword,
       },
     });
   }
@@ -1663,6 +1679,8 @@ async function addHospitalEmployee({
     experience_years: parsedExp,
     room_number: String(room_number || "").trim(),
     status: employee.status || "inactive",
+    must_change_password: isGeneratedPassword,
+    temp_password: isGeneratedPassword ? finalPassword : null,
   };
 }
 
@@ -3349,7 +3367,286 @@ async function bulkAddHospitalVisits(hospitalCode, visitsList = []) {
   return results;
 }
 
+async function getHospitalRequests({ status, page = 1, limit = 50 } = {}) {
+  const where = {};
+  if (status) {
+    where.status = String(status).toUpperCase();
+  }
+  const take = Math.min(Math.max(Number(limit) || 50, 1), 100);
+  const skip = (Math.max(Number(page) || 1, 1) - 1) * take;
+
+  const [requests, total] = await Promise.all([
+    prisma.hospital_requests.findMany({
+      where,
+      include: {
+        users: {
+          select: { id: true, email: true, username: true, phone: true }
+        },
+        approver: {
+          select: { id: true, email: true, username: true }
+        }
+      },
+      orderBy: { created_at: "desc" },
+      skip,
+      take,
+    }),
+    prisma.hospital_requests.count({ where }),
+  ]);
+
+  return { requests, total, page: Number(page) || 1, limit: take };
+}
+
+async function getHospitalRequestById(id) {
+  const reqId = Number(id);
+  if (!reqId) return null;
+  return await prisma.hospital_requests.findUnique({
+    where: { id: reqId },
+    include: {
+      users: {
+        select: { id: true, email: true, username: true, phone: true }
+      },
+      approver: {
+        select: { id: true, email: true, username: true }
+      },
+      hospitals: true
+    }
+  });
+}
+
+async function approveHospitalRequest(arg1, arg2, arg3) {
+  let requestId, approverUserId, notes;
+  if (typeof arg1 === "object" && arg1 !== null) {
+    requestId = arg1.requestId || arg1.id;
+    approverUserId = arg1.approverUserId || (arg2?.id || arg2);
+    notes = arg1.notes || arg2?.notes || "";
+  } else {
+    requestId = arg1;
+    approverUserId = typeof arg2 === "object" && arg2 !== null ? arg2.id : arg2;
+    notes = arg3 || "";
+  }
+  const reqId = Number(requestId);
+  const hospitalReq = await prisma.hospital_requests.findUnique({
+    where: { id: reqId },
+    include: { users: true }
+  });
+
+  if (!hospitalReq) {
+    const err = new Error("Hospital request not found.");
+    err.status = 404;
+    throw err;
+  }
+
+  if (hospitalReq.status !== "PENDING") {
+    const err = new Error(`Request has already been processed with status '${hospitalReq.status}'.`);
+    err.status = 400;
+    throw err;
+  }
+
+  return await prisma.$transaction(async (tx) => {
+    const hCode = hospitalReq.hospital_code;
+    const hName = hospitalReq.hospital_name;
+    const ownerUser = hospitalReq.users;
+
+    const existingHosp = await tx.hospitals.findUnique({ where: { hospital_code: hCode } });
+    if (existingHosp) {
+      const err = new Error(`Hospital code '${hCode}' already exists.`);
+      err.status = 409;
+      throw err;
+    }
+
+    const createdHospital = await tx.hospitals.create({
+      data: {
+        hospital_code: hCode,
+        name: hName,
+        phone: hospitalReq.phone || "",
+        email: hospitalReq.email || ownerUser.email,
+        address: hospitalReq.address || `${hospitalReq.city || ""}, ${hospitalReq.state || ""}`,
+        description: `Registered hospital under ${ownerUser.username}`,
+        status: "active",
+        owner_user_id: ownerUser.id,
+        branding_json: {
+          profile: {
+            registration_no: hospitalReq.registration_number || "",
+            total_beds: hospitalReq.bed_capacity || 50,
+            city: hospitalReq.city || "",
+            state: hospitalReq.state || "",
+            pincode: hospitalReq.pincode || "",
+          }
+        }
+      }
+    });
+
+    const defaultDepts = [
+      { dept_code: "consultation", name: "General Consultation (OPD)", description: "General outpatient examinations" },
+      { dept_code: "pharmacy", name: "Pharmacy & Medicine", description: "Prescription dispensing" },
+      { dept_code: "laboratory", name: "Pathology & Lab Test", description: "Diagnostic tests and bloodwork" },
+      { dept_code: "radiology", name: "Radiology & X-Ray", description: "Medical imaging" },
+      { dept_code: "emergency", name: "Emergency Triage", description: "Critical emergency trauma and care" },
+    ];
+
+    for (const d of defaultDepts) {
+      const dept = await tx.departments.create({
+        data: {
+          hospital_id: createdHospital.id,
+          dept_code: d.dept_code,
+          name: d.name,
+          description: d.description,
+          status: "active",
+        }
+      });
+      await tx.desks.create({
+        data: {
+          hospital_id: createdHospital.id,
+          department_id: dept.id,
+          desk_name: `${d.name.split(" ")[0]}-1`,
+          desk_number: 1,
+          status: "active"
+        }
+      });
+    }
+
+    await tx.employees.create({
+      data: {
+        user_id: ownerUser.id,
+        hospital_id: createdHospital.id,
+        employee_code: `ADM-001`,
+        name: ownerUser.username,
+        email: ownerUser.email,
+        phone: ownerUser.phone || "",
+        status: "active"
+      }
+    });
+
+    await tx.users.update({
+      where: { id: ownerUser.id },
+      data: {
+        status: "active",
+        primary_hospital_code: hCode,
+        updated_at: new Date()
+      }
+    });
+
+    const existingTimeline = Array.isArray(hospitalReq.timeline_json) ? hospitalReq.timeline_json : [];
+    const updatedTimeline = [
+      ...existingTimeline,
+      {
+        event: "REQUEST_APPROVED",
+        status: "APPROVED",
+        approver_id: approverUserId,
+        timestamp: new Date().toISOString(),
+        notes: notes || "Hospital registration approved by platform administrator."
+      }
+    ];
+
+    const updatedRequest = await tx.hospital_requests.update({
+      where: { id: reqId },
+      data: {
+        status: "APPROVED",
+        approved_by_user_id: approverUserId,
+        approved_at: new Date(),
+        hospital_id: createdHospital.id,
+        timeline_json: updatedTimeline,
+        updated_at: new Date()
+      }
+    });
+
+    await tx.audit_logs.create({
+      data: {
+        hospital_id: createdHospital.id,
+        user_id: approverUserId,
+        action: "APPROVE_HOSPITAL_REQUEST",
+        entity_type: "hospital_requests",
+        entity_id: String(reqId),
+        new_values: { hospital_code: hCode, hospital_id: createdHospital.id }
+      }
+    });
+
+    return { request: updatedRequest, hospital: createdHospital };
+  });
+}
+
+async function rejectHospitalRequest(arg1, arg2, arg3) {
+  let requestId, approverUserId, reason;
+  if (typeof arg1 === "object" && arg1 !== null) {
+    requestId = arg1.requestId || arg1.id;
+    approverUserId = arg1.approverUserId || (arg2?.id || arg2);
+    reason = arg1.reason || arg2?.reason || "";
+  } else {
+    requestId = arg1;
+    approverUserId = typeof arg2 === "object" && arg2 !== null ? arg2.id : arg2;
+    reason = arg3 || "";
+  }
+  const reqId = Number(requestId);
+  const hospitalReq = await prisma.hospital_requests.findUnique({
+    where: { id: reqId },
+    include: { users: true }
+  });
+
+  if (!hospitalReq) {
+    const err = new Error("Hospital request not found.");
+    err.status = 404;
+    throw err;
+  }
+
+  if (hospitalReq.status !== "PENDING") {
+    const err = new Error(`Request has already been processed with status '${hospitalReq.status}'.`);
+    err.status = 400;
+    throw err;
+  }
+
+  return await prisma.$transaction(async (tx) => {
+    if (hospitalReq.users) {
+      await tx.users.update({
+        where: { id: hospitalReq.user_id },
+        data: {
+          status: "rejected",
+          updated_at: new Date()
+        }
+      });
+    }
+
+    const existingTimeline = Array.isArray(hospitalReq.timeline_json) ? hospitalReq.timeline_json : [];
+    const updatedTimeline = [
+      ...existingTimeline,
+      {
+        event: "REQUEST_REJECTED",
+        status: "REJECTED",
+        approver_id: approverUserId,
+        timestamp: new Date().toISOString(),
+        notes: reason || "Hospital registration request was rejected."
+      }
+    ];
+
+    const updatedRequest = await tx.hospital_requests.update({
+      where: { id: reqId },
+      data: {
+        status: "REJECTED",
+        rejection_reason: reason || "Application rejected by platform administrator.",
+        approved_by_user_id: approverUserId,
+        timeline_json: updatedTimeline,
+        updated_at: new Date()
+      }
+    });
+
+    await tx.audit_logs.create({
+      data: {
+        user_id: approverUserId,
+        action: "REJECT_HOSPITAL_REQUEST",
+        entity_type: "hospital_requests",
+        entity_id: String(reqId),
+        new_values: { reason }
+      }
+    });
+
+    return updatedRequest;
+  });
+}
+
 module.exports = {
+  getHospitalRequests,
+  getHospitalRequestById,
+  approveHospitalRequest,
+  rejectHospitalRequest,
   checkHospitalCodeAvailable,
   getSuperAdminOverview,
   getAllHospitals,

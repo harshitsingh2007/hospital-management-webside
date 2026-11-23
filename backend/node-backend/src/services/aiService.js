@@ -11,7 +11,7 @@
 const env = require("../config/env");
 
 const AI_BASE_URL = env.AI_SERVICE_URL || "http://localhost:8001";
-const AI_INTERNAL_SECRET = env.AI_INTERNAL_SECRET || "internal-queue-ai-secret-key-2026";
+const AI_INTERNAL_SECRET = env.AI_INTERNAL_SECRET;
 
 function getHeaders(extraHeaders = {}) {
   return {

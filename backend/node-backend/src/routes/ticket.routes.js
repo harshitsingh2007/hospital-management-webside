@@ -14,34 +14,54 @@ const {
   savePrescriptionEndpoint,
   updateTicketPriorityEndpoint,
 } = require("../controllers/ticket.controller");
-const { optionalAuth } = require("../middleware/auth");
+const { authenticate, optionalAuth } = require("../middleware/auth");
+const { requireManager, ADMIN_ROLES } = require("../middleware/role");
 
 const router = express.Router();
 
-// Cancel endpoints
-router.post("/tickets/:ticket_id/cancel", optionalAuth, cancelTicketEndpoint);
-router.post("/plugin/tickets/:ticket_id/cancel", optionalAuth, cancelTicketEndpoint);
-router.post("/plugin/cancel", optionalAuth, cancelTicketEndpoint);
+const requireDeskOperator = requireManager(
+  [
+    ...ADMIN_ROLES,
+    "doctor",
+    "staff",
+    "receptionist",
+    "pharmacist",
+    "nurse",
+    "technician",
+    "pathologist",
+    "radiologist",
+    "billing",
+    "cashier",
+  ],
+  { requireJwt: true }
+);
 
-// Priority / Emergency Triage endpoints
-router.post("/tickets/:ticket_id/priority", optionalAuth, updateTicketPriorityEndpoint);
-router.post("/plugin/tickets/:ticket_id/priority", optionalAuth, updateTicketPriorityEndpoint);
-router.post("/plugin/priority", optionalAuth, updateTicketPriorityEndpoint);
+// Cancel endpoints (Authenticated patient or staff)
+router.post("/tickets/:ticket_id/cancel", authenticate, cancelTicketEndpoint);
+router.post("/plugin/tickets/:ticket_id/cancel", authenticate, cancelTicketEndpoint);
+router.post("/plugin/cancel", authenticate, cancelTicketEndpoint);
 
-// Adjust endpoints
-router.post("/tickets/:ticket_id/adjust", optionalAuth, adjustQueueEndpoint);
-router.post("/tickets/:ticket_id/adjust-queue", optionalAuth, adjustQueueEndpoint);
-router.post("/plugin/tickets/:ticket_id/adjust-queue", optionalAuth, adjustQueueEndpoint);
-router.post("/plugin/adjust-queue", optionalAuth, adjustQueueEndpoint);
+// Priority / Emergency Triage endpoints (Staff/Doctor required)
+router.post("/tickets/:ticket_id/priority", authenticate, requireDeskOperator, updateTicketPriorityEndpoint);
+router.post("/plugin/tickets/:ticket_id/priority", authenticate, requireDeskOperator, updateTicketPriorityEndpoint);
+router.post("/plugin/priority", authenticate, requireDeskOperator, updateTicketPriorityEndpoint);
 
-// Ticket details, transfer, re-announce
+// Adjust endpoints (Staff/Doctor required)
+router.post("/tickets/:ticket_id/adjust", authenticate, requireDeskOperator, adjustQueueEndpoint);
+router.post("/tickets/:ticket_id/adjust-queue", authenticate, requireDeskOperator, adjustQueueEndpoint);
+router.post("/plugin/tickets/:ticket_id/adjust-queue", authenticate, requireDeskOperator, adjustQueueEndpoint);
+router.post("/plugin/adjust-queue", authenticate, requireDeskOperator, adjustQueueEndpoint);
+
+// Ticket details: public QR code / patient ticket tracking
 router.get("/tickets/:ticket_id", optionalAuth, getTicketDetailsEndpoint);
 router.get("/plugin/ticket/:ticket_id", optionalAuth, getTicketDetailsEndpoint);
-router.post("/plugin/transfer-ticket", optionalAuth, transferTicketEndpoint);
-router.post("/plugin/re-announce", optionalAuth, reAnnounceEndpoint);
 
-// Prescription endpoints
-router.post("/plugin/save-prescription", optionalAuth, savePrescriptionEndpoint);
-router.post("/tickets/:ticket_id/prescription", optionalAuth, savePrescriptionEndpoint);
+// Transfer and Re-announce (Staff/Doctor required)
+router.post("/plugin/transfer-ticket", authenticate, requireDeskOperator, transferTicketEndpoint);
+router.post("/plugin/re-announce", authenticate, requireDeskOperator, reAnnounceEndpoint);
+
+// Prescription endpoints (Doctor/Staff required)
+router.post("/plugin/save-prescription", authenticate, requireDeskOperator, savePrescriptionEndpoint);
+router.post("/tickets/:ticket_id/prescription", authenticate, requireDeskOperator, savePrescriptionEndpoint);
 
 module.exports = router;

@@ -16,7 +16,7 @@ const {
   getMe,
 } = require("../src/controllers/auth.controller");
 const { verifyHospitalAccess } = require("../src/middleware/hospitalIsolation");
-const { addHospitalEmployee } = require("../src/services/hospitalService");
+const { addHospitalEmployee, approveHospitalRequest } = require("../src/services/hospitalService");
 
 async function runAuthIsolationTests() {
   console.log("\n==================================================");
@@ -54,11 +54,48 @@ async function runAuthIsolationTests() {
     }
   );
 
-  assert.strictEqual(resData.statusCode, 200, "SuperAdmin signup failed");
-  assert.strictEqual(resData.user.role, "superadmin", "Role should be superadmin");
-  assert.strictEqual(resData.user.hospital_code, hCode1, "Hospital code mismatch");
-  assert(resData.token, "Missing JWT token in response");
-  console.log(`[PASS] Test 1: Super Admin registered with dedicated hospital '${hCode1}' and valid JWT.`);
+  assert.strictEqual(resData.statusCode, 201, "SuperAdmin signup should return 201 created");
+  assert.strictEqual(resData.request.status, "PENDING", "Hospital request should be PENDING");
+
+  // Verify that pending user cannot log in before approval
+  let preLoginData = null;
+  const mockPreLoginRes = {
+    status: (code) => ({
+      json: (data) => {
+        preLoginData = { statusCode: code, ...data };
+      },
+    }),
+  };
+  await login(
+    { body: { email: saEmail, password: "SuperPassword123!" } },
+    mockPreLoginRes,
+    (err) => { if (err) throw err; }
+  );
+  assert.strictEqual(preLoginData.statusCode, 403, "Pending owner should be blocked from logging in with 403");
+
+  // Platform SuperAdmin approves the hospital request
+  const platformAdmin = { email: "platform@superadmin.com", role: "superadmin" };
+  const approved = await approveHospitalRequest(resData.request.id, platformAdmin);
+  assert.strictEqual(approved.hospital.hospital_code, hCode1, "Approved hospital code mismatch");
+  assert.strictEqual(approved.request.status, "APPROVED", "Request status should be APPROVED after approval");
+
+  // Login as approved owner
+  let postLoginData = null;
+  const mockPostLoginRes = {
+    status: (code) => ({
+      json: (data) => {
+        postLoginData = { statusCode: code, ...data };
+      },
+    }),
+  };
+  await login(
+    { body: { email: saEmail, password: "SuperPassword123!" } },
+    mockPostLoginRes,
+    (err) => { if (err) throw err; }
+  );
+  assert.strictEqual(postLoginData.statusCode, 200, "Approved owner should successfully log in with 200");
+  assert(postLoginData.token, "Missing JWT token in login response");
+  console.log(`[PASS] Test 1: Hospital registration requested (201), approved by platform admin, and activated with valid JWT.`);
 
   // Test 2: Provision Employee with Employee ID
   const docEmail = `priya.node_${ts}@apexcare.com`;

@@ -181,6 +181,7 @@ model hospitals {
   desks                     desks[]
   employees                 employees[]
   hospital_billing_counters hospital_billing_counters[]
+  hospital_requests         hospital_requests[]
   users                     users?                      @relation(fields: [owner_user_id], references: [id], onUpdate: NoAction)
   kiosks                    kiosks[]
   medical_reports           medical_reports[]
@@ -455,11 +456,14 @@ model users {
   updated_at                 DateTime                     @default(now()) @db.Timestamptz(6)
   last_login_at              DateTime?                    @db.Timestamptz(6)
   primary_hospital_code      String?                      @default("city-hospital-01") @db.VarChar(100)
+  must_change_password       Boolean                      @default(false)
   appointment_status_history appointment_status_history[]
   audit_logs                 audit_logs[]
   employees                  employees[]
   family_members             family_members[]
   hospitals                  hospitals[]
+  hospital_requests          hospital_requests[]          @relation("UserHospitalRequests")
+  approved_hospital_requests hospital_requests[]          @relation("ApprovedHospitalRequests")
   patients                   patients[]
   queue_events               queue_events[]
 
@@ -676,4 +680,37 @@ model model_training_runs {
   @@index([hospital_id, created_at], map: "idx_model_training_runs_hosp")
   @@index([tenant_code, created_at], map: "idx_model_training_runs_tenant")
 }
+
+model hospital_requests {
+  id                  Int       @id @default(autoincrement())
+  user_id             Int
+  hospital_name       String    @db.VarChar(255)
+  hospital_code       String    @unique @db.VarChar(100)
+  phone               String?   @db.VarChar(50)
+  email               String?   @db.VarChar(255)
+  address             String?
+  city                String?   @db.VarChar(100)
+  state               String?   @db.VarChar(100)
+  pincode             String?   @db.VarChar(20)
+  registration_number String?   @db.VarChar(100)
+  bed_capacity        Int?      @default(50)
+  documents_json      Json?     @default("[]")
+  status              String    @default("PENDING") @db.VarChar(50)
+  rejection_reason    String?
+  approved_by_user_id Int?
+  approved_at         DateTime? @db.Timestamptz(6)
+  hospital_id         Int?
+  timeline_json       Json?     @default("[]")
+  notes               String?
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime  @default(now()) @db.Timestamptz(6)
+  users               users     @relation("UserHospitalRequests", fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  approver            users?    @relation("ApprovedHospitalRequests", fields: [approved_by_user_id], references: [id], onUpdate: NoAction)
+  hospitals           hospitals? @relation(fields: [hospital_id], references: [id], onUpdate: NoAction)
+
+  @@index([status], map: "idx_hospital_requests_status")
+  @@index([user_id], map: "idx_hospital_requests_user")
+  @@index([hospital_code], map: "idx_hospital_requests_code")
+}
+
 

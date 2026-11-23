@@ -304,7 +304,6 @@ export default function StaffPortalPage({
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
-        ...(currentUser?.email ? { "X-User-Email": currentUser.email } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify(payload),
@@ -469,7 +468,6 @@ export default function StaffPortalPage({
     if (!effectiveHospitalCode) return;
     try {
       const headers = { "Content-Type": "application/json" };
-      if (currentUser?.email) headers["X-User-Email"] = currentUser.email;
       try {
         const token = localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || currentUser?.token;
         if (token) headers["Authorization"] = `Bearer ${token}`;
@@ -739,7 +737,7 @@ export default function StaffPortalPage({
       const data = await res.json();
       if (res.ok && data.status === "success") {
         showFeedback(
-          isHi ? `✓ टोकन #${data.ticket?.ticket_id} चेक-इन सफल!` : `✓ Successfully checked in! Token #${data.ticket?.ticket_id} issued.`,
+          isHi ? `टोकन #${data.ticket?.ticket_id} चेक-इन सफल!` : `Successfully checked in! Token #${data.ticket?.ticket_id} issued.`,
           "success"
         );
         fetchAppointments();
@@ -774,7 +772,7 @@ export default function StaffPortalPage({
           });
           const data = await res.json();
           if (res.ok && data.status === "success") {
-            showFeedback(isHi ? "✓ अपॉइंटमेंट रद्द किया गया।" : "✓ Appointment cancelled successfully.", "info");
+            showFeedback(isHi ? "अपॉइंटमेंट रद्द किया गया।" : "Appointment cancelled successfully.", "info");
             fetchAppointments();
             fetchLiveQueueData();
             if (refreshData) refreshData();
@@ -821,13 +819,13 @@ export default function StaffPortalPage({
         setLookupFeedback({
           type: "success",
           message: isHi
-            ? `✓ खाता पहचाना गया: ${primary.name} (${data.family_members?.length || 0} परिवार के सदस्य मिले)`
-            : `✓ Verified Account: ${primary.name} (${data.family_members?.length || 0} registered family member${data.family_members?.length === 1 ? "" : "s"})`,
+            ? `खाता पहचाना गया: ${primary.name} (${data.family_members?.length || 0} परिवार के सदस्य मिले)`
+            : `Verified Account: ${primary.name} (${data.family_members?.length || 0} registered family member${data.family_members?.length === 1 ? "" : "s"})`,
         });
         showFeedback(
           isHi
-            ? `✓ पंजीकृत खाता मिला: ${primary.name} (+91 ${primary.phone || q})`
-            : `✓ Registered account verified: ${primary.name} (+91 ${primary.phone || q})`,
+            ? `पंजीकृत खाता मिला: ${primary.name} (+91 ${primary.phone || q})`
+            : `Registered account verified: ${primary.name} (+91 ${primary.phone || q})`,
           "success"
         );
       } else {
@@ -835,8 +833,8 @@ export default function StaffPortalPage({
         setPatientLookupResult(null);
         setSelectedProfileId(null);
         const warnMsg = isHi
-          ? "⚠️ यह मोबाइल नंबर / खाता डेटाबेस में पंजीकृत नहीं है। कृपया नए मरीज के रूप में विवरण दर्ज करें।"
-          : "⚠️ Mobile number is not registered in the database. Please proceed as a new walk-in patient.";
+          ? "यह मोबाइल नंबर / खाता डेटाबेस में पंजीकृत नहीं है। कृपया नए मरीज के रूप में विवरण दर्ज करें।"
+          : "Mobile number is not registered in the database. Please proceed as a new walk-in patient.";
         setLookupFeedback({
           type: "warn",
           message: warnMsg,
@@ -846,7 +844,7 @@ export default function StaffPortalPage({
     } catch (err) {
       console.error("Lookup error:", err);
       setPhoneLookupStatus(null);
-      const errMsg = isHi ? "⚠️ सत्यापन सर्वर से संपर्क नहीं हो सका।" : "⚠️ Could not connect to patient lookup service.";
+      const errMsg = isHi ? "सत्यापन सर्वर से संपर्क नहीं हो सका।" : "Could not connect to patient lookup service.";
       setLookupFeedback({
         type: "warn",
         message: errMsg,
@@ -981,7 +979,7 @@ export default function StaffPortalPage({
         handleSelectProfile(added);
         setShowAddDependentForm(false);
         setNewDependent({ name: "", relation: "spouse", age: 28, gender: "female", phone: "" });
-        showFeedback(isHi ? `✓ ${added.name} को खाते में जोड़ा गया!` : `✓ ${added.name} added to family profile!`, "success");
+        showFeedback(isHi ? `${added.name} को खाते में जोड़ा गया!` : `${added.name} added to family profile!`, "success");
       } else {
         showFeedback(data.message || (isHi ? "परिवार के सदस्य को जोड़ने में विफलता।" : "Failed to add family member."), "error");
       }
@@ -1028,8 +1026,8 @@ export default function StaffPortalPage({
         setOtpCooldown(60);
         showFeedback(
           isHi
-            ? `✓ OTP मरीज के मोबाइल (+91 ${cleanDigits}) पर भेजा गया। कृपया मरीज से 6-अंकीय कोड पूछें।`
-            : `✓ OTP sent via SMS to patient (+91 ${cleanDigits}). Please ask the patient for the 6-digit code.`,
+            ? `OTP मरीज के मोबाइल (+91 ${cleanDigits}) पर भेजा गया। कृपया मरीज से 6-अंकीय कोड पूछें।`
+            : `OTP sent via SMS to patient (+91 ${cleanDigits}). Please ask the patient for the 6-digit code.`,
           "success"
         );
       } else {
@@ -1090,8 +1088,8 @@ export default function StaffPortalPage({
         }
         showFeedback(
           isHi
-            ? `✓ मरीज का खाता सत्यापित हो गया! पूर्व रिकॉर्ड लिंक हो गए।`
-            : `✓ Patient account verified & all past records synced!`,
+            ? `मरीज का खाता सत्यापित हो गया! पूर्व रिकॉर्ड लिंक हो गए।`
+            : `Patient account verified & all past records synced!`,
           "success"
         );
         handleLookupPatient(phone);
@@ -1176,8 +1174,8 @@ export default function StaffPortalPage({
           setOtpCooldown(60);
           showFeedback(
             isHi
-              ? `✓ टोकन #${data.ticket.ticket_id} जारी! मोबाइल OTP मरीज को भेजा गया। मरीज से कोड पूछें।`
-              : `✓ Token #${data.ticket.ticket_id} issued! Mobile OTP sent to patient. Ask patient for the 6-digit code.`,
+              ? `टोकन #${data.ticket.ticket_id} जारी! मोबाइल OTP मरीज को भेजा गया। मरीज से कोड पूछें।`
+              : `Token #${data.ticket.ticket_id} issued! Mobile OTP sent to patient. Ask patient for the 6-digit code.`,
             "success"
           );
         } else if (data.otp_info?.is_registered) {
@@ -1190,15 +1188,15 @@ export default function StaffPortalPage({
           });
           showFeedback(
             isHi
-              ? `✓ टोकन #${data.ticket.ticket_id} जारी! पंजीकृत खाते (${data.otp_info.user_name}) से लिंक किया गया।`
-              : `✓ Token #${data.ticket.ticket_id} generated! Linked to patient account (${data.otp_info.user_name}).`,
+              ? `टोकन #${data.ticket.ticket_id} जारी! पंजीकृत खाते (${data.otp_info.user_name}) से लिंक किया गया।`
+              : `Token #${data.ticket.ticket_id} generated! Linked to patient account (${data.otp_info.user_name}).`,
             "success"
           );
         } else {
           showFeedback(
             isHi
-              ? `✓ टोकन #${data.ticket.ticket_id} जारी किया गया!`
-              : `✓ Token #${data.ticket.ticket_id} generated successfully!`,
+              ? `टोकन #${data.ticket.ticket_id} जारी किया गया!`
+              : `Token #${data.ticket.ticket_id} generated successfully!`,
             "success"
           );
         }
@@ -1322,7 +1320,7 @@ export default function StaffPortalPage({
             }),
           });
           if (res.ok) {
-            showFeedback(isHi ? `✓ टोकन #${ticketId} को अनुपस्थित दर्ज किया गया।` : `✓ Ticket #${ticketId} marked as No-Show.`, "info");
+            showFeedback(isHi ? `टोकन #${ticketId} को अनुपस्थित दर्ज किया गया।` : `Ticket #${ticketId} marked as No-Show.`, "info");
             fetchLiveQueueData();
             if (refreshData) refreshData();
             broadcastLiveQueueChange("ticket_noshow", { ticket_id: ticketId, tenant_id: effectiveHospitalCode });
@@ -1343,7 +1341,6 @@ export default function StaffPortalPage({
     const nextStatus = isCurrentlyOnline ? "OFFLINE" : "AVAILABLE";
     try {
       const headers = { "Content-Type": "application/json" };
-      if (currentUser?.email) headers["X-User-Email"] = currentUser.email;
       try {
         const token = localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || currentUser?.token;
         if (token) headers["Authorization"] = `Bearer ${token}`;
@@ -1360,7 +1357,7 @@ export default function StaffPortalPage({
         body: JSON.stringify({ status: nextStatus }),
       });
       if (res.ok) {
-        showFeedback(isHi ? `✓ डेस्क की स्थिति '${nextStatus}' में बदली गई!` : `✓ Desk status updated to ${nextStatus}!`, "success");
+        showFeedback(isHi ? `डेस्क की स्थिति '${nextStatus}' में बदली गई!` : `Desk status updated to ${nextStatus}!`, "success");
         fetchDesksAndDoctors();
         broadcastLiveQueueChange("desk_status_updated", { desk_id: deskId, status: nextStatus, tenant_id: effectiveHospitalCode });
       } else {
@@ -1765,7 +1762,7 @@ export default function StaffPortalPage({
         fetchDesksAndDoctors(),
         refreshData ? refreshData() : Promise.resolve(),
       ]);
-      showFeedback(isHi ? "✓ लाइव कतार डेटा रीफ्रेश हुआ!" : "✓ Live queue data refreshed!");
+      showFeedback(isHi ? "लाइव कतार डेटा रीफ्रेश हुआ!" : "Live queue data refreshed!");
     } catch (e) {
       console.error("Refresh error:", e);
     } finally {
@@ -1788,7 +1785,7 @@ export default function StaffPortalPage({
       });
       const data = await res.json();
       if (res.ok && (data.status === "success" || data.success)) {
-        showFeedback(isHi ? `✓ टोकन #${ticketId} रद्द किया गया।` : `✓ Ticket #${ticketId} cancelled successfully.`, "info");
+        showFeedback(isHi ? `टोकन #${ticketId} रद्द किया गया।` : `Ticket #${ticketId} cancelled successfully.`, "info");
         setShowCancelModal(false);
         setCancelModalTicket(null);
         fetchLiveQueueData();
@@ -1825,8 +1822,8 @@ export default function StaffPortalPage({
         const targetDeptName = getCategoryLabel(targetDept, language);
         showFeedback(
           isHi
-            ? `✓ टोकन #${ticketId} को ${targetDeptName} में स्थानांतरित किया गया (नया टोकन: #${newTid})`
-            : `✓ Transferred #${ticketId} to ${targetDeptName} (New Token: #${newTid})`,
+            ? `टोकन #${ticketId} को ${targetDeptName} में स्थानांतरित किया गया (नया टोकन: #${newTid})`
+            : `Transferred #${ticketId} to ${targetDeptName} (New Token: #${newTid})`,
           "success"
         );
         setShowTransferModal(false);
@@ -1868,8 +1865,8 @@ export default function StaffPortalPage({
       if (res.ok && data.status === "success") {
         showFeedback(
           isNowEmergency
-            ? (isHi ? `🚨 टोकन #${ticket.ticket_id} को आपातकालीन (Emergency P1) में अपग्रेड किया गया!` : `🚨 Ticket #${ticket.ticket_id} elevated to Emergency Triage (P1)! Front of queue.`)
-            : (isHi ? `🟢 टोकन #${ticket.ticket_id} को सामान्य ओपीडी (Routine P2) में सेट किया गया।` : `🟢 Ticket #${ticket.ticket_id} moved to Routine OPD (P2).`),
+            ? (isHi ? `टोकन #${ticket.ticket_id} को आपातकालीन (Emergency P1) में अपग्रेड किया गया!` : `Ticket #${ticket.ticket_id} elevated to Emergency Triage (P1)! Front of queue.`)
+            : (isHi ? `टोकन #${ticket.ticket_id} को सामान्य ओपीडी (Routine P2) में सेट किया गया।` : `Ticket #${ticket.ticket_id} moved to Routine OPD (P2).`),
           isNowEmergency ? "warn" : "success"
         );
         setShowPriorityModal(false);
@@ -2650,7 +2647,7 @@ export default function StaffPortalPage({
                         </div>
                       </div>
                       {receptionDutyStatus === opt.id && (
-                        <span style={{ color: opt.color, fontSize: "12px", fontWeight: 900 }}>✓</span>
+                        <Check size={12} style={{ color: opt.color }} />
                       )}
                     </button>
                   ))}
@@ -3229,7 +3226,7 @@ export default function StaffPortalPage({
                       Age: {patientLookupResult.account_holder.age} • {patientLookupResult.account_holder.gender}
                     </div>
                     <div style={{ fontSize: "10.5px", color: "#0284C7", fontWeight: 700, marginTop: "4px" }}>
-                      ✓ Account Holder (Self)
+                      Account Holder (Self)
                     </div>
                   </div>
 
@@ -3266,7 +3263,7 @@ export default function StaffPortalPage({
                           Age: {fm.age} • {fm.gender}
                         </div>
                         <div style={{ fontSize: "10.5px", color: "#10B981", fontWeight: 700, marginTop: "4px" }}>
-                          ✓ Relation: {fm.relation || "Family"}
+                          Relation: {fm.relation || "Family"}
                         </div>
                       </div>
                     );
@@ -3474,7 +3471,7 @@ export default function StaffPortalPage({
                     </span>
                   </div>
                   <span style={{ fontSize: "11px", fontWeight: 800, color: "#10B981", background: "#FFFFFF", padding: "2px 8px", borderRadius: "10px" }}>
-                    ✓ LINKED
+                    LINKED
                   </span>
                 </div>
               </div>
@@ -3489,7 +3486,7 @@ export default function StaffPortalPage({
                     </label>
                     {patientLookupResult && (
                       <span style={{ fontSize: "10.5px", fontWeight: 700, color: "#10B981", background: "#DCFCE7", padding: "2px 6px", borderRadius: "4px" }}>
-                        ✓ Auto-filled
+                        Auto-filled
                       </span>
                     )}
                   </div>
@@ -3577,10 +3574,10 @@ export default function StaffPortalPage({
                             {walkinOtpState.loading
                               ? (isHi ? "भेज रहा है..." : "Sending...")
                               : otpCooldown > 0
-                                ? `⏳ ${isHi ? "पुनः भेजें" : "Resend in"} (${otpCooldown}s)`
+                                ? `${isHi ? "पुनः भेजें" : "Resend in"} (${otpCooldown}s)`
                                 : walkinOtpState.sent
-                                  ? (isHi ? "✓ पुनः भेजें" : "✓ Resend OTP")
-                                  : (isHi ? "📲 OTP भेजें" : "📲 Send OTP")}
+                                  ? (isHi ? "पुनः भेजें" : "Resend OTP")
+                                  : (isHi ? "OTP भेजें" : "Send OTP")}
                           </button>
                         )
                       )}
@@ -3627,7 +3624,7 @@ export default function StaffPortalPage({
                       alignItems: "center",
                       gap: "6px",
                     }}>
-                      <span>⚠️</span>
+                      <AlertTriangle size={14} style={{ flexShrink: 0 }} />
                       <span>
                         {isHi
                           ? "यह मोबाइल नंबर डेटाबेस में पंजीकृत नहीं है। कृपया नए मरीज के रूप में विवरण दर्ज करें।"
@@ -3651,7 +3648,7 @@ export default function StaffPortalPage({
                       alignItems: "center",
                       gap: "6px",
                     }}>
-                      <span>✓</span>
+                      <Check size={14} style={{ flexShrink: 0 }} />
                       <span>
                         {isHi
                           ? `पंजीकृत खाता मिल गया: ${patientLookupResult.account_holder?.name || ""}`
@@ -3675,7 +3672,7 @@ export default function StaffPortalPage({
                     }}>
                       <div style={{ marginBottom: "6px" }}>
                         <span style={{ fontSize: "11px", fontWeight: 700, color: "#0369A1" }}>
-                          📲 {isHi
+                          {isHi
                             ? "मरीज के मोबाइल पर SMS भेजा गया। मरीज से 6-अंकीय OTP पूछें:"
                             : "SMS sent to patient's mobile. Ask patient for the 6-digit verification code:"}
                         </span>
@@ -3719,7 +3716,7 @@ export default function StaffPortalPage({
                         >
                           {isVerifyingWalkinOtp
                             ? (isHi ? "सत्यापित कर रहा है..." : "Verifying...")
-                            : (isHi ? "✓ सत्यापित करें व लिंक करें" : "✓ Verify & Link Account")}
+                            : (isHi ? "सत्यापित करें व लिंक करें" : "Verify & Link Account")}
                         </button>
                       </div>
                     </div>
@@ -3915,15 +3912,15 @@ export default function StaffPortalPage({
                   </div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
                     {[
-                      { id: "fever_flu", label: "🤒 " + (isHi ? "तेज़ बुखार" : "High Fever"), text: isHi ? "तेज़ बुखार और कंपकंपी" : "High fever and viral flu" },
-                      { id: "cough_cold", label: "🤧 " + (isHi ? "खांसी-जुकाम" : "Cough & Cold"), text: isHi ? "खांसी, जुकाम और गले में खराश" : "Severe cough and cold" },
-                      { id: "stomach_pain", label: "🤢 " + (isHi ? "पेट दर्द / उल्टी" : "Stomach Pain"), text: isHi ? "पेट में तेज दर्द एवं उल्टी" : "Acute stomach pain and nausea" },
-                      { id: "chest_pain_severe", label: "❤️ " + (isHi ? "सीने में दर्द (🚨 अर्जेंट)" : "Chest Pain (🚨 Urgent)"), text: isHi ? "सीने में गंभीर दर्द व बेचैनी" : "Severe chest pain and discomfort", emergency: true },
-                      { id: "breathing_difficulty", label: "🫁 " + (isHi ? "सांस में तकलीफ (🚨)" : "Breathlessness (🚨)"), text: isHi ? "सांस लेने में गंभीर तकलीफ" : "Shortness of breath / asthma attack", emergency: true },
-                      { id: "headache_migraine", label: "🤕 " + (isHi ? "सिरदर्द" : "Severe Headache"), text: isHi ? "गंभीर सिरदर्द एवं चक्कर" : "Severe headache and dizziness" },
-                      { id: "ortho_joint_pain", label: "🦴 " + (isHi ? "जोड़ों / कमर दर्द" : "Joint / Back Pain"), text: isHi ? "कमर एवं जोड़ों में दर्द" : "Joint stiffness and back pain" },
-                      { id: "fracture_trauma", label: "🩹 " + (isHi ? "चोट / घाव" : "Injury & Trauma"), text: isHi ? "हादसा, चोट या शारीरिक मोच" : "Physical injury or trauma" },
-                      { id: "general_checkup", label: "🩺 " + (isHi ? "सामान्य जांच" : "Routine Checkup"), text: isHi ? "सामान्य परामर्श एवं नियमित स्वास्थ्य जांच" : "Routine OPD checkup and consultation" },
+                      { id: "fever_flu", label: isHi ? "तेज़ बुखार" : "High Fever", text: isHi ? "तेज़ बुखार और कंपकंपी" : "High fever and viral flu" },
+                      { id: "cough_cold", label: isHi ? "खांसी-जुकाम" : "Cough & Cold", text: isHi ? "खांसी, जुकाम और गले में खराश" : "Severe cough and cold" },
+                      { id: "stomach_pain", label: isHi ? "पेट दर्द / उल्टी" : "Stomach Pain", text: isHi ? "पेट में तेज दर्द एवं उल्टी" : "Acute stomach pain and nausea" },
+                      { id: "chest_pain_severe", label: isHi ? "सीने में दर्द (गंभीर)" : "Chest Pain (Urgent)", text: isHi ? "सीने में गंभीर दर्द व बेचैनी" : "Severe chest pain and discomfort", emergency: true },
+                      { id: "breathing_difficulty", label: isHi ? "सांस में तकलीफ (आपातकालीन)" : "Breathlessness (Urgent)", text: isHi ? "सांस लेने में गंभीर तकलीफ" : "Shortness of breath / asthma attack", emergency: true },
+                      { id: "headache_migraine", label: isHi ? "सिरदर्द" : "Severe Headache", text: isHi ? "गंभीर सिरदर्द एवं चक्कर" : "Severe headache and dizziness" },
+                      { id: "ortho_joint_pain", label: isHi ? "जोड़ों / कमर दर्द" : "Joint / Back Pain", text: isHi ? "कमर एवं जोड़ों में दर्द" : "Joint stiffness and back pain" },
+                      { id: "fracture_trauma", label: isHi ? "चोट / घाव" : "Injury & Trauma", text: isHi ? "हादसा, चोट या शारीरिक मोच" : "Physical injury or trauma" },
+                      { id: "general_checkup", label: isHi ? "सामान्य जांच" : "Routine Checkup", text: isHi ? "सामान्य परामर्श एवं नियमित स्वास्थ्य जांच" : "Routine OPD checkup and consultation" },
                     ].map((chip) => {
                       const isSelected = walkinForm.symptoms === chip.id || walkinForm.custom_symptom === chip.text;
                       return (
@@ -3984,7 +3981,7 @@ export default function StaffPortalPage({
                       textAlign: "left",
                     }}
                   >
-                    <div style={{ fontSize: "13.5px" }}>🟢 {isHi ? "सामान्य (Routine)" : "Routine Case"}</div>
+                    <div style={{ fontSize: "13.5px" }}>{isHi ? "सामान्य (Routine)" : "Routine Case"}</div>
                     <div style={{ fontSize: "11px", fontWeight: 500, marginTop: "2px" }}>Standard queue arrival order</div>
                   </button>
 
@@ -4002,7 +3999,7 @@ export default function StaffPortalPage({
                       textAlign: "left",
                     }}
                   >
-                    <div style={{ fontSize: "13.5px" }}>🚨 {isHi ? "आपातकालीन (Emergency)" : "Emergency Triage"}</div>
+                    <div style={{ fontSize: "13.5px" }}>{isHi ? "आपातकालीन (Emergency)" : "Emergency Triage"}</div>
                     <div style={{ fontSize: "11px", fontWeight: 500, marginTop: "2px" }}>Immediate queue jump for critical care</div>
                   </button>
                 </div>
@@ -4095,7 +4092,7 @@ export default function StaffPortalPage({
                         {createdWalkinTicket.isFamilyMember ? ` (Family: ${createdWalkinTicket.profileRelation || "Dependent"})` : " (Primary Self)"}
                       </div>
                       <div style={{ fontSize: "10px", color: "#059669", marginTop: "2px" }}>
-                        ✓ Added to patient's personal visit & prescription history
+                        Added to patient's personal visit & prescription history
                       </div>
                     </div>
                   )}
@@ -4111,7 +4108,7 @@ export default function StaffPortalPage({
                     }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11.5px", fontWeight: 800, color: "#0284C7" }}>
-                          <span>📲 {isHi ? "मरीज मोबाइल सत्यापन OTP" : "Patient Mobile Verification OTP"}</span>
+                          <span>{isHi ? "मरीज मोबाइल सत्यापन OTP" : "Patient Mobile Verification OTP"}</span>
                         </div>
                       </div>
                       <div style={{ fontSize: "11px", color: isDark ? "#CBD5E1" : "#475569", marginBottom: "8px" }}>
@@ -4158,7 +4155,7 @@ export default function StaffPortalPage({
                               cursor: (isVerifyingWalkinOtp || !enteredWalkinOtp || enteredWalkinOtp.length < 4) ? "not-allowed" : "pointer",
                             }}
                           >
-                            {isVerifyingWalkinOtp ? "Verifying..." : "⚡ Activate Patient Account Now"}
+                            {isVerifyingWalkinOtp ? "Verifying..." : "Activate Patient Account Now"}
                           </button>
                         </div>
                       )}
@@ -4180,7 +4177,7 @@ export default function StaffPortalPage({
                       color: "#10B981",
                     }}>
                       <CheckCircle2 size={13} />
-                      <span>{isHi ? "✓ मरीज खाता सत्यापित व सभी पुराने रिकॉर्ड सिंक हो गए!" : "✓ Patient Account Activated & All Historical Records Synced!"}</span>
+                      <span>{isHi ? "मरीज खाता सत्यापित व सभी पुराने रिकॉर्ड सिंक हो गए!" : "Patient Account Activated & All Historical Records Synced!"}</span>
                     </div>
                   )}
                 </div>
@@ -4454,9 +4451,9 @@ export default function StaffPortalPage({
                   <button
                     type="button"
                     onClick={() => setAllQueuesSearchQuery("")}
-                    style={{ position: "absolute", right: "8px", top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "#94A3B8", cursor: "pointer", fontSize: "12px" }}
+                    style={{ position: "absolute", right: "8px", top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "#94A3B8", cursor: "pointer", display: "flex", alignItems: "center" }}
                   >
-                    ✕
+                    <X size={12} />
                   </button>
                 )}
               </div>
@@ -4498,8 +4495,8 @@ export default function StaffPortalPage({
                 }}
               >
                 <option value="all">{isHi ? "सभी प्राथमिकता (All Triage)" : "All Triage Priorities"}</option>
-                <option value="1">🚨 {isHi ? "केवल आपातकालीन (Emergency P1)" : "Emergency Priority (P1)"}</option>
-                <option value="2">🟢 {isHi ? "सामान्य ओपीडी (Routine P2)" : "Routine OPD (P2)"}</option>
+                <option value="1">{isHi ? "केवल आपातकालीन (Emergency P1)" : "Emergency Priority (P1)"}</option>
+                <option value="2">{isHi ? "सामान्य ओपीडी (Routine P2)" : "Routine OPD (P2)"}</option>
               </select>
             </div>
 
@@ -4654,7 +4651,7 @@ export default function StaffPortalPage({
                           </div>
                           <div style={{ fontSize: "11.5px", color: "#64748B", display: "flex", gap: "6px", alignItems: "center", marginTop: "2px" }}>
                             <span>{tkt.age || 30} yrs • {tkt.gender || "Patient"}</span>
-                            {tkt.phone && <span>• 📞 {tkt.phone}</span>}
+                            {tkt.phone && <span>• {tkt.phone}</span>}
                           </div>
                           {tkt.medical_condition && tkt.medical_condition !== "general_checkup" && (
                             <div style={{ fontSize: "10.5px", color: "#0284C7", marginTop: "2px", fontWeight: 600 }}>
@@ -4997,7 +4994,7 @@ export default function StaffPortalPage({
                   outline: "none",
                 }}
               >
-                <option value="all">{isHi ? "📅 सभी तिथियां" : "📅 All Dates"}</option>
+                <option value="all">{isHi ? "सभी तिथियां" : "All Dates"}</option>
                 {next3DaysDates.map((d) => (
                   <option key={d.dateStr} value={d.dateStr}>
                     {d.label}
@@ -5129,7 +5126,7 @@ export default function StaffPortalPage({
                             )}
                           </div>
                           <div style={{ fontSize: "12px", color: "#64748B", display: "flex", alignItems: "center", gap: "6px", marginTop: "2px" }}>
-                            {apt.phone && <span>📞 {apt.phone}</span>}
+                            {apt.phone && <span>{apt.phone}</span>}
                             {(apt.email || apt.user_email) && <span>• {apt.email || apt.user_email}</span>}
                           </div>
                         </td>
@@ -5166,7 +5163,7 @@ export default function StaffPortalPage({
                             alignItems: "center",
                             gap: "4px",
                           }}>
-                            {isCheckedIn ? `✓ Checked-In (#${apt.ticket_id || ""})` : getStatusLabel(apt.status || "booked", language)}
+                            {isCheckedIn ? `Checked-In (#${apt.ticket_id || ""})` : getStatusLabel(apt.status || "booked", language)}
                           </span>
                         </td>
                         <td style={{ padding: "14px", textAlign: "right" }}>
@@ -5387,7 +5384,7 @@ export default function StaffPortalPage({
                     transition: "all 0.15s ease",
                   }}
                 >
-                  🖥️ {isHi ? "केवल काउंटर" : "Counters"} ({searchedDesksList.length})
+                  {isHi ? "केवल काउंटर" : "Counters"} ({searchedDesksList.length})
                 </button>
 
                 <button
@@ -5405,7 +5402,7 @@ export default function StaffPortalPage({
                     transition: "all 0.15s ease",
                   }}
                 >
-                  🩺 {isHi ? "केवल चिकित्सक" : "Clinicians"} ({searchedDoctorsList.length})
+                  {isHi ? "केवल चिकित्सक" : "Clinicians"} ({searchedDoctorsList.length})
                 </button>
 
                 <button
@@ -5423,7 +5420,7 @@ export default function StaffPortalPage({
                     transition: "all 0.15s ease",
                   }}
                 >
-                  👥 {isHi ? "कार्यरत स्टाफ" : "Active Staff"} ({searchedStaffList.length})
+                  {isHi ? "कार्यरत स्टाफ" : "Active Staff"} ({searchedStaffList.length})
                 </button>
 
                 <button
@@ -5891,12 +5888,12 @@ export default function StaffPortalPage({
                               flexShrink: 0,
                             }}>
                               {isEmergency
-                                ? (isHi ? "🚨 इमरजेंसी राउंड" : "🚨 EMERGENCY")
+                                ? (isHi ? "इमरजेंसी राउंड" : "EMERGENCY")
                                 : isOnBreak
-                                  ? (isHi ? "☕ ब्रेक पर" : "☕ ON BREAK")
+                                  ? (isHi ? "ब्रेक पर" : "ON BREAK")
                                   : isOnline
-                                    ? (isHi ? "● ऑन-ड्यूटी" : "● ON DUTY")
-                                    : (isHi ? "○ ड्यूटी समाप्त" : "○ OFF DUTY")}
+                                    ? (isHi ? "ऑन-ड्यूटी" : "ON DUTY")
+                                    : (isHi ? "ड्यूटी समाप्त" : "OFF DUTY")}
                             </span>
                           </div>
 
@@ -6520,7 +6517,7 @@ export default function StaffPortalPage({
                   textAlign: "left",
                 }}
               >
-                <div>🟢 {isHi ? "सामान्य (Routine P2)" : "Routine OPD (P2)"}</div>
+                <div>{isHi ? "सामान्य (Routine P2)" : "Routine OPD (P2)"}</div>
                 <div style={{ fontSize: "10.5px", fontWeight: 500, marginTop: "2px" }}>Standard arrival order</div>
               </button>
 
@@ -6539,7 +6536,7 @@ export default function StaffPortalPage({
                   textAlign: "left",
                 }}
               >
-                <div>🚨 {isHi ? "आपातकालीन (Emergency P1)" : "Emergency (P1)"}</div>
+                <div>{isHi ? "आपातकालीन (Emergency P1)" : "Emergency (P1)"}</div>
                 <div style={{ fontSize: "10.5px", fontWeight: 500, marginTop: "2px" }}>Immediate front of queue</div>
               </button>
             </div>
@@ -6806,7 +6803,7 @@ export default function StaffPortalPage({
               {detailModalTicket.phone && (
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
                   <span style={{ color: "#64748B" }}>Contact Phone:</span>
-                  <span>📞 {detailModalTicket.phone}</span>
+                  <span>{detailModalTicket.phone}</span>
                 </div>
               )}
               <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -6815,7 +6812,7 @@ export default function StaffPortalPage({
               </div>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
                 <span style={{ color: "#64748B" }}>Triage Priority:</span>
-                <span>{Number(detailModalTicket.priority_level || detailModalTicket.priority || 2) === 1 ? "🚨 Emergency (P1)" : "🟢 Routine OPD (P2)"}</span>
+                <span>{Number(detailModalTicket.priority_level || detailModalTicket.priority || 2) === 1 ? "Emergency (P1)" : "Routine OPD (P2)"}</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
                 <span style={{ color: "#64748B" }}>Current Status:</span>

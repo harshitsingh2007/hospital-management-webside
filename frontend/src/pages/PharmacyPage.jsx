@@ -527,7 +527,7 @@ export default function PharmacyPage({
       return list.map((d) => {
         const isMyDesk = assignedDesk && d.id === assignedDesk.id;
         const assignedLabel = isMyDesk
-          ? (isHi ? " ★ (आपका आवंटित डेस्क)" : " ★ (Your Assigned Desk)")
+          ? (isHi ? " [आपका आवंटित डेस्क]" : " [Your Assigned Desk]")
           : d.assigned_employee_name
             ? ` (${d.assigned_employee_name})`
             : "";
@@ -608,7 +608,6 @@ export default function PharmacyPage({
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
-        ...(currentUser?.email ? { "X-User-Email": currentUser.email } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify(payload),
@@ -777,7 +776,6 @@ export default function PharmacyPage({
     setVisitsError(null);
     try {
       const headers = { "Content-Type": "application/json" };
-      if (currentUser?.email) headers["X-User-Email"] = currentUser.email;
       try {
         const token = localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || currentUser?.token;
         if (token) headers["Authorization"] = `Bearer ${token}`;
@@ -1041,7 +1039,7 @@ export default function PharmacyPage({
 
   // Helper to determine whether a medicine was given or not given
   const getMedicineDispenseStatus = useCallback((med, visit) => {
-    if (!med) return { isGiven: false, statusText: "Not Given", statusLabel: isHi ? "नहीं दी गई ✕" : "Not Given ✕", color: "#EF4444" };
+    if (!med) return { isGiven: false, statusText: "Not Given", statusLabel: isHi ? "नहीं दी गई" : "Not Given", color: "#EF4444" };
 
     if (
       med.dispensed === true ||
@@ -1051,7 +1049,7 @@ export default function PharmacyPage({
       med.status === "dispensed" ||
       med.status === "given"
     ) {
-      return { isGiven: true, statusText: "Given", statusLabel: isHi ? "दी गई ✓" : "Given ✓", color: "#10B981" };
+      return { isGiven: true, statusText: "Given", statusLabel: isHi ? "दी गई" : "Given", color: "#10B981" };
     }
     if (
       med.dispensed === false ||
@@ -1063,7 +1061,7 @@ export default function PharmacyPage({
       med.status === "out_of_stock" ||
       med.status === "cancelled"
     ) {
-      return { isGiven: false, statusText: "Not Given", statusLabel: isHi ? "नहीं दी गई ✕" : "Not Given ✕", color: "#EF4444" };
+      return { isGiven: false, statusText: "Not Given", statusLabel: isHi ? "नहीं दी गई" : "Not Given", color: "#EF4444" };
     }
 
     // Rule 3: If an item was never marked before completion, display it as "Not Given" by default.
@@ -2661,13 +2659,13 @@ export default function PharmacyPage({
             animation: "fadeIn 0.2s ease",
           }}
         >
-          <span>{toastMsg.type === "error" ? "✕" : toastMsg.type === "warn" ? "!" : "✓"}</span>
+          <span style={{ display: "inline-flex", alignItems: "center" }}>{toastMsg.type === "error" ? <XCircle size={14} /> : toastMsg.type === "warn" ? <AlertTriangle size={14} /> : <CheckCircle size={14} />}</span>
           <span>{toastMsg.text}</span>
           <button
             onClick={() => setToastMsg(null)}
-            style={{ background: "none", border: "none", color: "#fff", cursor: "pointer", marginLeft: "10px", fontWeight: "bold" }}
+            style={{ background: "none", border: "none", color: "#fff", cursor: "pointer", marginLeft: "10px", display: "inline-flex", alignItems: "center" }}
           >
-            ✕
+            <X size={14} />
           </button>
         </div>
       )}
@@ -2949,7 +2947,7 @@ export default function PharmacyPage({
                         </div>
                       </div>
                       {pharmaDutyStatus === opt.id && (
-                        <span style={{ color: opt.color, fontSize: "12px", fontWeight: 900 }}>✓</span>
+                        <Check size={12} style={{ color: opt.color }} />
                       )}
                     </button>
                   ))}
@@ -3103,7 +3101,7 @@ export default function PharmacyPage({
               boxShadow: "0 2px 8px rgba(16, 185, 129, 0.35)",
             }}
           >
-            <span>✓</span>
+            <Check size={12} />
             <span>{isHi ? "ड्यूटी पुनः शुरू करें" : "Resume Active Duty"}</span>
           </button>
         </div>
@@ -3342,7 +3340,7 @@ export default function PharmacyPage({
                                 cursor: "pointer",
                               }}
                             >
-                              {isHi ? "✓ सभी दी गईं" : "✓ Mark All Given"}
+                              {isHi ? "सभी दी गईं" : "Mark All Given"}
                             </button>
                             <button
                               type="button"
@@ -3364,13 +3362,13 @@ export default function PharmacyPage({
                                 cursor: "pointer",
                               }}
                             >
-                              {isHi ? "✕ सभी बाकी" : "✕ Mark All Not Given"}
+                              {isHi ? "सभी बाकी" : "Mark All Not Given"}
                             </button>
                           </div>
                         )}
                         <div style={{ fontSize: "12px", fontWeight: 700, color: verifiedAll ? "#10B981" : mutedText }}>
                           {verifiedAll
-                            ? (isHi ? "✓ सभी दवाएं सत्यापित" : "✓ All items verified")
+                            ? (isHi ? "सभी दवाएं सत्यापित" : "All items verified")
                             : (isHi ? "वितरण के लिए प्रत्येक पर सही का निशान लगाएं" : "Check off items as you pick & pack")}
                         </div>
                       </div>
@@ -3474,7 +3472,7 @@ export default function PharmacyPage({
                                       color: isDispensed ? "#FFFFFF" : mutedText,
                                     }}
                                   >
-                                    {isDispensed ? (isHi ? "दी गई ✓" : "Given ✓") : (isHi ? "बाकी" : "PENDING")}
+                                    {isDispensed ? (isHi ? "दी गई" : "Given") : (isHi ? "बाकी" : "PENDING")}
                                   </span>
                                 </div>
                               </div>
@@ -3528,7 +3526,7 @@ export default function PharmacyPage({
                           <span>
                             {completingTicket
                               ? (isHi ? "वितरण सहेजा जा रहा है..." : "Completing...")
-                              : (isHi ? "✓ सभी दवाएं वितरित व परामर्श पूर्ण" : "✓ Mark Dispensed & Complete Visit")}
+                              : (isHi ? "सभी दवाएं वितरित व परामर्श पूर्ण" : "Mark Dispensed & Complete Visit")}
                           </span>
                         </button>
                       </div>
@@ -3620,9 +3618,9 @@ export default function PharmacyPage({
                       {searchQuery && (
                         <button
                           onClick={() => setSearchQuery("")}
-                          style={{ position: "absolute", right: "6px", top: "7px", background: "none", border: "none", color: mutedText, cursor: "pointer", fontSize: "11px" }}
+                          style={{ position: "absolute", right: "6px", top: "7px", background: "none", border: "none", color: mutedText, cursor: "pointer", fontSize: "11px", display: "inline-flex", alignItems: "center" }}
                         >
-                          ✕
+                          <X size={12} />
                         </button>
                       )}
                     </div>
@@ -5694,7 +5692,7 @@ export default function PharmacyPage({
                           fontSize: "11px",
                         }}
                       >
-                        ✕
+                        <X size={12} />
                       </button>
                     )}
                   </div>
@@ -6217,7 +6215,7 @@ export default function PharmacyPage({
                       fontWeight: "bold",
                     }}
                   >
-                    ✕
+                    <X size={16} />
                   </button>
                 </div>
 
@@ -6355,7 +6353,7 @@ export default function PharmacyPage({
                           }}
                           title={isHi ? "सभी दवाओं को 'दी गई' चिह्नित करें" : "Mark all medications as Given"}
                         >
-                          {isHi ? "✓ सभी दी गईं" : "✓ Mark All Given"}
+                          {isHi ? "सभी दी गईं" : "Mark All Given"}
                         </button>
                         <button
                           type="button"
@@ -6372,7 +6370,7 @@ export default function PharmacyPage({
                           }}
                           title={isHi ? "सभी दवाओं को 'नहीं दी गई' चिह्नित करें" : "Mark all medications as Not Given"}
                         >
-                          {isHi ? "✕ सभी नहीं दी गईं" : "✕ Mark All Not Given"}
+                          {isHi ? "सभी नहीं दी गईं" : "Mark All Not Given"}
                         </button>
                         {modalHasChanges && (
                           <button
@@ -6460,7 +6458,7 @@ export default function PharmacyPage({
                                       }}
                                     >
                                       {isGiven ? <CheckCircle2 size={13} color="#10B981" /> : <XCircle size={13} color="#EF4444" />}
-                                      <span>{isGiven ? (isHi ? "दी गई ✓" : "Given ✓") : (isHi ? "नहीं दी गई ✕" : "Not Given ✕")}</span>
+                                      <span>{isGiven ? (isHi ? "दी गई" : "Given") : (isHi ? "नहीं दी गई" : "Not Given")}</span>
                                     </button>
                                   ) : (
                                     <span

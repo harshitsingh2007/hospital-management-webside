@@ -253,7 +253,6 @@ export default function RadiologyPage({
     if (!effectiveHospitalCode) return;
     try {
       const headers = { "Content-Type": "application/json" };
-      if (currentUser?.email) headers["X-User-Email"] = currentUser.email;
       try {
         const token = localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || currentUser?.token;
         if (token) headers["Authorization"] = `Bearer ${token}`;
@@ -462,7 +461,6 @@ export default function RadiologyPage({
       }
 
       const headers = { "Content-Type": "application/json" };
-      if (currentUser?.email) headers["X-User-Email"] = currentUser.email;
       try {
         const token = localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || currentUser?.token;
         if (token) headers["Authorization"] = `Bearer ${token}`;
@@ -841,7 +839,6 @@ export default function RadiologyPage({
       });
 
       const headers = {};
-      if (currentUser?.email) headers["X-User-Email"] = currentUser.email;
       try {
         const token = localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || currentUser?.token;
         if (token) headers["Authorization"] = `Bearer ${token}`;
@@ -1667,7 +1664,6 @@ export default function RadiologyPage({
     if (isInitial) setAppointmentsLoading(true);
     try {
       const headers = { "Content-Type": "application/json" };
-      if (currentUser?.email) headers["X-User-Email"] = currentUser.email;
       try {
         const token = localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || currentUser?.token;
         if (token) headers["Authorization"] = `Bearer ${token}`;

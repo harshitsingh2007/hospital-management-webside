@@ -41,6 +41,10 @@ const {
   getHospitalLiveSummary,
   bulkAddHospitalEmployees,
   bulkAddHospitalVisits,
+  getHospitalRequests,
+  getHospitalRequestById,
+  approveHospitalRequest,
+  rejectHospitalRequest,
 } = require("../services/hospitalService");
 const { verifyHospitalAccess } = require("../middleware/hospitalIsolation");
 const { SUPER_ROLES } = require("../middleware/role");
@@ -196,6 +200,14 @@ async function checkHospitalCodeEndpoint(req, res, next) {
 
 async function createHospitalEndpoint(req, res, next) {
   try {
+    const isPlatformAdmin = !!req.user?.is_superadmin || (req.user?.role || "").toLowerCase() === "super_admin" || (req.user?.role || "").toLowerCase() === "superadmin";
+    if (!isPlatformAdmin) {
+      return res.status(403).json({
+        status: "error",
+        message: "Forbidden: Only platform super administrators can directly create hospitals. Hospital owners must submit a registration request for approval.",
+      });
+    }
+
     const {
       hospital_code,
       name,
@@ -563,7 +575,7 @@ async function addHospitalEmployeeEndpoint(req, res, next) {
       department,
       employee_id = "",
       phone = "",
-      password = "pass123",
+      password = "",
       qualification = "",
       specialization = "",
       license_number = "",
@@ -572,12 +584,14 @@ async function addHospitalEmployeeEndpoint(req, res, next) {
       room_number = "",
     } = req.body;
 
-    const pwdCheck = validatePassword(password);
-    if (!pwdCheck.valid) {
-      return res.status(400).json({
-        status: "error",
-        message: pwdCheck.error,
-      });
+    if (password && String(password).trim() !== "" && String(password).trim() !== "pass123") {
+      const pwdCheck = validatePassword(password);
+      if (!pwdCheck.valid) {
+        return res.status(400).json({
+          status: "error",
+          message: pwdCheck.error,
+        });
+      }
     }
 
     const employee = await addHospitalEmployee({
@@ -1072,7 +1086,110 @@ async function bulkAddHospitalVisitsEndpoint(req, res, next) {
   }
 }
 
+async function getHospitalRequestsEndpoint(req, res, next) {
+  try {
+    const { status, page, limit } = req.query;
+    const result = await getHospitalRequests({ status, page, limit });
+    return res.status(200).json({
+      status: "success",
+      ...result,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function getHospitalRequestDetailEndpoint(req, res, next) {
+  try {
+    const requestId = req.params.id;
+    const request = await getHospitalRequestById(requestId);
+    if (!request) {
+      return res.status(404).json({ status: "error", message: "Hospital request not found." });
+    }
+    return res.status(200).json({
+      status: "success",
+      request,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function approveHospitalRequestEndpoint(req, res, next) {
+  try {
+    const requestId = req.params.id;
+    const { notes } = req.body;
+    const approverUserId = req.user?.id;
+
+    const result = await approveHospitalRequest({
+      requestId,
+      approverUserId,
+      notes,
+    });
+
+    return res.status(200).json({
+      status: "success",
+      message: `Hospital request approved and hospital '${result.hospital.hospital_code}' created.`,
+      request: result.request,
+      hospital: result.hospital,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function rejectHospitalRequestEndpoint(req, res, next) {
+  try {
+    const requestId = req.params.id;
+    const { reason } = req.body;
+    const approverUserId = req.user?.id;
+
+    const result = await rejectHospitalRequest({
+      requestId,
+      approverUserId,
+      reason,
+    });
+
+    return res.status(200).json({
+      status: "success",
+      message: "Hospital request rejected.",
+      request: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function getMyHospitalRequestEndpoint(req, res, next) {
+  try {
+    const userId = req.user?.id;
+    const request = await prisma.hospital_requests.findFirst({
+      where: { user_id: userId },
+      orderBy: { created_at: "desc" },
+    });
+
+    if (!request) {
+      return res.status(404).json({
+        status: "error",
+        message: "No hospital request found for your account.",
+      });
+    }
+
+    return res.status(200).json({
+      status: "success",
+      request,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
+  getHospitalRequestsEndpoint,
+  getHospitalRequestDetailEndpoint,
+  approveHospitalRequestEndpoint,
+  rejectHospitalRequestEndpoint,
+  getMyHospitalRequestEndpoint,
   checkHospitalCodeEndpoint,
   getHospitalInfoEndpoint,
   getPublicHospitalsEndpoint,

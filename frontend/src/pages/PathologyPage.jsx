@@ -388,7 +388,6 @@ export default function PathologyPage({
       }
 
       const headers = { "Content-Type": "application/json" };
-      if (currentUser?.email) headers["X-User-Email"] = currentUser.email;
       try {
         const token = localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || currentUser?.token;
         if (token) headers["Authorization"] = `Bearer ${token}`;
@@ -719,7 +718,6 @@ export default function PathologyPage({
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            ...(currentUser?.email ? { "X-User-Email": currentUser.email } : {}),
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
           body: JSON.stringify(payload),
@@ -1180,7 +1178,6 @@ export default function PathologyPage({
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            ...(currentUser?.email ? { "X-User-Email": currentUser.email } : {}),
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
           body: JSON.stringify({
@@ -1224,7 +1221,6 @@ export default function PathologyPage({
     setHistoryError(null);
     try {
       const headers = { "Content-Type": "application/json" };
-      if (currentUser?.email) headers["X-User-Email"] = currentUser.email;
       try {
         const token = localStorage.getItem("ai_queue_token") || localStorage.getItem("token") || currentUser?.token;
         if (token) headers["Authorization"] = `Bearer ${token}`;
@@ -5964,7 +5960,7 @@ export default function PathologyPage({
                           fontSize: "11px",
                         }}
                       >
-                        ✕
+                        <X size={12} />
                       </button>
                     )}
                   </div>

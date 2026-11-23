@@ -7,6 +7,15 @@
 
 import { API_BASE } from "../config/hospitalConfig";
 
+function getAuthHeaders() {
+  const token = typeof window !== "undefined"
+    ? (localStorage.getItem("ai_queue_token") || localStorage.getItem("token"))
+    : null;
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  return headers;
+}
+
 /**
  * Fetch composite medical history by ticket ID (optimized for active doctor consultation).
  */
@@ -19,7 +28,9 @@ export async function fetchPatientHistoryByTicket(ticketId, hospitalId = null, p
   if (hospitalId) params.set("hospital_id", hospitalId);
 
   try {
-    const res = await fetch(`${API_BASE}/api/v1/tickets/${encodeURIComponent(ticketId)}/patient-history?${params.toString()}`);
+    const res = await fetch(`${API_BASE}/api/v1/tickets/${encodeURIComponent(ticketId)}/patient-history?${params.toString()}`, {
+      headers: getAuthHeaders(),
+    });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } catch (err) {
@@ -44,7 +55,9 @@ export async function fetchPatientHistory({ patientId, phone, hospitalId = null,
     : `${API_BASE}/api/v1/plugin/patient-history?${params.toString()}`;
 
   try {
-    const res = await fetch(endpoint);
+    const res = await fetch(endpoint, {
+      headers: getAuthHeaders(),
+    });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } catch (err) {
@@ -66,7 +79,9 @@ export async function fetchPatientVisits(patientId, hospitalId = null, options =
   if (hospitalId) params.set("hospital_id", hospitalId);
 
   try {
-    const res = await fetch(`${API_BASE}/api/v1/patients/${encodeURIComponent(patientId)}/visits?${params.toString()}`);
+    const res = await fetch(`${API_BASE}/api/v1/patients/${encodeURIComponent(patientId)}/visits?${params.toString()}`, {
+      headers: getAuthHeaders(),
+    });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } catch (err) {

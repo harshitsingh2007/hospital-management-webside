@@ -48,3 +48,7 @@ backend/AI-queue-System/
 
 # Playwright MCP testing artifacts
 .playwright-mcp/
+
+# ML Model Pickles
+*.pkl
+backend/models/**/*.pkl
