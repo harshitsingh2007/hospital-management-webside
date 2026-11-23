@@ -14,6 +14,7 @@ const { runSocketTests } = require("./socket.test");
 const { runDoctorAvailabilityTests } = require("./doctor_availability.test");
 const { runDoctorDutyStatusTests } = require("./doctor_duty_status.test");
 const { runKioskTests } = require("./kiosk.test");
+const { runContinuousLearningTests } = require("./continuous_learning.test");
 const prisma = require("../src/config/prisma");
 const engine = require("../src/services/queueEngine");
 
@@ -39,11 +40,12 @@ async function runMasterTestSuite() {
     await runDoctorDutyStatusTests();
     await runSocketTests();
     await runKioskTests();
+    await runContinuousLearningTests();
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
 
     console.log("================================================================================");
-    console.log(` 🎉 ALL 10 TEST SUITES COMPLETED SUCCESSFULLY IN ${elapsed}s!`);
+    console.log(` 🎉 ALL 11 TEST SUITES COMPLETED SUCCESSFULLY IN ${elapsed}s!`);
     console.log(" 💯 100% OF MIGRATION CONTRACTS & BUSINESS LOGIC VERIFIED AGAINST POSTGRESQL.");
     console.log("================================================================================");
   } catch (err) {

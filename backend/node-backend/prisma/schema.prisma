@@ -171,6 +171,8 @@ model hospitals {
   created_at                DateTime                    @default(now()) @db.Timestamptz(6)
   updated_at                DateTime                    @default(now()) @db.Timestamptz(6)
   branding_json             Json?                       @default("{}")
+  allow_global_learning     Boolean                     @default(false)
+  auto_learning_enabled     Boolean                     @default(true)
   appointments              appointments[]
   audit_logs                audit_logs[]
   bills                     bills[]
@@ -182,6 +184,7 @@ model hospitals {
   users                     users?                      @relation(fields: [owner_user_id], references: [id], onUpdate: NoAction)
   kiosks                    kiosks[]
   medical_reports           medical_reports[]
+  model_training_runs       model_training_runs[]
   prescriptions             prescriptions[]
   queue_events              queue_events[]
   service_logs              service_logs[]
@@ -324,7 +327,7 @@ model queue_events {
 model service_logs {
   id                       Int          @id @default(autoincrement())
   hospital_id              Int
-  ticket_id                String       @db.VarChar(100)
+  ticket_id                String       @unique @db.VarChar(100)
   department_id            Int?
   consumer_type            String       @default("hospital") @db.VarChar(50)
   service_category         String       @db.VarChar(100)
@@ -336,6 +339,7 @@ model service_logs {
   complexity_score         Float        @default(1.0)
   historical_avg_speed     Float        @default(15.0)
   service_duration_minutes Float
+  data_quality             String       @default("actual") @db.VarChar(50)
   completed_at             DateTime     @default(now()) @db.Timestamptz(6)
   queue_date               DateTime?    @default(dbgenerated("CURRENT_DATE")) @db.Date
   departments              departments? @relation(fields: [department_id], references: [id], onUpdate: NoAction)
@@ -413,6 +417,7 @@ model tickets {
   pre_existing_condition    String?        @default("none") @db.VarChar(100)
   complexity_score          Float?         @default(1.0)
   prescription_notes        String?        @default("")
+  feature_snapshot          Json?          @default("{}")
   parent_ticket_id          String?        @default("") @db.VarChar(100)
   transferred_from_dept     String?        @default("") @db.VarChar(100)
   source                    String?        @default("patient_portal") @db.VarChar(50)
@@ -646,5 +651,29 @@ model broadcasts {
   @@index([status], map: "idx_broadcasts_status")
   @@index([hospital_code], map: "idx_broadcasts_hospital_code")
   @@index([created_at(sort: Desc)], map: "idx_broadcasts_created_at")
+}
+
+model model_training_runs {
+  id                    Int        @id @default(autoincrement())
+  hospital_id           Int?
+  tenant_code           String     @db.VarChar(100)
+  version               String     @db.VarChar(100)
+  status                String     @default("completed") @db.VarChar(50)
+  promoted              Boolean    @default(false)
+  promotion_reason      String?    @default("")
+  data_source           String     @default("service_logs") @db.VarChar(100)
+  training_rows         Int        @default(0)
+  mae                   Float      @default(0.0)
+  baseline_mae          Float      @default(0.0)
+  mape                  Float      @default(0.0)
+  r2_score              Float      @default(0.0)
+  training_window_start DateTime?  @db.Timestamptz(6)
+  training_window_end   DateTime?  @db.Timestamptz(6)
+  model_path            String?    @default("") @db.VarChar(500)
+  created_at            DateTime   @default(now()) @db.Timestamptz(6)
+  hospitals             hospitals? @relation(fields: [hospital_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([hospital_id, created_at], map: "idx_model_training_runs_hosp")
+  @@index([tenant_code, created_at], map: "idx_model_training_runs_tenant")
 }
 

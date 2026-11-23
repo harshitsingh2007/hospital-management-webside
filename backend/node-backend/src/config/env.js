@@ -12,6 +12,7 @@ module.exports = {
   FRONTEND_URL: process.env.FRONTEND_URL || "http://localhost:5173",
   AI_SERVICE_URL: process.env.AI_SERVICE_URL || "http://localhost:8001",
   AI_SERVICE_PORT: parseInt(process.env.AI_SERVICE_PORT || "8001", 10),
+  AI_INTERNAL_SECRET: process.env.AI_INTERNAL_SECRET || "internal-queue-ai-secret-key-2026",
   ALLOW_LEGACY_EMAIL_AUTH: process.env.ALLOW_LEGACY_EMAIL_AUTH === "true",
   SMTP_HOST: process.env.SMTP_HOST || "smtp.gmail.com",
   SMTP_PORT: parseInt(process.env.SMTP_PORT || "587", 10),

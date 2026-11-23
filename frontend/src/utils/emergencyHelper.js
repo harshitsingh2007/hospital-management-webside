@@ -13,5 +13,4 @@ export {
   EmergencyDeskBanner,
   NoDeskNotice,
   EmergencyBadge,
-  default,
 } from "./deskScope.jsx";

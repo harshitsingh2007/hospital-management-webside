@@ -295,37 +295,62 @@ export function useAssignedDesk({ hospitalCode, currentUser, socketRef, storageK
 /**
  * UI Component: Desk Department Badge for headers
  */
-export function DeskDepartmentBadge({ deskScope, assignedDesk, isDark = false, language = "en", customStyle = "" }) {
-  const isEmergency = deskScope?.isEmergencyDesk;
+export function DeskDepartmentBadge({ deskScope, assignedDesk, isDark = false, language = "en", customStyle = null }) {
+  const isEmergency = Boolean(deskScope?.isEmergencyDesk);
   const isHi = language === "hi";
+
+  const containerStyle = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "6px",
+    background: isEmergency
+      ? (isDark ? "rgba(220, 38, 38, 0.2)" : "#FEF2F2")
+      : (isDark ? "rgba(255, 255, 255, 0.12)" : "rgba(255, 255, 255, 0.15)"),
+    border: isEmergency
+      ? (isDark ? "1px solid rgba(220, 38, 38, 0.4)" : "1px solid #FECDD3")
+      : "1px solid rgba(255, 255, 255, 0.25)",
+    borderRadius: "10px",
+    padding: "6px 12px",
+    backdropFilter: "blur(8px)",
+    WebkitBackdropFilter: "blur(8px)",
+    color: isEmergency ? (isDark ? "#FCA5A5" : "#DC2626") : "#FFFFFF",
+    fontSize: "12px",
+    fontWeight: 800,
+    userSelect: "none",
+    letterSpacing: "0.3px",
+    ...(typeof customStyle === "object" && customStyle ? customStyle : {}),
+  };
 
   if (isEmergency) {
     return (
-      <span
-        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide border shadow-xs ${
-          isDark
-            ? "bg-rose-950/40 text-rose-300 border-rose-900/60"
-            : "bg-rose-50 text-rose-700 border-rose-200"
-        } ${customStyle}`}
-      >
-        <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
-        {isHi ? "आपातकालीन ट्राइएज डेस्क" : "Emergency Triage Desk"}
-      </span>
+      <div style={containerStyle} title={isHi ? "आपातकालीन ट्राइएज डेस्क" : "Emergency Triage Desk"}>
+        <span
+          style={{
+            width: "7px",
+            height: "7px",
+            borderRadius: "50%",
+            background: "#DC2626",
+            display: "inline-block",
+            flexShrink: 0,
+            boxShadow: "0 0 6px rgba(220, 38, 38, 0.6)",
+          }}
+        />
+        <span>{isHi ? "आपातकालीन ट्राइएज डेस्क" : "Emergency Triage Desk"}</span>
+      </div>
     );
   }
 
-  const deptLabel = deskScope?.deptName || assignedDesk?.desk_name || (isHi ? "सामान्य डेस्क" : "General Desk");
+  const deptLabel =
+    deskScope?.deptName ||
+    assignedDesk?.department_name ||
+    assignedDesk?.desk_name ||
+    (isHi ? "सामान्य डेस्क" : "General Desk");
+
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border shadow-xs ${
-        isDark
-          ? "bg-slate-800 text-slate-300 border-slate-700"
-          : "bg-slate-100 text-slate-700 border-slate-200"
-      } ${customStyle}`}
-    >
-      <Building2 className="w-3 h-3 text-slate-400" />
-      {deptLabel}
-    </span>
+    <div style={containerStyle} title={deptLabel}>
+      <Building2 size={12} color="#38BDF8" style={{ flexShrink: 0 }} />
+      <span>{deptLabel}</span>
+    </div>
   );
 }
 
@@ -339,24 +364,58 @@ export function EmergencyDeskBanner({ isEmergencyDesk, isDark = false, language 
   return (
     <div
       role="alert"
-      className={`mb-4 px-4 py-3 rounded-xl border flex items-center gap-3 shadow-xs ${
-        isDark
-          ? "bg-rose-950/30 border-rose-900/60 text-rose-200"
-          : "bg-rose-50 border-rose-200 text-rose-900"
-      }`}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "12px",
+        padding: "12px 18px",
+        borderRadius: "14px",
+        background: isDark ? "rgba(220, 38, 38, 0.15)" : "#FEF2F2",
+        border: isDark ? "1px solid rgba(220, 38, 38, 0.4)" : "1px solid #FECDD3",
+        color: isDark ? "#FCA5A5" : "#991B1B",
+        marginBottom: "16px",
+        boxShadow: isDark
+          ? "0 4px 14px rgba(220, 38, 38, 0.12)"
+          : "0 4px 14px rgba(220, 38, 38, 0.08)",
+      }}
     >
-      <div className={`p-2 rounded-lg ${isDark ? "bg-rose-900/50 text-rose-300" : "bg-rose-100 text-rose-600"}`}>
-        <ShieldAlert className="w-5 h-5 shrink-0" />
+      <div
+        style={{
+          width: "36px",
+          height: "36px",
+          borderRadius: "10px",
+          background: isDark ? "rgba(220, 38, 38, 0.25)" : "#FEE2E2",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0,
+        }}
+      >
+        <ShieldAlert size={20} color="#DC2626" />
       </div>
-      <div className="flex-1 text-sm font-medium">
-        <p className="font-semibold text-rose-700 dark:text-rose-300">
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            fontSize: "13px",
+            fontWeight: 900,
+            color: isDark ? "#FCA5A5" : "#B91C1C",
+          }}
+        >
           {isHi ? "आपातकालीन ट्राइएज मोड सक्रिय" : "Emergency Triage Mode Active"}
-        </p>
-        <p className="text-xs text-rose-600/90 dark:text-rose-300/80 mt-0.5">
+        </div>
+        <div
+          style={{
+            fontSize: "11.5px",
+            fontWeight: 600,
+            opacity: 0.9,
+            marginTop: "1px",
+            color: isDark ? "#FECDD3" : "#7F1D1D",
+          }}
+        >
           {isHi
             ? "आप आपातकालीन ट्राइएज डेस्क पर नियुक्त हैं। केवल आपातकालीन मरीज दिखाए जा रहे हैं।"
             : "You are assigned to the Emergency Triage desk. Showing emergency patients only."}
-        </p>
+        </div>
       </div>
     </div>
   );
@@ -372,18 +431,40 @@ export function NoDeskNotice({ desksLoaded, assignedDesk, isDark = false, langua
   return (
     <div
       role="alert"
-      className={`mb-4 px-4 py-3 rounded-xl border flex items-center gap-3 shadow-xs ${
-        isDark
-          ? "bg-amber-950/30 border-amber-900/50 text-amber-200"
-          : "bg-amber-50 border-amber-200 text-amber-900"
-      }`}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "12px",
+        padding: "12px 18px",
+        borderRadius: "14px",
+        background: isDark ? "rgba(245, 158, 11, 0.15)" : "#FFFBEB",
+        border: isDark ? "1px solid rgba(245, 158, 11, 0.4)" : "1px solid #FDE68A",
+        color: isDark ? "#FDE68A" : "#92400E",
+        marginBottom: "16px",
+        boxShadow: isDark
+          ? "0 4px 14px rgba(245, 158, 11, 0.12)"
+          : "0 4px 14px rgba(245, 158, 11, 0.08)",
+      }}
     >
-      <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
-      <div className="flex-1 text-sm">
-        <span className="font-semibold">
-          {isHi ? "कोई डेस्क असाइन नहीं है।" : "No desk assigned."}
-        </span>{" "}
-        <span className="opacity-90">
+      <div
+        style={{
+          width: "36px",
+          height: "36px",
+          borderRadius: "10px",
+          background: isDark ? "rgba(245, 158, 11, 0.25)" : "#FEF3C7",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0,
+        }}
+      >
+        <AlertTriangle size={20} color="#D97706" />
+      </div>
+      <div style={{ flex: 1, minWidth: 0, fontSize: "12.5px" }}>
+        <span style={{ fontWeight: 800, color: isDark ? "#FDE68A" : "#B45309" }}>
+          {isHi ? "कोई डेस्क असाइन नहीं है।" : "No desk assigned."}{" "}
+        </span>
+        <span style={{ opacity: 0.9, fontWeight: 500 }}>
           {isHi
             ? "कृपया अपने प्रशासक से संपर्क करें ताकि आपको एक स्टेशन सौंपा जा सके।"
             : "Contact your administrator to be assigned to a workstation."}
@@ -400,30 +481,55 @@ export function EmergencyBadge({ ticket, language = "en", isDark = false, showTi
   if (!isEmergencyTicket(ticket)) return null;
   const isHi = language === "hi";
   const isUnassigned = Boolean(ticket.is_emergency_unassigned || ticket.emergency_unassigned);
-  const timeSinceArrival = showTime ? formatTimeSinceArrival(ticket.join_timestamp, language) : null;
+  const timeSinceArrival = showTime ? formatTimeSinceArrival(ticket.join_timestamp || ticket.created_at, language) : null;
 
   return (
-    <div className="inline-flex items-center gap-1.5">
+    <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
       <span
-        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold tracking-wide border shadow-2xs ${
-          isDark
-            ? "bg-rose-950/50 text-rose-300 border-rose-900/60"
-            : "bg-rose-50 text-rose-700 border-rose-200"
-        }`}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "5px",
+          padding: "2px 8px",
+          borderRadius: "9999px",
+          fontSize: "10.5px",
+          fontWeight: 800,
+          background: isDark ? "rgba(220, 38, 38, 0.2)" : "#FEF2F2",
+          color: isDark ? "#FCA5A5" : "#DC2626",
+          border: isDark ? "1px solid rgba(220, 38, 38, 0.4)" : "1px solid #FECDD3",
+          userSelect: "none",
+          whiteSpace: "nowrap",
+          letterSpacing: "0.2px",
+        }}
       >
-        <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+        <span
+          style={{
+            width: "6px",
+            height: "6px",
+            borderRadius: "50%",
+            background: "#DC2626",
+            display: "inline-block",
+            boxShadow: "0 0 4px rgba(220, 38, 38, 0.6)",
+          }}
+        />
         {isUnassigned
           ? (isHi ? "आपातकालीन - असाइन नहीं" : "Emergency - unassigned")
           : (isHi ? "आपातकालीन" : "Emergency")}
       </span>
       {timeSinceArrival && (
         <span
-          className={`inline-flex items-center gap-1 text-[11px] font-medium opacity-80 ${
-            isDark ? "text-rose-300/80" : "text-rose-700/80"
-          }`}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "3px",
+            fontSize: "11px",
+            fontWeight: 700,
+            color: isDark ? "#FCA5A5" : "#DC2626",
+            whiteSpace: "nowrap",
+          }}
           title={isHi ? "आगमन का समय" : "Time since arrival"}
         >
-          <Clock className="w-3 h-3" />
+          <Clock size={11} style={{ flexShrink: 0 }} />
           {timeSinceArrival}
         </span>
       )}
@@ -431,7 +537,7 @@ export function EmergencyBadge({ ticket, language = "en", isDark = false, showTi
   );
 }
 
-const deskScope = {
+const deskScopeModule = {
   isEmergencyTicket,
   formatTimeSinceArrival,
   resolveAssignedDesk,
@@ -444,5 +550,5 @@ const deskScope = {
   EmergencyBadge,
 };
 
-export default deskScope;
+export default deskScopeModule;
 

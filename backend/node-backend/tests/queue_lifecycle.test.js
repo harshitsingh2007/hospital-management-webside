@@ -67,6 +67,7 @@ async function runQueueLifecycleTests() {
   console.log(`[PASS] Test 4: Highest priority ticket #${served.ticket_id} served successfully.`);
 
   // 5. Complete Ticket -> Creates service_logs record
+  served.serve_start_time = (Date.now() / 1000.0) - (15 * 60); // Simulated 15-minute consultation
   const completed = await completeTicket(testTenant, served.ticket_id);
   assert.strictEqual(completed.status, "completed", "Status must be 'completed'");
   assert(completed.actual_service_minutes !== null, "Actual service minutes must be recorded");

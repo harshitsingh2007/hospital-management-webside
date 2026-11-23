@@ -221,6 +221,36 @@ function getAppointmentTimingDetails(appointmentDate, timeSlot, now = new Date()
   };
 }
 
+/**
+ * Extracts hour of day, day of week, and peak hour flag in hospital timezone.
+ * Defaults to Asia/Kolkata.
+ */
+function getZonedTimeFeatures(date = new Date(), timeZone = TIMEZONE) {
+  const d = date instanceof Date ? date : new Date(typeof date === "number" && date < 1e11 ? date * 1000 : date);
+
+  // Day of week in hospital timezone (0=Sun, 1=Mon, ..., 6=Sat)
+  const dayStr = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" }).format(d);
+  const dayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  const dayOfWeek = dayMap[dayStr] !== undefined ? dayMap[dayStr] : d.getDay();
+
+  // Hour of day (0-23) in hospital timezone
+  const hourStr = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", hour12: false }).format(d);
+  let hourOfDay = parseInt(hourStr, 10);
+  if (hourOfDay === 24) hourOfDay = 0;
+
+  // Peak hour: 9-11 AM and 2-4 PM on weekdays (Mon-Fri)
+  const isPeakHour = [9, 10, 11, 14, 15, 16].includes(hourOfDay) && dayOfWeek >= 1 && dayOfWeek <= 5 ? 1 : 0;
+
+  return {
+    hourOfDay,
+    dayOfWeek,
+    isPeakHour,
+    hour_of_day: hourOfDay,
+    day_of_week: dayOfWeek,
+    is_peak_hour: isPeakHour,
+  };
+}
+
 module.exports = {
   TIMEZONE,
   getCurrentQueueDate,
@@ -232,4 +262,5 @@ module.exports = {
   getZonedAppointmentTime,
   formatInTimezone,
   getAppointmentTimingDetails,
+  getZonedTimeFeatures,
 };

@@ -18,7 +18,13 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { API_BASE, HOSPITAL_CONFIG } from "../config/hospitalConfig";
 import { printRadiologyReportSlip } from "../utils/printPassHelper";
 import { getCategoryLabel } from "../utils/i18n";
-import { isEmergencyTicket, formatTimeSinceArrival } from "../utils/deskScope";
+import {
+  isEmergencyTicket,
+  formatTimeSinceArrival,
+  DeskDepartmentBadge,
+  EmergencyDeskBanner,
+  NoDeskNotice,
+} from "../utils/deskScope";
 import Footer from "../components/common/Footer";
 import {
   Scan,
@@ -2730,41 +2736,15 @@ export default function RadiologyPage({
           {/* Assigned Counter & Duty Status Controls */}
           <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
             {/* Department Badge next to DESK chip */}
-            <div
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "6px",
-                background: isEmergencyDesk
-                  ? (isDark ? "rgba(220, 38, 38, 0.2)" : "#FEF2F2")
-                  : (isDark ? "rgba(255, 255, 255, 0.12)" : "rgba(255, 255, 255, 0.15)"),
-                border: isEmergencyDesk
-                  ? (isDark ? "1px solid rgba(220, 38, 38, 0.4)" : "1px solid #FECDD3")
-                  : "1px solid rgba(255, 255, 255, 0.25)",
-                borderRadius: "10px",
-                padding: "6px 12px",
-                backdropFilter: "blur(8px)",
-                color: isEmergencyDesk ? (isDark ? "#FCA5A5" : "#DC2626") : "#FFFFFF",
-                fontSize: "12px",
-                fontWeight: 800,
-                userSelect: "none",
-                letterSpacing: "0.3px",
+            <DeskDepartmentBadge
+              deskScope={{
+                isEmergencyDesk,
+                deptName: assignedDesk?.department_name || (isHi ? "रेडियोलॉजी डेस्क" : "Radiology Desk"),
               }}
-            >
-              {isEmergencyDesk ? (
-                <>
-                  <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#DC2626", display: "inline-block" }} />
-                  <span>{isHi ? "आपातकालीन ट्राइएज डेस्क" : "Emergency Triage Desk"}</span>
-                </>
-              ) : (
-                <>
-                  <Building2 size={12} color="#38BDF8" />
-                  <span>
-                    {assignedDesk?.department_name || (isHi ? "रेडियोलॉजी डेस्क" : "Radiology Desk")}
-                  </span>
-                </>
-              )}
-            </div>
+              assignedDesk={assignedDesk}
+              isDark={isDark}
+              language={isHi ? "hi" : "en"}
+            />
 
             {/* Assigned Desk Display */}
             <div
@@ -3175,54 +3155,10 @@ export default function RadiologyPage({
       {activeTab === "workstation" && (
         <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
           {/* Visible Notice if No Desk Assigned */}
-          {desksLoaded && !assignedDesk && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "10px",
-                padding: "12px 16px",
-                borderRadius: "12px",
-                background: isDark ? "rgba(220, 38, 38, 0.15)" : "#FEF2F2",
-                border: isDark ? "1px solid rgba(220, 38, 38, 0.4)" : "1px solid #FECDD3",
-                color: isDark ? "#FCA5A5" : "#991B1B",
-                fontSize: "13px",
-                fontWeight: 700,
-              }}
-            >
-              <AlertTriangle size={16} color="#DC2626" />
-              <span>
-                {isHi
-                  ? "कोई डेस्क आवंटित नहीं है। अपने प्रशासक से संपर्क करें।"
-                  : "No desk assigned. Contact your administrator."}
-              </span>
-            </div>
-          )}
+          <NoDeskNotice desksLoaded={desksLoaded} assignedDesk={assignedDesk} isDark={isDark} language={isHi ? "hi" : "en"} />
 
           {/* Emergency Triage Desk Active Banner */}
-          {isEmergencyDesk && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "10px",
-                padding: "12px 16px",
-                borderRadius: "12px",
-                background: isDark ? "rgba(220, 38, 38, 0.15)" : "#FEF2F2",
-                border: isDark ? "1px solid rgba(220, 38, 38, 0.4)" : "1px solid #FECDD3",
-                color: isDark ? "#FCA5A5" : "#991B1B",
-                fontSize: "13px",
-                fontWeight: 700,
-              }}
-            >
-              <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#DC2626", flexShrink: 0, display: "inline-block" }} />
-              <span>
-                {isHi
-                  ? "आप आपातकालीन ट्राइएज डेस्क पर नियुक्त हैं। केवल आपातकालीन मरीज़ दिखाए जा रहे हैं।"
-                  : "You are assigned to the Emergency Triage desk. Showing emergency patients only."}
-              </span>
-            </div>
-          )}
+          <EmergencyDeskBanner isEmergencyDesk={isEmergencyDesk} isDark={isDark} language={isHi ? "hi" : "en"} />
 
           <div className="radiology-workstation-grid">
           {/* Main Left Execution Workspace */}
@@ -4438,54 +4374,10 @@ export default function RadiologyPage({
       {activeTab === "queue" && (
         <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
           {/* Visible Notice if No Desk Assigned */}
-          {desksLoaded && !assignedDesk && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "10px",
-                padding: "12px 16px",
-                borderRadius: "12px",
-                background: isDark ? "rgba(220, 38, 38, 0.15)" : "#FEF2F2",
-                border: isDark ? "1px solid rgba(220, 38, 38, 0.4)" : "1px solid #FECDD3",
-                color: isDark ? "#FCA5A5" : "#991B1B",
-                fontSize: "13px",
-                fontWeight: 700,
-              }}
-            >
-              <AlertTriangle size={16} color="#DC2626" />
-              <span>
-                {isHi
-                  ? "कोई डेस्क आवंटित नहीं है। अपने प्रशासक से संपर्क करें।"
-                  : "No desk assigned. Contact your administrator."}
-              </span>
-            </div>
-          )}
+          <NoDeskNotice desksLoaded={desksLoaded} assignedDesk={assignedDesk} isDark={isDark} language={isHi ? "hi" : "en"} />
 
           {/* Emergency Triage Desk Active Banner */}
-          {isEmergencyDesk && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "10px",
-                padding: "12px 16px",
-                borderRadius: "12px",
-                background: isDark ? "rgba(220, 38, 38, 0.15)" : "#FEF2F2",
-                border: isDark ? "1px solid rgba(220, 38, 38, 0.4)" : "1px solid #FECDD3",
-                color: isDark ? "#FCA5A5" : "#991B1B",
-                fontSize: "13px",
-                fontWeight: 700,
-              }}
-            >
-              <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#DC2626", flexShrink: 0, display: "inline-block" }} />
-              <span>
-                {isHi
-                  ? "आप आपातकालीन ट्राइएज डेस्क पर नियुक्त हैं। केवल आपातकालीन मरीज़ दिखाए जा रहे हैं।"
-                  : "You are assigned to the Emergency Triage desk. Showing emergency patients only."}
-              </span>
-            </div>
-          )}
+          <EmergencyDeskBanner isEmergencyDesk={isEmergencyDesk} isDark={isDark} language={isHi ? "hi" : "en"} />
           {/* 1. SUMMARY STRIP (8 METRICS) */}
           <div
             style={{

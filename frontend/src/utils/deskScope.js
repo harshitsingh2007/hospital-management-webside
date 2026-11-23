@@ -1,4 +1,2 @@
-import deskScopeDefault, * as allDeskScope from "./deskScope.jsx";
-
 export * from "./deskScope.jsx";
-export default deskScopeDefault || allDeskScope;
+export { default } from "./deskScope.jsx";

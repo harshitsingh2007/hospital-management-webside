@@ -4241,46 +4241,48 @@ export default function PathologyPage({
                   paddingTop: "10px",
                 }}
               >
-                {/* Category Chips (Requirement 1: Hematology, Biochemistry, Urine, Serology) */}
-                <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
-                  <span style={{ fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", marginRight: "2px" }}>
-                    {isHi ? "श्रेणी:" : "Category:"}
-                  </span>
-                  {[
-                    { id: "all", label: isHi ? "सभी" : "All" },
-                    { id: "Hematology", label: "Hematology" },
-                    { id: "Biochemistry", label: "Biochemistry" },
-                    { id: "Urine", label: "Urine" },
-                    { id: "Serology", label: "Serology" },
-                  ].map((cat) => {
-                    const isSelected = queueCategoryFilter === cat.id;
-                    return (
-                      <button
-                        key={cat.id}
-                        type="button"
-                        onClick={() => setQueueCategoryFilter(cat.id)}
-                        style={{
-                          padding: "4px 10px",
-                          borderRadius: "8px",
-                          fontSize: "11.5px",
-                          fontWeight: isSelected ? 800 : 700,
-                          cursor: "pointer",
-                          border: isSelected ? "1.5px solid #0284C7" : (isDark ? "1px solid #334155" : "1px solid #E2E8F0"),
-                          background: isSelected
-                            ? (isDark ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE")
-                            : (isDark ? "#0F172A" : "#F8FAFC"),
-                          color: isSelected ? "#0284C7" : mutedText,
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "5px",
-                          transition: "all 0.15s ease",
-                        }}
-                      >
-                        <span>{cat.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
+                {/* Category Chips (hidden on Emergency Desk) */}
+                {!isEmergencyDesk && (
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                    <span style={{ fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", marginRight: "2px" }}>
+                      {isHi ? "श्रेणी:" : "Category:"}
+                    </span>
+                    {[
+                      { id: "all", label: isHi ? "सभी" : "All" },
+                      { id: "Hematology", label: "Hematology" },
+                      { id: "Biochemistry", label: "Biochemistry" },
+                      { id: "Urine", label: "Urine" },
+                      { id: "Serology", label: "Serology" },
+                    ].map((cat) => {
+                      const isSelected = queueCategoryFilter === cat.id;
+                      return (
+                        <button
+                          key={cat.id}
+                          type="button"
+                          onClick={() => setQueueCategoryFilter(cat.id)}
+                          style={{
+                            padding: "4px 10px",
+                            borderRadius: "8px",
+                            fontSize: "11.5px",
+                            fontWeight: isSelected ? 800 : 700,
+                            cursor: "pointer",
+                            border: isSelected ? "1.5px solid #0284C7" : (isDark ? "1px solid #334155" : "1px solid #E2E8F0"),
+                            background: isSelected
+                              ? (isDark ? "rgba(2, 132, 199, 0.25)" : "#E0F2FE")
+                              : (isDark ? "#0F172A" : "#F8FAFC"),
+                            color: isSelected ? "#0284C7" : mutedText,
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "5px",
+                            transition: "all 0.15s ease",
+                          }}
+                        >
+                          <span>{cat.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
 
                 {/* Priority & Status Selectors + Search Input */}
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
@@ -4440,7 +4442,7 @@ export default function PathologyPage({
                       const isPrepDone = Boolean(pState.prepDone);
                       const prepItems = getPrepChecklistItems(ticket);
                       const cat = detectItemCategory(ticket);
-                      const isEmergency = Number(ticket.priority_level || ticket.priority) === 1;
+                      const isEmergency = isEmergencyTicket(ticket);
                       const isUrgent = Number(ticket.priority_level || ticket.priority) === 2;
                       const isServing = ticket._queueCategory === "serving";
                       const isHeld = ticket._queueCategory === "on_hold";

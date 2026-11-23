@@ -11,6 +11,15 @@
 const env = require("../config/env");
 
 const AI_BASE_URL = env.AI_SERVICE_URL || "http://localhost:8001";
+const AI_INTERNAL_SECRET = env.AI_INTERNAL_SECRET || "internal-queue-ai-secret-key-2026";
+
+function getHeaders(extraHeaders = {}) {
+  return {
+    "Content-Type": "application/json",
+    "X-AI-Internal-Secret": AI_INTERNAL_SECRET,
+    ...extraHeaders,
+  };
+}
 
 /**
  * Clinical heuristic duration fallback if Python AI service is starting up or unreachable.
@@ -49,7 +58,7 @@ async function predictServiceDuration({
 
     const response = await fetch(`${AI_BASE_URL}/predict`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getHeaders(),
       body: JSON.stringify({
         tenant_id: tenantId,
         consumer_type: consumerType,
@@ -85,7 +94,7 @@ async function triggerModelRetrain(tenantId = "global", records = null, dataSour
   try {
     const response = await fetch(`${AI_BASE_URL}/train`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getHeaders(),
       body: JSON.stringify({
         tenant_id: tenantId,
         records: records,
@@ -104,11 +113,54 @@ async function triggerModelRetrain(tenantId = "global", records = null, dataSour
 }
 
 /**
+ * Rolls back tenant model to target version.
+ */
+async function rollbackModel(tenantId = "global", targetVersion) {
+  try {
+    const response = await fetch(`${AI_BASE_URL}/rollback`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify({
+        tenant_id: tenantId,
+        target_version: targetVersion,
+      }),
+    });
+
+    if (response.ok) {
+      return await response.json();
+    }
+    const errText = await response.text();
+    throw new Error(`Rollback failed: ${errText}`);
+  } catch (err) {
+    throw new Error(`Rollback service error: ${err.message}`);
+  }
+}
+
+/**
+ * Fetches list of available model versions for tenant.
+ */
+async function getModelVersions(tenantId = "global") {
+  try {
+    const response = await fetch(`${AI_BASE_URL}/model-versions/${tenantId}`, {
+      headers: getHeaders(),
+    });
+    if (response.ok) {
+      return await response.json();
+    }
+  } catch (err) {
+    // Fallback empty
+  }
+  return { tenant_id: tenantId, versions: [] };
+}
+
+/**
  * Fetches model status & metadata for tenant.
  */
 async function getModelStatus(tenantId = "global") {
   try {
-    const response = await fetch(`${AI_BASE_URL}/model-status/${tenantId}`);
+    const response = await fetch(`${AI_BASE_URL}/model-status/${tenantId}`, {
+      headers: getHeaders(),
+    });
     if (response.ok) {
       return await response.json();
     }
@@ -131,6 +183,8 @@ async function getModelStatus(tenantId = "global") {
 module.exports = {
   predictServiceDuration,
   triggerModelRetrain,
+  rollbackModel,
+  getModelVersions,
   getModelStatus,
   clinicalHeuristicFallback,
 };

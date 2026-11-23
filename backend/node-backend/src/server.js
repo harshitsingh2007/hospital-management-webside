@@ -16,6 +16,7 @@ const prisma = require("./config/prisma");
 const { initSocket } = require("./socket");
 const engine = require("./services/queueEngine");
 const { startDailyClosureJob, stopDailyClosureJob } = require("./jobs/dailyClosureJob");
+const { startAutoRetrainJob, stopAutoRetrainJob } = require("./jobs/autoRetrainJob");
 const { seedDefaultKiosks } = require("./utils/seedKiosks");
 
 const server = http.createServer(app);
@@ -38,7 +39,10 @@ async function startServer() {
     // 4. Start background distributed daily closure worker
     startDailyClosureJob(60000);
 
-    // 4. Start HTTP & WebSocket server
+    // 5. Start background continuous learning retrain worker
+    startAutoRetrainJob(3600000);
+
+    // 6. Start HTTP & WebSocket server
     server.listen(env.PORT, () => {
       console.log(`[Node.js Backend] Server running on http://localhost:${env.PORT} (Mode: ${env.NODE_ENV})`);
       console.log(`[Socket.IO] Real-time engine attached and ready.`);
@@ -55,6 +59,7 @@ async function gracefulShutdown(signal) {
 
   // Stop background jobs
   stopDailyClosureJob();
+  stopAutoRetrainJob();
 
   // Close HTTP server
   server.close(async () => {

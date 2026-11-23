@@ -27,7 +27,7 @@ async function runAuthIsolationTests() {
 
   // Test 1: Super Admin Registration & Dedicated Hospital Provisioning
   const saEmail = `owner_node_${ts}@hospital.com`;
-  const hCode1 = `apex-care-${ts % 1000}`;
+  const hCode1 = `apex-care-${ts}-${Math.floor(Math.random() * 100000)}`;
   let resData = null;
   const mockRes = {
     status: (code) => ({

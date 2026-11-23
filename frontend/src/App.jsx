@@ -2366,7 +2366,12 @@ export default function App() {
                   navigateTo={navigateTo}
                 />
               ) : (
-                <MLAdminPage tenantId={tenantId} />
+                <MLAdminPage
+                  tenantId={tenantId}
+                  language={language}
+                  theme={theme}
+                  currentUser={currentUser}
+                />
               )
             )}
 

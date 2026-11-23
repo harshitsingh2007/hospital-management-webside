@@ -12,7 +12,7 @@ const {
   getTenantAppointments,
 } = require("../src/services/appointmentService");
 const { signupPatient } = require("../src/controllers/auth.controller");
-const { getCurrentQueueDate, formatQueueDate } = require("../src/utils/timezone");
+const { getCurrentQueueDate, formatQueueDate, parseQueueDate } = require("../src/utils/timezone");
 const prisma = require("../src/config/prisma");
 
 async function runAppointmentTests() {
@@ -80,14 +80,14 @@ async function runAppointmentTests() {
   assert.strictEqual(earlyCheckInRejected, true, "Early check-in for future appointment must be rejected");
   console.log("[PASS] Test 2: Early check-in for future appointment strictly rejected.");
 
-  // 3. Book a Slot within Active Check-In Window (e.g. current time + 10 mins, so check-in is open)
-  const now = new Date();
-  const currentSlotDate = new Date(now.getTime() + 10 * 60 * 1000); // 10 minutes in the future
+  // 3. Book a Slot within Active Check-In Window (e.g. 5 minutes from now, within 30m window)
+  const currentSlotDate = new Date(Date.now() + 5 * 60 * 1000);
   let slotH = currentSlotDate.getHours();
   const slotM = currentSlotDate.getMinutes();
   const slotMeridian = slotH >= 12 ? "PM" : "AM";
   const displayH = slotH % 12 === 0 ? 12 : slotH % 12;
   const activeSlotStr = `${String(displayH).padStart(2, "0")}:${String(slotM).padStart(2, "0")} ${slotMeridian}`;
+  const slotDateStr = parseQueueDate(currentSlotDate);
 
   const availableApt = await bookAppointment({
     tenantId: testTenant,
@@ -95,7 +95,7 @@ async function runAppointmentTests() {
     serviceCategory: "consultation",
     patientName: "Active Window Patient",
     userEmail: patientEmail,
-    appointmentDate: todayStr,
+    appointmentDate: slotDateStr,
     timeSlot: activeSlotStr,
   });
 
@@ -110,15 +110,17 @@ async function runAppointmentTests() {
   assert.strictEqual(checkInResult.ticket.status, "waiting", "Generated ticket must be waiting");
   console.log(`[PASS] Test 4: Checked in appointment '${availableApt.appointment_id}' -> Status 'CHECKED_IN' & Ticket #${checkInResult.ticket.ticket_id}.`);
 
-  // 5. Expiration Test: An appointment scheduled > 1 hour ago must expire and reject check-in
+  // 5. Expiration Test: An appointment scheduled in the past (> 1 hour ago) must expire and reject check-in
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const yesterdayStr = parseQueueDate(yesterday);
   const pastApt = await prisma.appointments.create({
     data: {
       appointment_id: `APT-EXPIRED-${Date.now() % 10000}`,
       hospital_id: (await prisma.hospitals.findFirst({ where: { hospital_code: testTenant } })).id,
       patient_id: availableApt.patient_id || null,
       service_category: "consultation",
-      appointment_date: new Date(`${todayStr}T00:00:00.000Z`),
-      time_slot: "08:00 AM", // 8 AM today has expired
+      appointment_date: new Date(`${yesterdayStr}T00:00:00.000Z`),
+      time_slot: "10:00 AM", // 10 AM yesterday is expired
       status: "BOOKED",
       ticket_id: "",
     },

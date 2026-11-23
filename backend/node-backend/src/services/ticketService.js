@@ -307,6 +307,7 @@ async function saveTicketToDb(ticket) {
       last_adjusted_at: lastAdjDt,
       cancellation_reason: ticket.cancellation_reason || "",
       cancelled_at: cancDt,
+      feature_snapshot: ticket.feature_snapshot || {},
     },
     update: {
       hospital_id: hid,
@@ -332,6 +333,7 @@ async function saveTicketToDb(ticket) {
       last_adjusted_at: lastAdjDt,
       cancellation_reason: ticket.cancellation_reason || "",
       cancelled_at: cancDt,
+      feature_snapshot: ticket.feature_snapshot || {},
       updated_at: new Date(),
     },
   });
@@ -354,36 +356,97 @@ async function saveTicketToDb(ticket) {
 }
 
 /**
- * Records completed clinical encounter in `service_logs` for ML training.
+ * Records completed clinical encounter in `service_logs` for continuous ML training.
+ * - Strictly requires both serve_start_time and serve_end_time (no join_timestamp fallback).
+ * - Removes predicted-minutes and fixed speed fallbacks.
+ * - Validates duration is between 0.5 and 240.0 minutes.
+ * - Skips cancelled and no-show tickets.
+ * - Uses exact feature_snapshot recorded on ticket at prediction time.
+ * - Uses hospital local timezone for hour, day, and peak calculations.
+ * - Idempotent upsert via unique ticket_id constraint.
  */
-async function logCompletedService(ticket, queueLength, activeCounters) {
-  const joinDt = new Date(ticket.join_timestamp * 1000);
-  const hour = joinDt.getUTCHours();
-  const day = joinDt.getUTCDay();
-  const isPeak = [9, 10, 11, 14, 15, 16].includes(hour) && day > 0 && day < 6 ? 1 : 0;
-  const qDateStr = parseQueueDate(ticket.queue_date);
+async function logCompletedService(ticket, options = {}) {
+  try {
+    if (!ticket || !ticket.ticket_id) return null;
 
-  const hid = await engine.resolveHospitalId(ticket.tenant_id);
-  const deptId = await engine.resolveDepartmentId(hid, ticket.service_category);
+    // 1. Skip cancelled or no-show
+    const status = String(ticket.status || "").toLowerCase();
+    if (status === "cancelled" || status === "no_show") return null;
 
-  await prisma.service_logs.create({
-    data: {
-      hospital_id: hid,
-      ticket_id: ticket.ticket_id,
-      department_id: deptId,
-      consumer_type: ticket.consumer_type || "hospital",
-      service_category: ticket.service_category,
-      queue_date: queueDateToPrismaDate(qDateStr),
-      hour_of_day: hour,
-      day_of_week: day,
-      queue_length: queueLength,
-      active_staff_counters: activeCounters,
-      is_peak_hour: isPeak,
-      complexity_score: ticket.complexity_score || 1.0,
-      historical_avg_speed: 15.0,
-      service_duration_minutes: ticket.actual_service_minutes || ticket.predicted_service_minutes || 10.0,
-    },
-  });
+    // 2. Strictly require serve_start_time and serve_end_time (no fallback)
+    if (!ticket.serve_start_time || !ticket.serve_end_time) {
+      return null;
+    }
+
+    const startSec = Number(ticket.serve_start_time);
+    const endSec = Number(ticket.serve_end_time);
+    if (isNaN(startSec) || isNaN(endSec) || endSec <= startSec) {
+      return null;
+    }
+
+    const durationMinutes = Math.round(((endSec - startSec) / 60.0) * 10) / 10;
+    // 3. Skip invalid durations (under 0.5m or over 240m)
+    if (durationMinutes < 0.5 || durationMinutes > 240.0) {
+      return null;
+    }
+
+    const hid = await engine.resolveHospitalId(ticket.tenant_id);
+    const deptId = await engine.resolveDepartmentId(hid, ticket.service_category);
+
+    const { getZonedTimeFeatures } = require("../utils/timezone");
+    const timeFeatures = getZonedTimeFeatures(new Date(startSec * 1000));
+
+    // 4. Use the exact feature snapshot saved on ticket at prediction time
+    let snapshot = {};
+    if (ticket.feature_snapshot) {
+      snapshot = typeof ticket.feature_snapshot === "string"
+        ? JSON.parse(ticket.feature_snapshot)
+        : ticket.feature_snapshot;
+    }
+
+    const queueLength = snapshot.queue_length !== undefined ? snapshot.queue_length : (options.queueLength || 0);
+    const activeStaff = snapshot.active_staff_counters !== undefined ? snapshot.active_staff_counters : (options.activeCounters || 1);
+    const complexity = snapshot.complexity_score !== undefined ? snapshot.complexity_score : (ticket.complexity_score || 1.0);
+    const hourOfDay = snapshot.hour_of_day !== undefined ? snapshot.hour_of_day : timeFeatures.hourOfDay;
+    const dayOfWeek = snapshot.day_of_week !== undefined ? snapshot.day_of_week : timeFeatures.dayOfWeek;
+    const isPeakHour = snapshot.is_peak_hour !== undefined ? snapshot.is_peak_hour : timeFeatures.isPeakHour;
+
+    const qDateStr = parseQueueDate(ticket.queue_date);
+
+    // 5. Idempotent Upsert into service_logs (Strictly zero PII: no names, phone numbers, or free-text notes)
+    const strTicketId = String(ticket.ticket_id);
+    const row = await prisma.service_logs.upsert({
+      where: { ticket_id: strTicketId },
+      update: {
+        service_duration_minutes: durationMinutes,
+        completed_at: new Date(endSec * 1000),
+        data_quality: options.dataQuality || "actual",
+      },
+      create: {
+        hospital_id: hid,
+        ticket_id: strTicketId,
+        department_id: deptId,
+        consumer_type: ticket.consumer_type || "hospital",
+        service_category: String(ticket.service_category || "consultation"),
+        queue_date: queueDateToPrismaDate(qDateStr),
+        hour_of_day: hourOfDay,
+        day_of_week: dayOfWeek,
+        queue_length: Math.max(0, queueLength),
+        active_staff_counters: Math.max(1, activeStaff),
+        is_peak_hour: isPeakHour,
+        complexity_score: parseFloat(complexity) || 1.0,
+        historical_avg_speed: 15.0,
+        service_duration_minutes: durationMinutes,
+        data_quality: options.dataQuality || "actual",
+        completed_at: new Date(endSec * 1000),
+      },
+    });
+
+    return row;
+  } catch (err) {
+    console.error(`[ServiceLogs] Logging error for ticket ${ticket?.ticket_id}:`, err?.message);
+    return null;
+  }
 }
 
 /**
@@ -432,16 +495,32 @@ async function joinQueue({
   );
 
   const dtNow = new Date();
+  const { getZonedTimeFeatures } = require("../utils/timezone");
+  const timeFeatures = getZonedTimeFeatures(dtNow);
+  const queueLenAtPredict = isTodayActive ? tenant.queue.size() + 1 : 1;
+  const activeStaffAtPredict = tenant.active_counters || 2;
+
   const predictedService = await predictServiceDuration({
     tenantId,
     consumerType,
     serviceCategory,
-    queueLength: isTodayActive ? tenant.queue.size() + 1 : 1,
-    activeStaffCounters: tenant.active_counters || 2,
+    queueLength: queueLenAtPredict,
+    activeStaffCounters: activeStaffAtPredict,
     complexityScore: complexity,
-    hourOfDay: dtNow.getHours(),
-    dayOfWeek: dtNow.getDay(),
+    hourOfDay: timeFeatures.hourOfDay,
+    dayOfWeek: timeFeatures.dayOfWeek,
   });
+
+  const featureSnapshot = {
+    queue_length: queueLenAtPredict,
+    active_staff_counters: activeStaffAtPredict,
+    complexity_score: complexity,
+    hour_of_day: timeFeatures.hourOfDay,
+    day_of_week: timeFeatures.dayOfWeek,
+    is_peak_hour: timeFeatures.isPeakHour,
+    consumer_type: consumerType,
+    service_category: serviceCategory,
+  };
 
   const initialPos = isTodayActive ? tenant.queue.size() + 1 : 0;
 
@@ -458,13 +537,14 @@ async function joinQueue({
     appointment_id: appointmentId,
     effective_timestamp: now,
     user_email: userEmail,
-      family_member_id: familyMemberId || null,
-      age: parseInt(age, 10) || 30,
-      gender: gender || "other",
-      medical_condition: medicalCondition || "general_checkup",
-      pre_existing_condition: preExistingCondition || "none",
-      complexity_score: complexity,
-      predicted_service_minutes: predictedService,
+    family_member_id: familyMemberId || null,
+    age: parseInt(age, 10) || 30,
+    gender: gender || "other",
+    medical_condition: medicalCondition || "general_checkup",
+    pre_existing_condition: preExistingCondition || "none",
+    complexity_score: complexity,
+    feature_snapshot: featureSnapshot,
+    predicted_service_minutes: predictedService,
       estimated_wait_minutes: 0.0,
       status: status,
       position: isTodayActive ? initialPos : 0,
@@ -989,11 +1069,12 @@ async function completeTicket(tenantId, ticketId, department = null, prescriptio
 
   ticket.status = "completed";
   ticket.serve_end_time = Date.now() / 1000.0;
-  const start = ticket.serve_start_time || ticket.join_timestamp;
-  ticket.actual_service_minutes = Math.round(((ticket.serve_end_time - start) / 60.0) * 10) / 10;
+  if (ticket.serve_start_time) {
+    ticket.actual_service_minutes = Math.round(((ticket.serve_end_time - ticket.serve_start_time) / 60.0) * 10) / 10;
+  }
 
   await saveTicketToDb(ticket);
-  await logCompletedService(ticket, tenant.queue.size(), tenant.active_counters || 2);
+  logCompletedService(ticket, { queueLength: tenant.queue.size(), activeCounters: tenant.active_counters });
 
   const hid = await engine.resolveHospitalId(tenantId);
   await engine.logQueueEvent({
@@ -1121,12 +1202,13 @@ async function transferTicket(tenantId, ticketId, targetDepartment, prescription
   origTicket.transferred_to_dept = targetDepartment;
   origTicket.status = "transferred";
   origTicket.serve_end_time = Date.now() / 1000.0;
-  origTicket.actual_service_minutes =
-    Math.round(
-      ((origTicket.serve_end_time - (origTicket.serve_start_time || origTicket.join_timestamp)) / 60.0) * 10
-    ) / 10;
+  if (origTicket.serve_start_time) {
+    origTicket.actual_service_minutes =
+      Math.round(((origTicket.serve_end_time - origTicket.serve_start_time) / 60.0) * 10) / 10;
+  }
   origTicket.prescription_notes = prescriptionNotes;
   await saveTicketToDb(origTicket);
+  logCompletedService(origTicket, { queueLength: tenant.queue.size(), activeCounters: tenant.active_counters });
 
   // 2. Create new transferred ticket
   const now = Date.now() / 1000.0;
