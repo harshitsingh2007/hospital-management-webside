@@ -665,20 +665,17 @@ export default function PatientPage({
     let isMounted = true;
     const fetchTelemetry = () => {
       if (document.hidden) return;
-      fetch(`${API_BASE}/api/v1/plugin/analytics/${encodeURIComponent(targetCode)}`)
-        .then((r) => r.json())
-        .then((d) => {
-          if (isMounted && d && !d.error) {
-            setFacilityAnalytics(d);
-          }
-        })
-        .catch(() => { });
-
       fetch(`${API_BASE}/api/v1/plugin/queue/${encodeURIComponent(targetCode)}`)
-        .then((r) => r.json())
+        .then((r) => (r.ok ? r.json() : null))
         .then((d) => {
-          if (isMounted && d && Array.isArray(d.snapshot)) {
-            setFacilityQueue(d.snapshot);
+          if (isMounted && d) {
+            if (Array.isArray(d.snapshot)) setFacilityQueue(d.snapshot);
+            setFacilityAnalytics((prev) => ({
+              ...(prev || {}),
+              waiting_count: Array.isArray(d.snapshot) ? d.snapshot.length : (prev?.waiting_count || 0),
+              active_desks: d.active_desks_count ?? prev?.active_desks ?? 1,
+              avg_wait_minutes: d.avg_wait_minutes ?? prev?.avg_wait_minutes ?? 0,
+            }));
           }
         })
         .catch(() => { });
@@ -815,17 +812,17 @@ export default function PatientPage({
     setFacilityQueue([]);
 
     // Immediately fetch new hospital telemetry
-    fetch(`${API_BASE}/api/v1/plugin/analytics/${encodeURIComponent(cleanCode)}`)
-      .then((r) => r.json())
-      .then((d) => {
-        if (d && !d.error) setFacilityAnalytics(d);
-      })
-      .catch(() => { });
-
     fetch(`${API_BASE}/api/v1/plugin/queue/${encodeURIComponent(cleanCode)}`)
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
-        if (d && Array.isArray(d.snapshot)) setFacilityQueue(d.snapshot);
+        if (d) {
+          if (Array.isArray(d.snapshot)) setFacilityQueue(d.snapshot);
+          setFacilityAnalytics({
+            waiting_count: Array.isArray(d.snapshot) ? d.snapshot.length : 0,
+            active_desks: d.active_desks_count ?? 1,
+            avg_wait_minutes: d.avg_wait_minutes ?? 0,
+          });
+        }
       })
       .catch(() => { });
 

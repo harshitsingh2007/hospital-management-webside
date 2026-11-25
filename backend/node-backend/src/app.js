@@ -52,6 +52,8 @@ app.use(
       "x-user-phone",
       "X-Hospital-Code",
       "x-hospital-code",
+      "X-Developer-Key",
+      "x-developer-key",
       "x-requested-with",
     ],
   })

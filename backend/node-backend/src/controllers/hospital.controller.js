@@ -200,13 +200,7 @@ async function checkHospitalCodeEndpoint(req, res, next) {
 
 async function createHospitalEndpoint(req, res, next) {
   try {
-    const isPlatformAdmin = !!req.user?.is_superadmin || (req.user?.role || "").toLowerCase() === "super_admin" || (req.user?.role || "").toLowerCase() === "superadmin";
-    if (!isPlatformAdmin) {
-      return res.status(403).json({
-        status: "error",
-        message: "Forbidden: Only platform super administrators can directly create hospitals. Hospital owners must submit a registration request for approval.",
-      });
-    }
+    const prisma = require("../config/prisma");
 
     const {
       hospital_code,
@@ -318,63 +312,54 @@ async function createHospitalEndpoint(req, res, next) {
       }
     }
 
-    const result = await createHospital({
-      hospitalCode: cleanCode,
-      name: String(name).trim(),
-      type,
-      registrationNo: registration_no,
-      nabhStatus: nabh_status,
-      nabhNumber: nabh_number,
-      nabhValidUntil: nabh_valid_until,
-      establishedYear: established_year,
-      totalBeds: total_beds,
-      icuBeds: icu_beds,
-      logoUrl: logo_url,
-      tagline,
-      phone: String(phone).trim(),
-      altPhone: alt_phone,
-      emergencyHelpline: emergency_helpline,
-      email: cleanEmail,
-      supportEmail: support_email,
-      website,
-      addressLine1: address_line1,
-      addressLine2: address_line2,
-      city: String(city).trim(),
-      state: String(state).trim(),
-      pincode: cleanPincode,
-      country,
-      mapsLink: maps_link,
-      address,
-      opdStartTime: opd_start_time,
-      opdEndTime: opd_end_time,
-      registrationCutoff: registration_cutoff,
-      timezone,
-      workingDays: working_days,
-      departments,
-      languages,
-      admin,
-      primaryColor: primary_color,
-      secondaryColor: secondary_color,
-      accentColor: accent_color,
-      aboutUs: about_us,
-      description,
-      status,
-      ownerUserId: req.user?.id || null,
+    const existingHosp = await prisma.hospitals.findUnique({ where: { hospital_code: cleanCode } });
+    if (existingHosp) {
+      return res.status(409).json({ status: "error", message: `Hospital code '${cleanCode}' is already in use.` });
+    }
+    const existingReq = await prisma.hospital_requests.findUnique({ where: { hospital_code: cleanCode } });
+    if (existingReq) {
+      return res.status(409).json({ status: "error", message: `A hospital request with code '${cleanCode}' is already ${existingReq.status.toLowerCase()}.` });
+    }
+
+    const hospitalRequest = await prisma.hospital_requests.create({
+      data: {
+        user_id: req.user.id,
+        hospital_name: String(name).trim(),
+        hospital_code: cleanCode,
+        phone: String(phone).trim(),
+        email: cleanEmail,
+        address: [address_line1, address_line2].filter(Boolean).join(", ") || address || "",
+        city: String(city).trim(),
+        state: String(state).trim(),
+        pincode: cleanPincode,
+        registration_number: registration_no || "",
+        bed_capacity: Number(total_beds) || 50,
+        documents_json: [],
+        status: "PENDING",
+        timeline_json: [
+          {
+            event: "REQUEST_SUBMITTED",
+            status: "PENDING",
+            actor: req.user?.email || cleanEmail,
+            timestamp: new Date().toISOString(),
+            notes: "Hospital creation request submitted from SuperAdmin portal for developer approval.",
+          },
+        ],
+        notes: description || about_us || "",
+      },
     });
 
     writeAudit(req, {
-      action: "hospital_created",
-      hospital_id: result.hospital?.id,
-      target: result.hospital?.hospital_code,
-      meta: { name: result.hospital?.name },
+      action: "hospital_request_submitted",
+      target: cleanCode,
+      meta: { name: String(name).trim(), request_id: hospitalRequest.id },
     });
 
-    return res.status(200).json({
+    return res.status(201).json({
       status: "success",
-      hospital: result.hospital,
-      departments_count: result.departments_count,
-      desks_count: result.desks_count,
-      admin_user: result.admin_user,
+      pending_approval: true,
+      message: `Hospital '${String(name).trim()}' submitted for developer approval.`,
+      request: hospitalRequest,
     });
   } catch (error) {
     if (error.status === 409 || error.statusCode === 409) {

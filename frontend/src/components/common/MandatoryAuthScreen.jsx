@@ -152,6 +152,7 @@ export default function MandatoryAuthScreen({
   const [resendCountdown, setResendCountdown] = useState(0);
 
   const [errorMsg, setErrorMsg] = useState(null);
+  const [successMsg, setSuccessMsg] = useState(null);
   const [loading, setLoading] = useState(false);
 
   const isHindi = language === "hi";
@@ -255,6 +256,7 @@ export default function MandatoryAuthScreen({
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
     setErrorMsg(null);
+    setSuccessMsg(null);
     setLoading(true);
 
     try {
@@ -353,6 +355,7 @@ export default function MandatoryAuthScreen({
     }
 
     setErrorMsg(null);
+    setSuccessMsg(null);
     setLoading(true);
 
     try {
@@ -564,6 +567,7 @@ export default function MandatoryAuthScreen({
   const handleResendOtp = async () => {
     if (resendCountdown > 0) return;
     setErrorMsg(null);
+    setSuccessMsg(null);
     setLoading(true);
     try {
       const res = await fetch(`${API_BASE}/api/v1/auth/send-verification-otp`, {
@@ -593,6 +597,7 @@ export default function MandatoryAuthScreen({
   const handleFinalRegister = async (e) => {
     if (e) e.preventDefault();
     setErrorMsg(null);
+    setSuccessMsg(null);
     setLoading(true);
 
     let endpoint = "/api/v1/auth/signup/patient";
@@ -635,12 +640,24 @@ export default function MandatoryAuthScreen({
             localStorage.setItem("ai_queue_token", data.token);
           } catch (e) { }
         }
-        if (payload.hospital_code) {
+        if (payload.hospital_code && data.user) {
           try {
             localStorage.setItem("ai_queue_current_hospital", payload.hospital_code);
           } catch (e) { }
         }
-        if (onLoginSuccess) onLoginSuccess({ ...data.user, token: data.token || data.user?.token });
+        if (data.user && (data.token || data.user?.token)) {
+          if (onLoginSuccess) onLoginSuccess({ ...data.user, token: data.token || data.user?.token });
+        } else {
+          // Hospital owner request-and-approve flow: account is pending platform admin approval
+          setRegStep("form");
+          setAuthMode("login");
+          setSuccessMsg(
+            data.message ||
+            (isHindi
+              ? "अस्पताल पंजीकरण अनुरोध सफलतापूर्वक सबमिट किया गया है। प्लेटफ़ॉर्म एडमिन की स्वीकृति के बाद आप लॉग इन कर सकेंगे।"
+              : "Hospital registration request submitted. You can sign in once a platform administrator approves your request.")
+          );
+        }
       } else {
         if (data.code === "PHONE_ALREADY_EXISTS" || data.message?.includes("already exists") || data.message?.includes("already registered")) {
           setSignupPhoneStatus("taken");
@@ -1414,6 +1431,29 @@ export default function MandatoryAuthScreen({
                 </button>
               </div>
             </div>
+
+            {/* Success Message Alert */}
+            {successMsg && (
+              <div style={{
+                background: "#ECFDF5",
+                border: "1px solid #A7F3D0",
+                borderRadius: "12px",
+                padding: "12px 14px",
+                marginBottom: "18px",
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+                color: "#065F46",
+                fontSize: "13px",
+                fontWeight: 600
+              }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2.2" style={{ flexShrink: 0 }}>
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline points="9 12 11 14 15 10" />
+                </svg>
+                <span style={{ flex: 1 }}>{successMsg}</span>
+              </div>
+            )}
 
             {/* Error Message Alert */}
             {errorMsg && (

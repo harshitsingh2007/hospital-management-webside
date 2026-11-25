@@ -1581,11 +1581,16 @@ async function sendMobileOtp(req, res, next) {
 
     return res.status(200).json({
       status: "success",
-      message: `Verification code successfully sent via SMS to +91 ${target10} (valid for 5 mins).`,
+      message: smsDispatchResult.simulated
+        ? (smsDispatchResult.reason
+            ? `SMS delivery blocked by provider (${smsDispatchResult.reason}). Use simulation OTP from server terminal.`
+            : `Verification code generated in simulation mode for +91 ${target10}.`)
+        : `Verification code successfully sent via SMS to +91 ${target10} (valid for 5 mins).`,
       expires_at: expiresAt,
       expires_in: 300,
       phone: `+91${target10}`,
       simulated: Boolean(smsDispatchResult.simulated),
+      provider: smsDispatchResult.provider || "simulation",
     });
   } catch (error) {
     next(error);
@@ -1621,7 +1626,9 @@ async function verifyMobileOtp(req, res, next) {
     } catch (e) {}
 
     // Verify OTP with max 3 attempts & 5-minute expiry tracking
-    const detailedResult = await verifyOtpDetailed(target10, cleanOtp, "mobile_verification", true);
+    const detailedResult = (!isTwilioValid && cleanOtp)
+      ? await verifyOtpDetailed(target10, cleanOtp, "mobile_verification", true)
+      : { valid: false };
 
     const isValidOtp = isTwilioValid || detailedResult.valid || (cleanOtp === "123456" && process.env.NODE_ENV !== "production");
 

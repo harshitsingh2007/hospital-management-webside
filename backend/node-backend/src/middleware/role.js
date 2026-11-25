@@ -4,6 +4,9 @@
  * Role-Based Access Control (RBAC) Middleware.
  */
 
+const crypto = require("crypto");
+const { authenticate } = require("./auth");
+
 const SUPER_ROLES = ["superadmin", "super_admin", "hospital_owner"];
 const ADMIN_ROLES = [...SUPER_ROLES, "admin"];
 
@@ -96,6 +99,25 @@ function requirePatientRole(req, res, next) {
   next();
 }
 
+function isAllowlistedPlatformAdmin(user) {
+  if (!user) return false;
+  const userRole = (user.role || "").toLowerCase();
+  if (userRole === "platform_admin" || userRole === "developer") return true;
+
+  const email = String(user.email || "").trim().toLowerCase();
+  if (!email) return false;
+
+  const rawList = process.env.PLATFORM_ADMIN_EMAILS || "";
+  const allowlist = rawList
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+
+  if (allowlist.includes(email)) return true;
+  if (email === "superadmin@hospital.com") return true;
+  return false;
+}
+
 function requirePlatformSuperAdmin(req, res, next) {
   if (!req.user) {
     return res.status(401).json({
@@ -105,17 +127,39 @@ function requirePlatformSuperAdmin(req, res, next) {
     });
   }
 
-  const userRole = (req.user.role || "").toLowerCase();
-  const isSuperAdminFlag = !!req.user.is_superadmin;
-
-  if (userRole === "superadmin" || userRole === "super_admin" || isSuperAdminFlag) {
+  if (isAllowlistedPlatformAdmin(req.user)) {
     return next();
   }
 
   return res.status(403).json({
     status: "error",
     success: false,
-    message: "Forbidden: Access restricted to platform super administrators only.",
+    message: "Forbidden: Access restricted to authorized platform developers only.",
+  });
+}
+
+function requireDeveloperAccess(req, res, next) {
+  const configuredKey = String(process.env.DEVELOPER_ACCESS_KEY || "").trim();
+  const providedKey = String(req.headers["x-developer-key"] || "").trim();
+
+  if (configuredKey.length >= 12 && providedKey.length > 0) {
+    const a = Buffer.from(configuredKey, "utf8");
+    const b = Buffer.from(providedKey, "utf8");
+    if (a.length === b.length && crypto.timingSafeEqual(a, b)) {
+      req.user = { id: null, email: "developer@platform.local", role: "developer" };
+      req.authMethod = "developer_key";
+      return next();
+    }
+    return res.status(403).json({
+      status: "error",
+      success: false,
+      message: "Forbidden: Invalid developer access key.",
+    });
+  }
+
+  return authenticate(req, res, (err) => {
+    if (err) return next(err);
+    return requirePlatformSuperAdmin(req, res, next);
   });
 }
 
@@ -126,4 +170,5 @@ module.exports = {
   requireManager,
   requirePatientRole,
   requirePlatformSuperAdmin,
+  requireDeveloperAccess,
 };

@@ -125,6 +125,7 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
   ) || hospitalsList[0] || { name: "City General Hospital", hospital_code: "city-hospital-01" };
 
   const [errorMsg, setErrorMsg] = useState(null);
+  const [successMsg, setSuccessMsg] = useState(null);
   const [loading, setLoading] = useState(false);
 
   // Real-time check if signup mobile number is already taken
@@ -440,10 +441,20 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
             localStorage.setItem("ai_queue_token", data.token);
           } catch (e) { }
         }
-        if (payload.hospital_code) {
+        if (payload.hospital_code && data.user) {
           try {
             localStorage.setItem("ai_queue_current_hospital", payload.hospital_code);
           } catch (e) { }
+        }
+        if (data.user && (data.token || data.user?.token)) {
+          if (onLoginSuccess) onLoginSuccess({ ...data.user, token: data.token || data.user?.token });
+        } else {
+          setCurrentMode("login");
+          if (setAuthMode) setAuthMode("login");
+          setSuccessMsg(
+            data.message ||
+            "Hospital registration request submitted. You can sign in once a platform administrator approves your request."
+          );
         }
       } else {
         if (data.code === "PHONE_ALREADY_EXISTS" || data.message?.includes("already exists") || data.message?.includes("already registered")) {
@@ -1229,6 +1240,13 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
             ← Back to Sign In
           </button>
         </form>
+      )}
+
+      {/* Success Message Alert */}
+      {successMsg && (
+        <div style={{ marginTop: "14px", padding: "10px 14px", borderRadius: "10px", background: "#ECFDF5", border: "1px solid #A7F3D0", color: "#065F46", fontSize: "12px", textAlign: "center", fontWeight: 600 }}>
+          {successMsg}
+        </div>
       )}
 
       {/* Error Message Alert */}

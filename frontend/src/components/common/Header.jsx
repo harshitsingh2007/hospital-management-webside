@@ -117,7 +117,7 @@ export default function Header({
     if (onToggleTheme) onToggleTheme(nextTheme);
   };
 
-  const isDarkHeader = theme === "dark" && (activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "admin" || activePage === "pharmacy" || activePage === "pathology" || activePage === "radiology" || activePage === "billing" || activePage === "doctor" || activePage === "reception-history");
+  const isDarkHeader = theme === "dark" && (activePage === "patient" || activePage === "superadmin" || activePage === "hospital-approvals" || activePage === "staff" || activePage === "admin" || activePage === "pharmacy" || activePage === "pathology" || activePage === "radiology" || activePage === "billing" || activePage === "doctor" || activePage === "reception-history");
 
   // Multi-Hospital Facility Active Display
   const [hospitalsList, setHospitalsList] = useState([]);
@@ -241,15 +241,17 @@ export default function Header({
 
   const isPatientUser = currentUser && currentUser.role === "user";
   const isAdmin = currentUser && currentUser.role === "admin";
-  const username = currentUser ? currentUser.username : "user";
+  const username = currentUser ? (currentUser.username || currentUser.name || currentUser.email || "User") : "user";
 
   const userRole = (currentUser?.role || "").toLowerCase();
   const isSuperAdmin = Boolean(
     currentUser && (
       userRole === "super_admin" ||
       userRole === "superadmin" ||
+      userRole === "hospital_owner" ||
       currentUser.role === "super_admin" ||
       currentUser.role === "superadmin" ||
+      currentUser.role === "hospital_owner" ||
       currentUser.email === "superadmin@hospital.com" ||
       currentUser.is_superadmin === true
     )
@@ -272,7 +274,7 @@ export default function Header({
   const canSwitchHospital = activePage === "patient" || isPatientOrGuest;
 
   // Determine active display name (family member or self)
-  const activeDisplayName = activeFamilyMember ? activeFamilyMember.name : username;
+  const activeDisplayName = String((activeFamilyMember ? activeFamilyMember.name : username) || "User").trim() || "User";
   const activeDisplayRelation = activeFamilyMember
     ? getRelationLabel(activeFamilyMember.relation, language)
     : (language === "hi" ? "मेरी प्रोफ़ाइल" : "My Profile");
@@ -829,7 +831,7 @@ export default function Header({
           className="header-brand-left"
           onClick={() => {
             const role = (currentUser?.role || "").toLowerCase();
-            if (role === "super_admin" || role === "superadmin") {
+            if (role === "super_admin" || role === "superadmin" || role === "hospital_owner") {
               navigateTo("superadmin");
             } else if (isPharmacist) {
               navigateTo("pharmacy");
@@ -1077,7 +1079,7 @@ export default function Header({
         {/* 3. Right: Theme Toggle (User Portal Only), Language Selector & Patient Profile Dropdown */}
         <div style={{ display: "flex", alignItems: "center", gap: "8px", position: "relative", flexShrink: 0 }}>
           {/* Theme Toggle Switch (Available across all portals including Pharmacy, Doctor and Pathology) */}
-          {(activePage === "patient" || activePage === "superadmin" || activePage === "staff" || activePage === "admin" || activePage === "pharmacy" || activePage === "doctor" || activePage === "pathology" || activePage === "radiology" || activePage === "billing" || activePage === "reception-history") && (
+          {(activePage === "patient" || activePage === "superadmin" || activePage === "hospital-approvals" || activePage === "staff" || activePage === "admin" || activePage === "pharmacy" || activePage === "doctor" || activePage === "pathology" || activePage === "radiology" || activePage === "billing" || activePage === "reception-history") && (
             <button
               type="button"
               onClick={handleToggleTheme}

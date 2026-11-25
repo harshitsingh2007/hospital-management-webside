@@ -348,9 +348,27 @@ async function getSuperAdminOverview(requesterUser = null) {
     };
   }
 
-  // Global aggregate
+  // Global aggregate (platform-level superadmin only)
+  if (!isGlobalSuperAdmin) {
+    return {
+      total_hospitals: 0,
+      active_hospitals: 0,
+      total_employees: 0,
+      active_doctors: 0,
+      total_desks: 0,
+      active_desks: 0,
+      patients_today: 0,
+      active_queues: 0,
+      total_users: 0,
+      total_tickets: 0,
+    };
+  }
+
   const totalH = await prisma.hospitals.count();
   const activeH = await prisma.hospitals.count({ where: { status: "active" } });
+  const totalEmp = await prisma.employees.count({
+    where: { status: { in: ["active", "ACTIVE"] } },
+  });
   let activeDocs = await prisma.employees.count({
     where: {
       status: "active",

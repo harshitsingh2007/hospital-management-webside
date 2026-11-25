@@ -210,6 +210,10 @@ async function runAuthIsolationTests() {
     }
   );
 
+  if (saRes2?.request?.id) {
+    await approveHospitalRequest(saRes2.request.id, platformAdmin);
+  }
+
   const owner1 = await prisma.users.findUnique({ where: { email: saEmail } });
   const owner2 = await prisma.users.findUnique({ where: { email: saEmail2 } });
 

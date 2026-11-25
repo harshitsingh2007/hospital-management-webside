@@ -1605,9 +1605,14 @@ export default function SuperAdminPage({
                     description: "",
                     status: "active",
                 });
-                notify(isHi ? `अस्पताल '${data.hospital.name}' सफलतापूर्वक पंजीकृत!` : `Hospital '${data.hospital.name}' registered successfully!`);
-                fetchGlobalData();
-                setSelectedHospital(data.hospital);
+                if (data.pending_approval || !data.hospital) {
+                    notify(data.message || (isHi ? "अस्पताल अनुरोध डेवलपर स्वीकृति के लिए सबमिट किया गया!" : "Hospital submitted for developer approval!"));
+                    fetchGlobalData();
+                } else {
+                    notify(isHi ? `अस्पताल '${data.hospital.name}' सफलतापूर्वक पंजीकृत!` : `Hospital '${data.hospital.name}' registered successfully!`);
+                    fetchGlobalData();
+                    setSelectedHospital(data.hospital);
+                }
             } else {
                 notify(data.message || data.detail || "Failed to create hospital.", "error");
             }
