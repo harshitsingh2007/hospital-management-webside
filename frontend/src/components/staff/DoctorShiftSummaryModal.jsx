@@ -36,7 +36,7 @@ import {
   IconActivity,
 } from "../common/MedicalIcons";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
+import { API_BASE } from "../../config/hospitalConfig";
 
 export default function DoctorShiftSummaryModal({
   isOpen = false,
