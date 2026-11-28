@@ -218,7 +218,7 @@ export default function DispatchConfirmModal({
           </div>
 
           {/* Metadata Grid */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+          <div className="rg-2" style={{ gap: "10px" }}>
             <div style={{ padding: "8px 12px", borderRadius: "8px", background: "var(--bg-subtle, #f8fafc)", border: "1px solid var(--border-color, #e2e8f0)" }}>
               <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--text-secondary, #64748b)", textTransform: "uppercase" }}>
                 {isHi ? "प्रकार एवं अवधि" : "Type & Duration"}

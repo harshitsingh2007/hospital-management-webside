@@ -49,8 +49,11 @@ const animationStyle = `
   .in-app-toast-container {
     left: 12px !important;
     right: 12px !important;
-    top: 16px !important;
-    max-width: calc(100vw - 24px) !important;
+    top: 12px !important;
+    min-width: 0 !important;
+    width: auto !important;
+    max-width: calc(100dvw - 24px) !important;
+    padding: 12px 14px !important;
   }
 }
 `;
@@ -242,6 +245,7 @@ export function InAppConfirmModal({ dialog, onClose, isDark = false }) {
         }}
       >
         <div
+          className="app-modal-panel"
           style={{
             background: isDark ? "#0F172A" : "#FFFFFF",
             borderRadius: "20px",
@@ -548,6 +552,7 @@ export function ClinicalReportDetailModal({ report, onClose, language = "en", is
         }}
       >
         <div
+          className="app-modal-panel"
           style={{
             background: isDark ? "#0F172A" : "#FFFFFF",
             borderRadius: "20px",

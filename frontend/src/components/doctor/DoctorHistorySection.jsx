@@ -1126,11 +1126,13 @@ export default function DoctorHistorySection({
 
       {/* 4. HISTORICAL RECORDS TABLE */}
       <div
-        className="staff-table-scroll-wrapper"
+        className="staff-table-scroll-wrapper table-scroll-region"
+        tabIndex={0}
+        role="region"
+        aria-label={isHi ? "परामर्श इतिहास तालिका" : "Consultation history table"}
         style={{
           width: "100%",
           maxWidth: "100%",
-          overflowX: "auto",
           boxSizing: "border-box",
           borderRadius: "16px",
           border: cardBorder,

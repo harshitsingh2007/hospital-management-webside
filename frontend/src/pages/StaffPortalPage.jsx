@@ -2040,7 +2040,6 @@ export default function StaffPortalPage({
         margin: "0",
         padding: "0 6px 16px 6px",
         boxSizing: "border-box",
-        overflowX: "hidden",
       }}
     >
       <style>{`
@@ -2048,7 +2047,17 @@ export default function StaffPortalPage({
           box-sizing: border-box;
           width: 100%;
           max-width: 100%;
-          overflow-x: hidden;
+        }
+        @media (max-width: 640px) {
+          .staff-hero-banner-container {
+            padding: 16px 14px !important;
+            border-radius: 16px !important;
+          }
+        }
+        @media (max-width: 360px) {
+          .staff-hero-banner-container {
+            padding: 14px 12px !important;
+          }
         }
 
         .walkin-intake-grid {
@@ -3478,7 +3487,7 @@ export default function StaffPortalPage({
             )}
 
             <form onSubmit={handleWalkinSubmit}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px", marginBottom: "14px" }}>
+              <div className="rg-2" style={{ gap: "14px", marginBottom: "14px" }}>
                 <div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
                     <label style={{ display: "block", fontSize: "12px", fontWeight: 700, color: "#64748B" }}>
@@ -3966,7 +3975,7 @@ export default function StaffPortalPage({
                 <label style={{ display: "block", fontSize: "12px", fontWeight: 700, color: "#64748B", marginBottom: "8px" }}>
                   {isHi ? "ट्रायज प्राथमिकता स्तर *" : "Triage Urgency Level *"}
                 </label>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                <div className="rg-2" style={{ gap: "10px" }}>
                   <button
                     type="button"
                     onClick={() => setWalkinForm({ ...walkinForm, priority: 2 })}
@@ -4428,7 +4437,7 @@ export default function StaffPortalPage({
           }}>
             <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center", flex: 1 }}>
               {/* Search Box */}
-              <div style={{ position: "relative", minWidth: "240px", flex: 1 }}>
+              <div style={{ position: "relative", minWidth: "min(220px, 100%)", flex: "1 1 220px" }}>
                 <input
                   type="text"
                   placeholder={isHi ? "नाम, फोन, टोकन आईडी या डॉक्टर खोजें..." : "Search patient name, phone, token ID, doctor..."}
@@ -4520,7 +4529,10 @@ export default function StaffPortalPage({
             </div>
           ) : (
             <div
-              className="staff-table-scroll-wrapper"
+              className="staff-table-scroll-wrapper table-scroll-region"
+              tabIndex={0}
+              role="region"
+              aria-label={isHi ? "अस्पताल कतार तालिका" : "Hospital queues table"}
               style={{
                 border: isDark ? "1px solid #334155" : "1.5px solid #E2E8F0",
                 background: isDark ? "#0F172A" : "#FFFFFF",
@@ -5087,7 +5099,10 @@ export default function StaffPortalPage({
             </div>
           ) : (
             <div
-              className="staff-table-scroll-wrapper"
+              className="staff-table-scroll-wrapper table-scroll-region"
+              tabIndex={0}
+              role="region"
+              aria-label={isHi ? "अस्पताल कतार तालिका" : "Hospital queues table"}
               style={{
                 border: isDark ? "1px solid #334155" : "1.5px solid #E2E8F0",
                 background: isDark ? "#0F172A" : "#FFFFFF",
@@ -6501,7 +6516,7 @@ export default function StaffPortalPage({
             </div>
 
             {/* Urgency Level Buttons */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "16px" }}>
+            <div className="rg-2" style={{ gap: "10px", marginBottom: "16px" }}>
               <button
                 type="button"
                 onClick={() => setTargetPriorityLevel(2)}
@@ -6898,8 +6913,8 @@ export default function StaffPortalPage({
             boxShadow: "0 14px 35px -4px rgba(0, 0, 0, 0.28), 0 0 0 1px rgba(0,0,0,0.06)",
             backdropFilter: "blur(12px)",
             WebkitBackdropFilter: "blur(12px)",
-            maxWidth: "480px",
-            minWidth: "min(300px, calc(100vw - 32px))",
+            minWidth: "min(280px, calc(100dvw - 32px))",
+            maxWidth: "min(480px, calc(100dvw - 32px))",
             fontSize: "13.5px",
             fontWeight: 700,
             background:

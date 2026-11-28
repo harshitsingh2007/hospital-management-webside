@@ -1578,36 +1578,51 @@ export default function DoctorPage({
 
         .admin-portal-dashboard {
           display: grid;
-          grid-template-columns: 1fr 340px;
+          grid-template-columns: minmax(0, 1fr) 340px;
           gap: 24px;
           align-items: start;
         }
 
+        .admin-portal-dashboard > * {
+          min-width: 0;
+        }
+
         @media (max-width: 1100px) {
           .admin-tabs-bar {
-            grid-template-columns: repeat(2, 1fr);
+            grid-template-columns: repeat(2, minmax(0, 1fr));
           }
           .admin-tabs-bar.emergency-tabs-bar {
-            grid-template-columns: repeat(3, 1fr);
+            grid-template-columns: repeat(3, minmax(0, 1fr));
           }
         }
 
         @media (max-width: 860px) {
           .admin-tabs-bar.emergency-tabs-bar {
-            grid-template-columns: repeat(2, 1fr);
+            grid-template-columns: repeat(2, minmax(0, 1fr));
           }
         }
 
         @media (max-width: 1040px) {
           .admin-portal-dashboard {
-            grid-template-columns: 1fr;
+            grid-template-columns: minmax(0, 1fr);
+            gap: 18px;
           }
         }
 
         @media (max-width: 600px) {
           .admin-tabs-bar,
           .admin-tabs-bar.emergency-tabs-bar {
-            grid-template-columns: 1fr;
+            grid-template-columns: minmax(0, 1fr);
+          }
+          .telemetry-sidebar-card {
+            padding: 16px 14px !important;
+            border-radius: 16px !important;
+          }
+        }
+
+        @media (max-width: 360px) {
+          .telemetry-sidebar-card {
+            padding: 14px 12px !important;
           }
         }
 
@@ -2638,7 +2653,7 @@ export default function DoctorPage({
                         boxShadow: "0 4px 12px rgba(0, 0, 0, 0.04)",
                       }}
                     >
-                      <div style={{ display: "flex", alignItems: "center", gap: "12px", flex: 1, minWidth: "260px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "12px", flex: 1, minWidth: "min(240px, 100%)" }}>
                         <div style={{
                           width: "36px",
                           height: "36px",
@@ -3676,7 +3691,7 @@ export default function DoctorPage({
                 </div>
 
                 {/* Live Stats Row */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginTop: "14px" }}>
+                <div className="rg-2" style={{ gap: "10px", marginTop: "14px" }}>
                   <div style={{ background: isDark ? "#1E293B" : "#F8FAFC", padding: "10px 12px", borderRadius: "10px", border: isDark ? "1px solid #334155" : "1px solid #E2E8F0" }}>
                     <span style={{ fontSize: "10.5px", color: isDark ? "#94A3B8" : "#64748B", display: "block" }}>
                       {language === "hi" ? "औसत प्रतीक्षा" : "Est. Avg Wait"}

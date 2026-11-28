@@ -703,7 +703,7 @@ export default function MLAdminPage({
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+          gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))",
           gap: "20px",
           marginBottom: "20px",
         }}
@@ -889,7 +889,7 @@ export default function MLAdminPage({
             {t("deptBreakdown")}
           </h3>
 
-          <div style={{ overflowX: "auto" }}>
+          <div className="table-scroll-region" tabIndex={0} role="region" aria-label="Department prediction metrics table">
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
               <thead>
                 <tr style={{ background: tableHeaderBg }}>
@@ -1028,7 +1028,7 @@ export default function MLAdminPage({
           <h4 style={{ margin: "0 0 12px 0", fontSize: "14px", fontWeight: 700, color: textPrimary }}>
             Sample Data Preview ({previewData.total_rows || 0} rows found)
           </h4>
-          <div style={{ overflowX: "auto" }}>
+          <div className="table-scroll-region" tabIndex={0} role="region" aria-label="Department prediction metrics table">
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
               <thead>
                 <tr style={{ background: tableHeaderBg }}>

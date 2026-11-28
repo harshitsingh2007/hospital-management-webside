@@ -64,7 +64,7 @@ export default function FamilyManagementTab({
       </div>
 
       {/* Cards Grid */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: "16px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 270px), 1fr))", gap: "16px" }}>
         {(() => {
           const depNames = familyMembers.filter((m) => m && m.id !== "self").map((m) => String(m.name || "").toLowerCase().trim()).filter(Boolean);
           return familyMembers.map((member) => {

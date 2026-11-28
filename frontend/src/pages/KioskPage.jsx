@@ -382,7 +382,7 @@ export default function KioskPage({
   const branding = hospitalData?.branding || {};
 
   return (
-    <div style={{ ...kioskPortalWrapperStyle, padding: isFullscreen ? "16px 24px" : "20px 28px" }}>
+    <div className="kiosk-portal-root" style={{ ...kioskPortalWrapperStyle, padding: isFullscreen ? "16px 24px" : "20px 28px" }}>
       <style>{`
         body {
           margin: 0;
@@ -391,7 +391,18 @@ export default function KioskPage({
         }
         @media (max-width: 960px) {
           .kiosk-grid-layout {
-            grid-template-columns: 1fr !important;
+            grid-template-columns: minmax(0, 1fr) !important;
+            gap: 16px !important;
+          }
+        }
+        @media (max-width: 640px) {
+          .kiosk-portal-root {
+            padding: 12px 10px !important;
+          }
+        }
+        @media (max-width: 360px) {
+          .kiosk-portal-root {
+            padding: 8px 6px !important;
           }
         }
       `}</style>
@@ -451,20 +462,19 @@ export default function KioskPage({
 
 // Styling Tokens
 const kioskPortalWrapperStyle = {
-  minHeight: "100vh",
-  width: "100vw",
+  minHeight: "100dvh",
+  width: "100%",
   boxSizing: "border-box",
   background: "linear-gradient(135deg, #F8FAFC 0%, #F0F9FF 100%)",
   color: "#0F172A",
   fontFamily: "'Plus Jakarta Sans', system-ui, -apple-system, sans-serif",
   display: "flex",
   flexDirection: "column",
-  overflowX: "hidden",
 };
 
 const fullScreenCenterStyle = {
-  minHeight: "100vh",
-  width: "100vw",
+  minHeight: "100dvh",
+  width: "100%",
   background: "#F8FAFC",
   display: "flex",
   alignItems: "center",

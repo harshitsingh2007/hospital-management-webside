@@ -362,7 +362,7 @@ export default function WalkinTab({
                 />
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+              <div className="form-grid-2col" style={{ marginBottom: 0 }}>
                 <div>
                   <label className="form-field-label">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#64748B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

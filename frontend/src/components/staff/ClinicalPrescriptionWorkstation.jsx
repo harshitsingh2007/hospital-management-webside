@@ -273,7 +273,31 @@ export default function ClinicalPrescriptionWorkstation({
 
   // RENDER EHR CONTENT (Shared between Full-Page and Modal)
   const renderWorkstationBody = () => (
-    <div style={{ display: "grid", gridTemplateColumns: rxViewMode === "page" ? "minmax(360px, 420px) 1fr" : "minmax(320px, 380px) 1fr", gap: "20px", alignItems: "start" }}>
+    <div className="cpw-split-grid" style={{ display: "grid", gridTemplateColumns: rxViewMode === "page" ? "minmax(340px, 420px) minmax(0, 1fr)" : "minmax(300px, 380px) minmax(0, 1fr)", gap: "20px", alignItems: "start" }}>
+      <style>{`
+        .cpw-split-grid > * {
+          min-width: 0;
+        }
+        @media (max-width: 1040px) {
+          .cpw-split-grid {
+            grid-template-columns: minmax(0, 1fr) !important;
+            gap: 16px !important;
+          }
+        }
+        @media (max-width: 440px) {
+          .cpw-grid-3 {
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+          }
+          .cpw-grid-2 {
+            grid-template-columns: minmax(0, 1fr) !important;
+          }
+        }
+        @media (max-width: 350px) {
+          .cpw-grid-3 {
+            grid-template-columns: minmax(0, 1fr) !important;
+          }
+        }
+      `}</style>
       {/* ===================== LEFT COLUMN: CLINICAL CONTEXT & DIAGNOSTICS ===================== */}
       <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
         
@@ -352,7 +376,7 @@ export default function ClinicalPrescriptionWorkstation({
             <label style={{ display: "block", fontSize: "11px", fontWeight: 700, color: mutedColor, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px" }}>
               {language === "hi" ? "आगमन का माध्यम" : "Arrival Mode"}
             </label>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "8px" }}>
+            <div className="cpw-grid-3" style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "8px" }}>
               {[
                 { id: "walk-in", label: language === "hi" ? "वॉक-इन" : "Walk-in" },
                 { id: "ambulance", label: language === "hi" ? "एम्बुलेंस" : "Ambulance" },
@@ -413,7 +437,7 @@ export default function ClinicalPrescriptionWorkstation({
             <label style={{ display: "block", fontSize: "11px", fontWeight: 700, color: mutedColor, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px" }}>
               {language === "hi" ? "वाइटल्स (रोगी माप)" : "Patient Vitals"}
             </label>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "8px", marginBottom: "8px" }}>
+            <div className="cpw-grid-3" style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "8px", marginBottom: "8px" }}>
               <div>
                 <span style={{ fontSize: "10.5px", color: mutedColor, fontWeight: 700, display: "block", marginBottom: "3px" }}>BP (mmHg)</span>
                 <input
@@ -445,7 +469,7 @@ export default function ClinicalPrescriptionWorkstation({
                 />
               </div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "8px" }}>
+            <div className="cpw-grid-2" style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "8px" }}>
               <div>
                 <span style={{ fontSize: "10.5px", color: mutedColor, fontWeight: 700, display: "block", marginBottom: "3px" }}>Temp (°F)</span>
                 <input
@@ -930,7 +954,7 @@ export default function ClinicalPrescriptionWorkstation({
           </div>
 
           {/* Spacious Medication Grid Header */}
-          <div style={{ overflowX: "auto" }}>
+          <div className="table-scroll-region" tabIndex={0} role="region" aria-label={language === "hi" ? "दवा पर्ची तालिका" : "Prescribed medicines table"}>
             <div style={{ display: "grid", gridTemplateColumns: "32px minmax(180px, 2fr) minmax(75px, 0.8fr) minmax(110px, 1fr) minmax(75px, 0.8fr) minmax(110px, 1fr) minmax(105px, 1fr) 32px", gap: "10px", padding: "8px 10px", background: subBg, borderRadius: "8px", fontSize: "11.5px", fontWeight: 800, color: mutedColor, marginBottom: "8px" }}>
               <span>#</span>
               <span>{language === "hi" ? "दवा का नाम" : "Medicine Name & Strength"}</span>

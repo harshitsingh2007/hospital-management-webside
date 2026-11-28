@@ -62,9 +62,12 @@ export default function DeskTable({
 
     return (
         <div
+            className="table-scroll-region"
+            tabIndex={0}
+            role="region"
+            aria-label={isHi ? "डेस्क प्रबंधन तालिका" : "Desk management table"}
             style={{
                 width: "100%",
-                overflowX: "auto",
                 borderRadius: "14px",
                 border: "1px solid var(--superadmin-card-border, #E2E8F0)",
                 background: "var(--superadmin-card-bg, #FFFFFF)",

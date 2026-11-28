@@ -690,7 +690,7 @@ export default function DigitalTicketPassCard({
               disabled={(activeTicket.adjustment_count || 0) >= 3}
               style={{
                 flex: 1,
-                minWidth: "140px",
+                minWidth: "min(140px, 100%)",
                 padding: "11px 16px",
                 borderRadius: "12px",
                 border: (activeTicket.adjustment_count || 0) >= 3 ? "1px solid var(--patient-card-border, #E2E8F0)" : "1.5px solid #0284C7",
@@ -721,7 +721,7 @@ export default function DigitalTicketPassCard({
               onClick={onOpenCancelModal}
               style={{
                 flex: 1,
-                minWidth: "140px",
+                minWidth: "min(140px, 100%)",
                 padding: "11px 16px",
                 borderRadius: "12px",
                 border: "1.5px solid var(--emergency-card-border, #FECACA)",

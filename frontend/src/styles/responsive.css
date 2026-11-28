@@ -1,0 +1,294 @@
+/* ==========================================================================
+   Global Responsive Layout & Media Query System
+   Supports viewports from 320px compact mobile up to 1920px+ widescreens.
+   ========================================================================== */
+
+:root {
+  --rg-space-page: clamp(10px, 2vw, 24px);
+  --rg-space-card: clamp(12px, 2.2vw, 22px);
+  --rg-radius-card: clamp(12px, 1.8vw, 18px);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+img,
+video,
+canvas {
+  max-width: 100%;
+}
+
+/* Flex / grid overflow safety helpers */
+.min-w-0 {
+  min-width: 0;
+}
+
+.app-flex-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* ==========================================================================
+   1. Intrinsic & Breakpoint-Driven Grid Systems
+   ========================================================================== */
+.rg-2,
+.rg-2-md,
+.rg-2-lg {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.rg-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.rg-4 {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.rg-auto-sm {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 165px), 1fr));
+  gap: 12px;
+}
+
+.rg-auto-md {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 14px;
+}
+
+.rg-auto-lg {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 16px;
+}
+
+.rg-sidebar-left {
+  display: grid;
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.rg-sidebar-right {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 350px);
+  gap: 20px;
+  align-items: start;
+}
+
+/* ==========================================================================
+   2. Keyboard-Accessible Horizontal Table Wrapper
+   ========================================================================== */
+.table-scroll-region {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  border-radius: inherit;
+}
+
+.table-scroll-region:focus-visible {
+  outline: 2px solid #0284c7;
+  outline-offset: 2px;
+}
+
+/* ==========================================================================
+   3. Responsive Modal & Backdrop Containers
+   ========================================================================== */
+.app-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100dvh;
+  max-width: 100%;
+  padding: 16px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow-y: auto;
+}
+
+.app-modal-panel {
+  width: 100%;
+  max-height: 90dvh;
+  overflow-y: auto;
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+/* ==========================================================================
+   4. Desktop & Widescreen Media Queries (>= 1440px / >= 1280px)
+   ========================================================================== */
+@media (min-width: 1600px) {
+  .app-main-layout-inner:not(.portal-wide):not(.superadmin-wide) {
+    max-width: 1520px;
+  }
+}
+
+/* ==========================================================================
+   5. Tablet & Small Laptop Breakpoint (<= 1024px)
+   ========================================================================== */
+@media (max-width: 1024px) {
+  .rg-sidebar-left,
+  .rg-sidebar-right,
+  .rg-2-lg {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .rg-3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .rg-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+/* ==========================================================================
+   6. Tablet Portrait Breakpoint (<= 768px)
+   ========================================================================== */
+@media (max-width: 768px) {
+  .rg-2-md {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .rg-stack-md {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .app-stack-md {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+
+  .app-modal-panel {
+    max-height: 92dvh !important;
+  }
+}
+
+/* ==========================================================================
+   7. Large Phone / Small Tablet Breakpoint (<= 640px)
+   ========================================================================== */
+@media (max-width: 640px) {
+  .rg-2,
+  .rg-3,
+  .rg-stack-sm {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .rg-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .app-stack-sm {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+
+  .app-modal-backdrop {
+    padding: 10px !important;
+  }
+
+  .app-modal-panel {
+    padding: 18px 16px !important;
+    border-radius: 16px !important;
+    max-height: 92dvh !important;
+  }
+
+  .app-hide-sm {
+    display: none !important;
+  }
+}
+
+/* ==========================================================================
+   8. Standard Mobile Breakpoint (<= 480px)
+   ========================================================================== */
+@media (max-width: 480px) {
+  .rg-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+  }
+
+  .app-modal-backdrop {
+    padding: 8px !important;
+  }
+
+  .app-modal-panel {
+    padding: 16px 14px !important;
+    border-radius: 14px !important;
+  }
+
+  .app-stack-xs {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+
+  .app-full-xs {
+    width: 100% !important;
+  }
+}
+
+/* ==========================================================================
+   9. Ultra-Compact Mobile Breakpoint (<= 360px, down to 320px WCAG 1.4.10)
+   ========================================================================== */
+@media (max-width: 360px) {
+  .rg-4 {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .app-modal-backdrop {
+    padding: 6px !important;
+  }
+
+  .app-modal-panel {
+    padding: 14px 12px !important;
+  }
+}
+
+/* ==========================================================================
+   10. Touch Device Adaptation (@media (pointer: coarse) — >= 44x44 CSS px)
+   ========================================================================== */
+@media (pointer: coarse) {
+  .header-pill-btn,
+  .header-nav-btn,
+  .tab-button-modern,
+  .pl-primary-btn,
+  .pl-demo-pill,
+  .app-touch-target,
+  .app-modal-panel button:not(.compact-icon-btn),
+  input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]),
+  select {
+    min-height: 44px;
+  }
+
+  .header-theme-toggle-btn {
+    position: relative;
+  }
+
+  .header-theme-toggle-btn::after {
+    content: "";
+    position: absolute;
+    inset: -8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .broadcast-ticker-track {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

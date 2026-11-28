@@ -2805,7 +2805,7 @@ export default function SuperAdminPage({
                                 return (
                                     <>
 
-                                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", width: "100%", margin: "0", zIndex: 3 }}>
+                                        <div className="rg-2" style={{ gap: "12px", width: "100%", margin: "0", zIndex: 3 }}>
                                             <div className="superadmin-hero-telemetry-card" style={{ background: "rgba(255, 255, 255, 0.92)", backdropFilter: "blur(10px)", border: "1px solid #BAE6FD", borderRadius: "14px", padding: "12px 14px", boxShadow: "0 4px 12px rgba(2, 132, 199, 0.06)" }}>
                                                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px" }}>
                                                     <span className="superadmin-telemetry-label" style={{ fontSize: "11px", fontWeight: 700, color: "#64748B" }}>{isHi ? "सक्रिय कतारें" : "Active In Queue"}</span>

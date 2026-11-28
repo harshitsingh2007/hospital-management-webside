@@ -1083,7 +1083,7 @@ export default function BrandingStaffSubTab({
             {/* 2. SEARCH & FILTER CONTROLS */}
             <div className="branding-section-card" style={{ padding: "20px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "14px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "10px", flex: 1, minWidth: "260px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px", flex: "1 1 220px", minWidth: "min(220px, 100%)" }}>
                         <div style={{ position: "relative", width: "100%" }}>
                             <span style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", color: "#94A3B8" }}>
                                 <IconSearch size={16} />
@@ -1619,7 +1619,7 @@ export default function BrandingStaffSubTab({
 
                         <div style={{ maxHeight: "78vh", overflowY: "auto", paddingRight: "4px" }}>
                             <form onSubmit={handleCreateSubmit} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                                <div className="rg-2" style={{ gap: "12px" }}>
                                     <div>
                                         <label style={fieldLabelStyle}>{isHi ? "पूरा नाम" : "Full Name"} *</label>
                                         <input
@@ -1644,7 +1644,7 @@ export default function BrandingStaffSubTab({
                                     </div>
                                 </div>
 
-                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                                <div className="rg-2" style={{ gap: "12px" }}>
                                     <div>
                                         <label style={fieldLabelStyle}>{isHi ? "भूमिका / पद" : "Role"} *</label>
                                         <select
@@ -1690,7 +1690,7 @@ export default function BrandingStaffSubTab({
                                     </div>
                                 </div>
 
-                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                                <div className="rg-2" style={{ gap: "12px" }}>
                                     <div>
                                         <label style={fieldLabelStyle}>{isHi ? "कर्मचारी आईडी" : "Staff ID"}</label>
                                         <input
@@ -1726,7 +1726,7 @@ export default function BrandingStaffSubTab({
                                     </span>
                                 </div>
 
-                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                                <div className="rg-2" style={{ gap: "12px" }}>
                                     <div>
                                         <label style={fieldLabelStyle}>{isHi ? "योग्यता / डिग्री" : "Medical Qualification"}</label>
                                         <input
@@ -1749,7 +1749,7 @@ export default function BrandingStaffSubTab({
                                     </div>
                                 </div>
 
-                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                                <div className="rg-2" style={{ gap: "12px" }}>
                                     <div>
                                         <label style={fieldLabelStyle}>{isHi ? "चिकित्सा लाइसेंस संख्या" : "Medical License / Reg No."}</label>
                                         <input
@@ -1774,7 +1774,7 @@ export default function BrandingStaffSubTab({
                                     </div>
                                 </div>
 
-                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                                <div className="rg-2" style={{ gap: "12px" }}>
                                     <div>
                                         <label style={fieldLabelStyle}>{isHi ? "ओपीडी केबिन / कमरा संख्या" : "OPD Cabin / Room No."}</label>
                                         <input

@@ -1,9 +1,3 @@
-/**
- * Operating Hours & Cutoff formatting helpers.
- * Computes human-readable bilingual strings (English & Hindi)
- * automatically from operating_days, opd_start_time, and opd_end_time.
- */
-
 export function formatTime12h(timeStr, isHi = false) {
     if (!timeStr) return "";
     const [hStr, mStr] = String(timeStr).split(":");

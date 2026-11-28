@@ -626,7 +626,7 @@ export default function BroadcastCenterTab({
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))",
+            gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))",
             gap: "20px",
             alignItems: "start",
           }}
@@ -790,7 +790,7 @@ export default function BroadcastCenterTab({
               </p>
             </div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: "14px" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 300px), 1fr))", gap: "14px" }}>
               {activeBroadcasts.map((item) => (
                 <ActiveBroadcastCard
                   key={item.id}

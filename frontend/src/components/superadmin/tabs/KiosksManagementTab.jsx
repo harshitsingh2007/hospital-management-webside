@@ -522,7 +522,7 @@ export default function KiosksManagementTab({
                 <div
                     style={{
                         display: "grid",
-                        gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
+                        gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 280px), 1fr))",
                         gap: "16px",
                     }}
                 >
@@ -669,7 +669,7 @@ export default function KiosksManagementTab({
 
                                 {/* Bottom Action Buttons */}
                                 <div>
-                                    <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: "6px", alignItems: "center" }}>
+                                    <div className="rg-stack-sm" style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: "6px", alignItems: "center" }}>
                                         {/* Launch TV Button */}
                                         <button
                                             type="button"
@@ -1056,10 +1056,9 @@ const formLabelStyle = {
 
 const modalOverlayStyle = {
     position: "fixed",
-    top: 0,
-    left: 0,
-    width: "100vw",
-    height: "100vh",
+    inset: 0,
+    width: "100%",
+    height: "100dvh",
     backgroundColor: "rgba(15, 23, 42, 0.65)",
     backdropFilter: "blur(4px)",
     zIndex: 9999,

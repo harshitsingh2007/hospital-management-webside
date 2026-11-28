@@ -1179,7 +1179,7 @@ export default function ReceptionHistorySection({
               )}
 
               {/* Search Box */}
-              <div style={{ position: "relative", minWidth: "220px", flex: 1, maxWidth: "340px" }}>
+              <div style={{ position: "relative", minWidth: "min(220px, 100%)", flex: "1 1 220px", maxWidth: "min(340px, 100%)" }}>
                 <Search
                   size={13}
                   color={mutedText}
@@ -1353,7 +1353,10 @@ export default function ReceptionHistorySection({
           </div>
         ) : (
           <div
-            className="staff-table-scroll-wrapper"
+            className="staff-table-scroll-wrapper table-scroll-region"
+            tabIndex={0}
+            role="region"
+            aria-label={isHi ? "रिसेप्शन विज़िट इतिहास तालिका" : "Reception visit history table"}
             style={{
               border: cardBorder,
               background: cardBg,

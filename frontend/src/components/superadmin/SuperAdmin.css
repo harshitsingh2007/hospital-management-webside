@@ -1376,7 +1376,7 @@
         .superadmin-layout-container {
           position: relative;
           width: 100%;
-          min-height: calc(100vh - 90px);
+          min-height: calc(100dvh - 90px);
           box-sizing: border-box;
         }
 
@@ -1386,7 +1386,7 @@
           top: 0;
           left: 0;
           bottom: 0;
-          height: 100vh;
+          height: 100dvh;
           width: 72px;
           background: #FFFFFF;
           border-right: 1px solid #E2E8F0;
@@ -1748,8 +1748,8 @@
             top: 0 !important;
             bottom: 0 !important;
             left: 0 !important;
-            height: 100vh !important;
-            width: 285px !important;
+            height: 100dvh !important;
+            width: min(285px, 85dvw) !important;
             z-index: 9999 !important;
             transform: translateX(-100%);
             box-shadow: 4px 0 30px rgba(0, 0, 0, 0.25);

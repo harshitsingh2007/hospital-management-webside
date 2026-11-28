@@ -90,7 +90,7 @@ export default function MyAppointmentsTab({
             {t("activeAptsSubtitle", language)}
           </span>
         </div>
-        <div style={{ position: "relative", minWidth: "260px", maxWidth: "360px", flex: 1 }}>
+        <div style={{ position: "relative", minWidth: "min(220px, 100%)", maxWidth: "min(360px, 100%)", flex: "1 1 220px" }}>
           <input
             id="my-appointments-filter-input"
             type="text"

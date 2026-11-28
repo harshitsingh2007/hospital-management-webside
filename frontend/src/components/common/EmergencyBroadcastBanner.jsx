@@ -265,6 +265,20 @@ export default function EmergencyBroadcastBanner({
           .broadcast-badge-label {
             font-size: 10px !important;
           }
+          .emergency-broadcast-ribbon {
+            padding: 8px 12px !important;
+            gap: 10px !important;
+          }
+        }
+        @media (max-width: 480px) {
+          .emergency-broadcast-ribbon {
+            padding: 8px 10px !important;
+            gap: 8px !important;
+            border-radius: 10px !important;
+          }
+          .broadcast-ticker-track span {
+            font-size: 12.5px !important;
+          }
         }
       `}</style>
 

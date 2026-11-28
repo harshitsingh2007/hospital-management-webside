@@ -651,7 +651,7 @@ export default function AddHospitalModal({
                 {/* STEP 1: Basic Identity */}
                 {step === 1 && (
                     <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                        <div className="rg-2" style={{ gap: "12px" }}>
                             <div>
                                 <label style={fieldLabelStyle}>{isHi ? "अस्पताल का नाम" : "Hospital Name"} *</label>
                                 <input
@@ -693,7 +693,7 @@ export default function AddHospitalModal({
                             </div>
                         </div>
 
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                        <div className="rg-2" style={{ gap: "12px" }}>
                             <div>
                                 <label style={fieldLabelStyle}>{isHi ? "अस्पताल प्रकार" : "Hospital Type"}</label>
                                 <select
@@ -721,7 +721,7 @@ export default function AddHospitalModal({
                             </div>
                         </div>
 
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                        <div className="rg-2" style={{ gap: "12px" }}>
                             <div>
                                 <label style={fieldLabelStyle}>{isHi ? "एनएबीएच स्थिति" : "NABH Status"}</label>
                                 <select
@@ -740,7 +740,7 @@ export default function AddHospitalModal({
                             {formData.nabh_status === "Accredited" ? (
                                 <div>
                                     <label style={fieldLabelStyle}>{isHi ? "एनएबीएच संख्या व वैधता" : "Accreditation No. & Valid Until"} *</label>
-                                    <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "6px" }}>
+                                    <div className="rg-stack-sm" style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "6px" }}>
                                         <input
                                             type="text"
                                             placeholder="NABH-ACC-2026-09"
@@ -771,7 +771,7 @@ export default function AddHospitalModal({
                             )}
                         </div>
 
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px" }}>
+                        <div className="rg-3" style={{ gap: "12px" }}>
                             <div>
                                 <label style={fieldLabelStyle}>{isHi ? "कुल बेड संख्या" : "Total Beds"}</label>
                                 <input
@@ -844,7 +844,7 @@ export default function AddHospitalModal({
                 {/* STEP 2: Contact and Location */}
                 {step === 2 && (
                     <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                        <div className="rg-2" style={{ gap: "12px" }}>
                             <div>
                                 <label style={fieldLabelStyle}>{isHi ? "प्राथमिक फोन" : "Phone Number"} *</label>
                                 <input
@@ -871,7 +871,7 @@ export default function AddHospitalModal({
                             </div>
                         </div>
 
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                        <div className="rg-2" style={{ gap: "12px" }}>
                             <div>
                                 <label style={fieldLabelStyle}>{isHi ? "आपातकालीन हेल्पलाइन" : "Emergency Helpline"}</label>
                                 <input
@@ -898,7 +898,7 @@ export default function AddHospitalModal({
                             </div>
                         </div>
 
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                        <div className="rg-2" style={{ gap: "12px" }}>
                             <div>
                                 <label style={fieldLabelStyle}>{isHi ? "सहायता ईमेल" : "Support Email"}</label>
                                 <input
@@ -947,7 +947,7 @@ export default function AddHospitalModal({
                             />
                         </div>
 
-                        <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr", gap: "12px" }}>
+                        <div className="rg-stack-md" style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr", gap: "12px" }}>
                             <div>
                                 <label style={fieldLabelStyle}>{isHi ? "शहर" : "City"} *</label>
                                 <input
@@ -1009,7 +1009,7 @@ export default function AddHospitalModal({
                 {/* STEP 3: Operations & Departments */}
                 {step === 3 && (
                     <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px" }}>
+                        <div className="rg-3" style={{ gap: "12px" }}>
                             <div>
                                 <label style={fieldLabelStyle}>{isHi ? "ओपीडी प्रारंभ समय" : "OPD Start Time"}</label>
                                 <input
@@ -1249,7 +1249,7 @@ export default function AddHospitalModal({
                                     {errors.admin_name && inlineError(errors.admin_name)}
                                 </div>
 
-                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                                <div className="rg-2" style={{ gap: "12px" }}>
                                     <div>
                                         <label style={fieldLabelStyle}>{isHi ? "व्यवस्थापक ईमेल" : "Admin Official Email"} *</label>
                                         <input
@@ -1339,7 +1339,7 @@ export default function AddHospitalModal({
                         {/* Theme Colors */}
                         <div>
                             <label style={fieldLabelStyle}>{isHi ? "ब्रांडिंग रंग पैलेट" : "Branding Colors Palette"}</label>
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px" }}>
+                            <div className="rg-3" style={{ gap: "12px" }}>
                                 <div>
                                     <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--superadmin-text-muted, #64748B)", display: "block", marginBottom: "4px" }}>
                                         {isHi ? "प्राथमिक (Primary)" : "Primary Color"}
@@ -1456,7 +1456,7 @@ export default function AddHospitalModal({
                                 </span>
                             </div>
 
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", fontSize: "12px" }}>
+                            <div className="rg-2" style={{ gap: "8px", fontSize: "12px" }}>
                                 <div>
                                     <strong style={{ color: "var(--superadmin-text-muted, #64748B)" }}>{isHi ? "नाम:" : "Hospital:"}</strong>{" "}
                                     {formData.name} ({formData.hospital_code})
@@ -1556,7 +1556,7 @@ export default function AddHospitalModal({
                                     </button>
                                 </div>
 
-                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", fontSize: "12.5px" }}>
+                                <div className="rg-2" style={{ gap: "10px", fontSize: "12.5px" }}>
                                     <div>
                                         <span style={{ color: "var(--superadmin-text-muted, #64748B)", display: "block", fontSize: "11px" }}>{isHi ? "लॉगिन ईमेल:" : "Login Email:"}</span>
                                         <span style={{ fontWeight: 800, color: "var(--superadmin-text-main, #0F172A)" }}>{createdResult.admin_user.email}</span>

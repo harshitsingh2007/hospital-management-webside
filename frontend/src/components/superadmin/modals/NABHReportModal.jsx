@@ -141,7 +141,7 @@ export default function NABHReportModal({
                     <div style={{ fontSize: "12.5px", fontWeight: 800, color: "var(--superadmin-text-main, #0F172A)", marginBottom: "8px" }}>
                         <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><IconBuilding size={15} color="#0284C7" /><span>{isHi ? "विभागवार थ्रूपुट एवं बॉटलनेक ऑडिट" : "Departmental Throughput & Bottleneck Audit"}</span></span>
                     </div>
-                    <div style={{ overflowX: "auto", border: "1px solid var(--superadmin-card-border, #E2E8F0)", borderRadius: "10px" }}>
+                    <div className="table-scroll-region" tabIndex={0} role="region" aria-label={isHi ? "विभागवार एनएबीएच तालिका" : "Departmental throughput audit table"} style={{ border: "1px solid var(--superadmin-card-border, #E2E8F0)", borderRadius: "10px" }}>
                         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11.5px" }}>
                             <thead>
                                 <tr style={{ background: "var(--superadmin-sub-card, #1E293B)", color: "#F8FAFC", textAlign: "left" }}>

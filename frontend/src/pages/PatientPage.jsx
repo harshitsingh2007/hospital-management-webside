@@ -3073,6 +3073,7 @@ export default function PatientPage({
           display: flex;
           align-items: center;
           justify-content: space-between;
+          flex-wrap: wrap;
           margin-bottom: 12px;
           padding: 8px 14px;
           background: var(--patient-card-bg, rgba(255, 255, 255, 0.98));
@@ -3081,6 +3082,8 @@ export default function PatientPage({
           box-shadow: 0 4px 18px -2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(0, 0, 0, 0.02);
           backdrop-filter: blur(12px);
           gap: 12px;
+          max-width: 100%;
+          box-sizing: border-box;
         }
 
         .patient-nav-title {
@@ -3225,7 +3228,7 @@ export default function PatientPage({
           }
         }
 
-        @media (max-width: 480px) {
+        @media (max-width: 380px) {
           .patient-tabs-bar {
             grid-template-columns: 1fr;
             gap: 6px;
@@ -3237,17 +3240,47 @@ export default function PatientPage({
 
         .patient-portal-dashboard {
           display: grid;
-          grid-template-columns: 1fr 340px;
+          grid-template-columns: minmax(0, 1fr) 340px;
           gap: 20px;
           align-items: start;
           box-sizing: border-box;
           width: 100%;
         }
 
+        .patient-portal-dashboard > * {
+          min-width: 0;
+        }
+
         @media (max-width: 1024px) {
           .patient-portal-dashboard {
-            grid-template-columns: 1fr;
+            grid-template-columns: minmax(0, 1fr);
             gap: 18px;
+          }
+        }
+
+        @media (max-width: 640px) {
+          .patient-nav-header {
+            padding: 10px 12px;
+            gap: 8px;
+          }
+          .hospital-switcher-btn {
+            max-width: 100%;
+            width: 100%;
+            justify-content: space-between;
+          }
+          .patient-portal-dashboard {
+            gap: 14px;
+          }
+          .patient-modal-box {
+            padding: 18px 14px !important;
+            border-radius: 16px !important;
+            max-height: 90dvh !important;
+          }
+        }
+
+        @media (max-width: 360px) {
+          .patient-modal-box {
+            padding: 14px 12px !important;
           }
         }
 
@@ -4632,7 +4665,7 @@ export default function PatientPage({
             onClick={(e) => e.stopPropagation()}
           >
             {/* 1. Hospital Letterhead */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", borderBottom: "2px solid #0284C7", paddingBottom: "14px", marginBottom: "16px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "10px", borderBottom: "2px solid #0284C7", paddingBottom: "14px", marginBottom: "16px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                 {(viewingPrescriptionData?.logo_url || hospitalBranding?.logo_url) ? (
                   <img
@@ -4672,7 +4705,7 @@ export default function PatientPage({
             </div>
 
             {/* 2. Patient & Doctor Information Bar */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", background: "var(--patient-sub-card, #F8FAFC)", padding: "12px 14px", borderRadius: "10px", border: "1px solid var(--patient-card-border, #E2E8F0)", marginBottom: "16px" }}>
+            <div className="rg-2" style={{ gap: "12px", background: "var(--patient-sub-card, #F8FAFC)", padding: "12px 14px", borderRadius: "10px", border: "1px solid var(--patient-card-border, #E2E8F0)", marginBottom: "16px" }}>
               <div>
                 <span style={{ fontSize: "10.5px", color: "var(--patient-text-sub, #64748B)", fontWeight: 700, textTransform: "uppercase" }}>Patient Details</span>
                 <div style={{ fontSize: "13.5px", fontWeight: 800, color: "var(--patient-text-main, #0F172A)", marginTop: "2px" }}>
@@ -4767,7 +4800,7 @@ export default function PatientPage({
               </div>
 
               {viewingPrescriptionData.medicines && viewingPrescriptionData.medicines.length > 0 ? (
-                <div style={{ overflowX: "auto", border: "1px solid var(--patient-card-border, #E2E8F0)", borderRadius: "8px" }}>
+                <div className="table-scroll-region" tabIndex={0} role="region" aria-label="Prescribed medications" style={{ border: "1px solid var(--patient-card-border, #E2E8F0)", borderRadius: "8px" }}>
                   <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px", textAlign: "left" }}>
                     <thead>
                       <tr style={{ background: "var(--patient-sub-card, #F1F5F9)", borderBottom: "1.5px solid var(--patient-card-border, #CBD5E1)", color: "var(--patient-text-sub, #475569)", fontWeight: 800 }}>

@@ -2542,6 +2542,15 @@ export default function PharmacyPage({
           .pharmacy-tabs-grid {
             grid-template-columns: 1fr;
           }
+          .pharmacy-hero-container {
+            padding: 18px 16px !important;
+          }
+        }
+        @media (max-width: 480px) {
+          .pharmacy-hero-container {
+            padding: 14px 12px !important;
+            border-radius: 16px !important;
+          }
         }
 
         .tab-button-modern {
@@ -3650,7 +3659,7 @@ export default function PharmacyPage({
                   </div>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "14px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 280px), 1fr))", gap: "14px" }}>
                   {filteredQueue.map((ticket, idx) => {
                     const rxNotes = parseRxNotes(ticket);
                     const medList = Array.isArray(rxNotes?.medicines) ? rxNotes.medicines : [];
@@ -5891,7 +5900,7 @@ export default function PharmacyPage({
                     background-color: ${isDark ? "rgba(255, 255, 255, 0.04)" : "#F8FAFC"} !important;
                   }
                 `}</style>
-                <div style={{ overflowX: "auto", borderRadius: "14px", border: cardBorder, background: cardBg, boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
+                <div className="table-scroll-region" tabIndex={0} role="region" aria-label={isHi ? "फार्मेसी इतिहास तालिका" : "Pharmacy history table"} style={{ borderRadius: "14px", border: cardBorder, background: cardBg, boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
                   <table style={{ width: "100%", minWidth: "1050px", borderCollapse: "collapse", fontSize: "12px" }}>
                     <thead>
                       <tr style={{ background: isDark ? "#0F172A" : "#F8FAFC", borderBottom: cardBorder, position: "sticky", top: 0, zIndex: 5 }}>
@@ -6493,7 +6502,7 @@ export default function PharmacyPage({
 
                 {/* Doctor Advice & Follow-up */}
                 {(details.advice || details.followUp) && (
-                  <div style={{ marginBottom: "20px", display: "grid", gridTemplateColumns: details.advice && details.followUp ? "1fr 1fr" : "1fr", gap: "12px" }}>
+                  <div className={details.advice && details.followUp ? "rg-2" : undefined} style={{ marginBottom: "20px", ...(details.advice && details.followUp ? {} : { display: "grid", gridTemplateColumns: "1fr" }), gap: "12px" }}>
                     {details.advice && (
                       <div style={{ padding: "12px 14px", borderRadius: "12px", background: isDark ? "#1E293B" : "#F8FAFC", border: cardBorder }}>
                         <div style={{ fontSize: "11px", fontWeight: 800, color: mutedText, textTransform: "uppercase", display: "flex", alignItems: "center", gap: "5px" }}>

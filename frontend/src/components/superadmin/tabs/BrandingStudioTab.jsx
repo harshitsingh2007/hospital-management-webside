@@ -497,7 +497,7 @@ export default function BrandingStudioTab({
                             </div>
 
                             <div className="branding-inset-box" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
+                                <div className="rg-2" style={{ gap: "14px" }}>
                                     <div>
                                         <label style={fieldLabelStyle}>{isHi ? "अस्पताल का पूरा नाम" : "Hospital Official Name"} *</label>
                                         <input
@@ -531,7 +531,7 @@ export default function BrandingStudioTab({
                                     />
                                 </div>
 
-                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
+                                <div className="rg-2" style={{ gap: "14px" }}>
                                     {/* 24x7 Emergency Helpline */}
                                     <div>
                                         <label style={{ ...fieldLabelStyle, color: "#EF4444" }}>
@@ -625,7 +625,7 @@ export default function BrandingStudioTab({
                                     </div>
                                 </div>
 
-                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
+                                <div className="rg-2" style={{ gap: "14px" }}>
                                     <div>
                                         <label style={fieldLabelStyle}>{isHi ? "परिचालन स्थिति" : "Operational Status"} *</label>
                                         <select
@@ -979,7 +979,7 @@ export default function BrandingStudioTab({
                                 <label style={{ ...fieldLabelStyle, marginBottom: "8px" }}>
                                     🏥 {isHi ? "4 प्रमुख सेवाएं व विशेषताएं (4 Clinical Highlights)" : "4 Key Clinical Features / Specializations"}
                                 </label>
-                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                                <div className="rg-2" style={{ gap: "10px" }}>
                                     <div>
                                         <span style={{ fontSize: "11px", color: "var(--superadmin-text-muted, #64748B)", fontWeight: 700 }}>Service 1</span>
                                         <input
@@ -2097,7 +2097,7 @@ export default function BrandingStudioTab({
                                 </div>
 
                                 {/* Key Metrics Row */}
-                                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "6px", marginBottom: "12px" }}>
+                                <div className="rg-4" style={{ gap: "6px", marginBottom: "12px" }}>
                                     {[
                                         { val: brandingForm.about_stat_1_val || "15,000+", lbl: brandingForm.about_stat_1_lbl || "Patients", icon: "👥" },
                                         { val: brandingForm.about_stat_2_val || "98%", lbl: brandingForm.about_stat_2_lbl || "Satisfaction", icon: "⭐" },

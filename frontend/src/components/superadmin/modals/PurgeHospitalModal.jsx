@@ -179,9 +179,8 @@ export default function PurgeHospitalModal({
             </div>
           ) : (
             <div
+              className="rg-3"
               style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(3, 1fr)",
                 gap: "8px",
                 padding: "12px",
                 borderRadius: "10px",

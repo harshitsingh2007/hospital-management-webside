@@ -504,7 +504,7 @@ export default function DatabaseInspectorPage({
             {searchQuery ? ` matching "${searchQuery}"` : ""}.
           </div>
         ) : (
-          <div style={{ overflowX: "auto", border: "1px solid #E2E8F0", borderRadius: "12px" }}>
+          <div className="table-scroll-region" tabIndex={0} role="region" aria-label="Database records table" style={{ border: "1px solid #E2E8F0", borderRadius: "12px" }}>
             <table style={dbTableStyle}>
               <thead>
                 <tr style={{ background: "#F8FAFC" }}>

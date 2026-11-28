@@ -2278,6 +2278,15 @@ export default function PathologyPage({
           .pathology-tabs-grid {
             grid-template-columns: 1fr;
           }
+          .pathology-hero-container {
+            padding: 18px 16px !important;
+          }
+        }
+        @media (max-width: 480px) {
+          .pathology-hero-container {
+            padding: 14px 12px !important;
+            border-radius: 16px !important;
+          }
         }
 
         .tab-button-modern {
@@ -2963,14 +2972,7 @@ export default function PathologyPage({
       </div>
 
 {activeTab === "workstation" && (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 340px",
-              gap: "16px",
-              alignItems: "start",
-            }}
-          >
+          <div className="pathology-workstation-grid">
             {/* LEFT COLUMN: ACTIVE ASSAY STATION */}
             <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
               {/* Active Patient Card / Empty State */}
@@ -3351,7 +3353,7 @@ export default function PathologyPage({
                   </button>
                 </div>
 
-                <div style={{ overflowX: "auto", maxWidth: "100%", width: "100%", WebkitOverflowScrolling: "touch", borderRadius: "10px", border: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0" }}>
+                <div className="table-scroll-region" tabIndex={0} role="region" aria-label={isHi ? "जांच पैरामीटर तालिका" : "Investigation parameters table"} style={{ borderRadius: "10px", border: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0" }}>
                   <table style={{ width: "100%", minWidth: "620px", borderCollapse: "collapse", fontSize: "12px" }}>
                     <thead>
                       <tr style={{ background: isDark ? "#0F172A" : "#F1F5F9", borderBottom: isDark ? "1.5px solid #1E293B" : "1.5px solid #CBD5E1" }}>
@@ -6159,7 +6161,7 @@ export default function PathologyPage({
                     background-color: ${isDark ? "rgba(255, 255, 255, 0.04)" : "#F8FAFC"} !important;
                   }
                 `}</style>
-                <div style={{ overflowX: "auto", borderRadius: "14px", border: cardBorder, background: cardBg, boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
+                <div className="table-scroll-region" tabIndex={0} role="region" aria-label={isHi ? "लैब विज़िट इतिहास तालिका" : "Lab visit history table"} style={{ borderRadius: "14px", border: cardBorder, background: cardBg, boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
                   <table style={{ width: "100%", minWidth: "1050px", borderCollapse: "collapse", fontSize: "12px" }}>
                     <thead>
                       <tr style={{ background: isDark ? "#0F172A" : "#F8FAFC", borderBottom: cardBorder, position: "sticky", top: 0, zIndex: 5 }}>
@@ -6712,9 +6714,9 @@ export default function PathologyPage({
 
             {/* Department Grid — Showing only actual active departments in this hospital */}
             <div
+              className={availableRouteDepartments.length > 4 ? "rg-2" : undefined}
               style={{
-                display: "grid",
-                gridTemplateColumns: availableRouteDepartments.length > 4 ? "repeat(2, 1fr)" : "1fr",
+                ...(availableRouteDepartments.length > 4 ? {} : { display: "grid", gridTemplateColumns: "1fr" }),
                 gap: "8px",
                 marginBottom: "18px",
               }}

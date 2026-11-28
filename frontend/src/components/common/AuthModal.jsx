@@ -469,7 +469,7 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
   };
 
   const modalBody = (
-    <div className="auth-modal-card" style={isInline ? { width: "100%", textAlign: "left" } : modalCardStyle}>
+    <div className="auth-modal-card app-modal-panel" style={isInline ? { width: "100%", textAlign: "left" } : modalCardStyle}>
       <style>{`
         .auth-modal-row-2col {
           display: grid;
@@ -478,6 +478,18 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
         }
         @media (max-width: 520px) {
           .auth-modal-row-2col {
+            grid-template-columns: 1fr !important;
+          }
+          .auth-modal-card {
+            padding: 20px 16px !important;
+            border-radius: 16px !important;
+          }
+        }
+        @media (max-width: 360px) {
+          .auth-modal-card {
+            padding: 16px 12px !important;
+          }
+          .auth-method-tabs {
             grid-template-columns: 1fr !important;
           }
         }
@@ -537,7 +549,7 @@ export default function AuthModal({ authMode = "login", setAuthMode, onClose, on
       {(currentMode === "login" || currentMode === "login-mobile") && (
         <>
           {/* Login Method Tab Selector: Email vs Mobile OTP */}
-          <div style={{
+          <div className="auth-method-tabs" style={{
             display: "grid",
             gridTemplateColumns: "1fr 1fr",
             gap: "6px",
@@ -1287,10 +1299,9 @@ const authIconShieldStyle = {
 
 const modalBackdropStyle = {
   position: "fixed",
-  top: 0,
-  left: 0,
-  width: "100vw",
-  height: "100vh",
+  inset: 0,
+  width: "100%",
+  height: "100dvh",
   background: "rgba(15, 23, 42, 0.45)",
   backdropFilter: "blur(6px)",
   display: "flex",
@@ -1309,8 +1320,9 @@ const modalCardStyle = {
   borderRadius: "20px",
   padding: "26px 28px",
   boxShadow: "0 20px 50px rgba(0,0,0,0.12)",
-  maxHeight: "92vh",
+  maxHeight: "90dvh",
   overflowY: "auto",
+  boxSizing: "border-box",
 };
 
 const modalCloseBtnStyle = {

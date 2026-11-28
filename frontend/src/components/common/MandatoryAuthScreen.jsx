@@ -774,17 +774,24 @@ export default function MandatoryAuthScreen({
         }
 
         .patient-login-page {
-          min-height: 100vh;
+          min-height: 100dvh;
           width: 100%;
           max-width: 100%;
           background: #F8FAFC;
           color: #0F172A;
           font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
           position: relative;
-          overflow: hidden;
           display: flex;
           flex-direction: column;
           box-sizing: border-box;
+        }
+
+        .pl-ambient-stage {
+          position: absolute;
+          inset: 0;
+          overflow: hidden;
+          pointer-events: none;
+          z-index: 0;
         }
 
         /* Subtle grid background texture */
@@ -1228,9 +1235,9 @@ export default function MandatoryAuthScreen({
         /* Responsive Breakpoints */
         @media (max-width: 1100px) {
           .pl-main-container {
-            grid-template-columns: 1fr;
-            gap: 40px;
-            padding: 20px 28px 40px 28px;
+            grid-template-columns: minmax(0, 1fr);
+            gap: 32px;
+            padding: 20px 28px 36px 28px;
           }
           .pl-left-column {
             max-width: 100%;
@@ -1245,35 +1252,92 @@ export default function MandatoryAuthScreen({
             padding: 20px 28px;
           }
         }
-        @media (max-width: 640px) {
-          .pl-header {
-            padding: 16px 20px;
-          }
-          .pl-nav-links {
-            display: none;
-          }
+        @media (max-width: 768px) {
           .pl-main-container {
-            padding: 12px 20px 32px 20px;
+            gap: 24px;
+            padding: 16px 20px 28px 20px;
           }
           .pl-hero-headline {
-            font-size: 32px;
+            font-size: clamp(28px, 6vw, 38px);
+          }
+        }
+        @media (max-width: 640px) {
+          .pl-header {
+            padding: 12px 16px;
+            justify-content: flex-end;
+          }
+          .pl-nav-links {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            gap: 8px;
+            width: 100%;
+          }
+          .pl-nav-link {
+            padding: 6px 10px;
+            font-size: 12.5px;
+          }
+          .pl-main-container {
+            padding: 10px 14px 28px 14px;
+            gap: 22px;
+          }
+          .pl-hero-headline {
+            font-size: clamp(26px, 7.2vw, 34px);
+          }
+          .pl-hero-desc {
+            font-size: 14px;
           }
           .pl-login-card {
-            padding: 24px 20px;
+            padding: 22px 16px;
+            border-radius: 20px;
+          }
+          .pl-dashboard-backing {
+            padding: 18px 16px;
+            border-radius: 22px;
+            gap: 14px;
           }
           .pl-footer {
-            padding: 16px 20px;
+            padding: 16px 14px;
             flex-direction: column;
             align-items: flex-start;
+          }
+          .pl-footer-links {
+            flex-wrap: wrap;
+            gap: 12px;
+          }
+        }
+        @media (max-width: 480px) {
+          .pl-otp-verify-row {
+            flex-direction: column !important;
+          }
+          .pl-otp-verify-row button {
+            min-height: 44px;
+            width: 100%;
+          }
+          .pl-login-card {
+            padding: 18px 14px;
+          }
+          .pl-preview-card {
+            padding: 14px;
+          }
+        }
+        @media (max-width: 360px) {
+          .pl-main-container {
+            padding: 8px 10px 24px 10px;
+          }
+          .pl-login-card {
+            padding: 16px 12px;
           }
         }
       `}</style>
 
       {/* Grid Pattern & Ambient Lighting */}
-      <div className="patient-grid-bg" />
-      <div className="ambient-glow-1" />
-      <div className="ambient-glow-2" />
-      <div className="ambient-glow-3" />
+      <div className="pl-ambient-stage">
+        <div className="patient-grid-bg" />
+        <div className="ambient-glow-1" />
+        <div className="ambient-glow-2" />
+        <div className="ambient-glow-3" />
+      </div>
 
       {/* ================================================================= */}
       {/* 1. MINIMAL PROFESSIONAL HEADER                                    */}
@@ -1483,9 +1547,7 @@ export default function MandatoryAuthScreen({
             {authMode === "login" && (
               <div>
                 {/* Method Switcher Tabs: Email + Password vs Mobile + OTP */}
-                <div style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
+                <div className="rg-2" style={{
                   background: "#F1F5F9",
                   padding: "4px",
                   borderRadius: "14px",
@@ -1790,7 +1852,7 @@ export default function MandatoryAuthScreen({
             {authMode.startsWith("signup") && (
               <form onSubmit={handleRegisterSubmit}>
                 {/* Account Type Selection */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "16px" }}>
+                <div className="rg-2" style={{ gap: "10px", marginBottom: "16px" }}>
                   <button
                     type="button"
                     onClick={() => setAuthMode("signup-patient")}
@@ -2395,7 +2457,7 @@ export default function MandatoryAuthScreen({
                                   </span>
                                 </div>
 
-                                <div style={{ display: "flex", gap: "8px" }}>
+                                <div className="pl-otp-verify-row" style={{ display: "flex", gap: "8px" }}>
                                   <input
                                     type="text"
                                     maxLength={6}
@@ -2481,7 +2543,7 @@ export default function MandatoryAuthScreen({
                     )}
 
                     {/* Password & Confirm Password */}
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                    <div className="rg-2" style={{ gap: "10px" }}>
                       <div className="pl-input-group">
                         <div className="pl-input-label-row">
                           <label className="pl-input-label">{isHindi ? "पासवर्ड *" : "PASSWORD *"}</label>
@@ -2631,7 +2693,7 @@ export default function MandatoryAuthScreen({
             </div>
 
             {/* 2-Column Floating Grid: Queue Status + AI Wait Estimate */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
+            <div className="rg-2" style={{ gap: "14px" }}>
 
               {/* Queue Status Card */}
               <div className="pl-preview-card pl-card-floating-2">
@@ -3120,6 +3182,8 @@ export default function MandatoryAuthScreen({
 const modalOverlayStyle = {
   position: "fixed",
   inset: 0,
+  width: "100%",
+  height: "100dvh",
   background: "rgba(15, 23, 42, 0.45)",
   backdropFilter: "blur(6px)",
   WebkitBackdropFilter: "blur(6px)",
@@ -3127,16 +3191,18 @@ const modalOverlayStyle = {
   alignItems: "center",
   justifyContent: "center",
   zIndex: 1000,
-  padding: "20px",
+  padding: "14px",
   boxSizing: "border-box"
 };
 
 const modalBoxStyle = {
   background: "#FFFFFF",
   borderRadius: "20px",
-  padding: "24px 28px",
+  padding: "22px 24px",
   maxWidth: "480px",
   width: "100%",
+  maxHeight: "90dvh",
+  overflowY: "auto",
   boxShadow: "0 24px 48px -12px rgba(15, 23, 42, 0.25)",
   border: "1px solid #E2E8F0",
   boxSizing: "border-box"

@@ -528,7 +528,7 @@ export default function HospitalApprovalsPage({
                     gap: "14px",
                   }}
                 >
-                  <div style={{ flex: 1, minWidth: "260px" }}>
+                  <div style={{ flex: 1, minWidth: "min(240px, 100%)" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
                       <Building2 size={18} color="#0284C7" />
                       <span style={{ fontSize: "16px", fontWeight: 800, color: textMain }}>
@@ -672,7 +672,7 @@ export default function HospitalApprovalsPage({
                       placeholder={isHi ? "अस्वीकृति का कारण दर्ज करें (वैकल्पिक)" : "Enter rejection reason (optional)"}
                       style={{
                         flex: 1,
-                        minWidth: "220px",
+                        minWidth: "min(200px, 100%)",
                         padding: "9px 12px",
                         borderRadius: "9px",
                         border: `1px solid ${borderCol}`,

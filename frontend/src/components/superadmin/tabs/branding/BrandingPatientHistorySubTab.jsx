@@ -802,7 +802,7 @@ export default function BrandingPatientHistorySubTab({
             {/* 2. SEARCH & FILTER SECTION */}
             <div className="branding-section-card" style={{ padding: "20px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "14px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "10px", flex: 1, minWidth: "260px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px", flex: "1 1 220px", minWidth: "min(220px, 100%)" }}>
                         <div style={{ position: "relative", width: "100%" }}>
                             <span style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", color: "#94A3B8" }}>
                                 <IconSearch size={16} />

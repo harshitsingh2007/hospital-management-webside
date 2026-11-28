@@ -49,7 +49,7 @@ export default function EditEmployeeModal({
 
                 <form onSubmit={onSubmit} style={{ display: "flex", flexDirection: "column", gap: "11px" }}>
                     {/* Row 1: Full Name and Employee ID */}
-                    <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: "10px 16px" }}>
+                    <div className="rg-stack-sm" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: "10px 16px" }}>
                         <div>
                             <label style={fieldLabelStyle}>{isHi ? "पूरा नाम" : "Full Name"} *</label>
                             <input
@@ -72,7 +72,7 @@ export default function EditEmployeeModal({
                     </div>
 
                     {/* Row 2: Role, Department, Phone */}
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr 1fr", gap: "10px 16px" }}>
+                    <div className="rg-stack-md" style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr 1fr", gap: "10px 16px" }}>
                         <div>
                             <label style={fieldLabelStyle}>{isHi ? "भूमिका" : "Role"}</label>
                             <select
@@ -126,7 +126,7 @@ export default function EditEmployeeModal({
                     </div>
 
                     {/* Row 3: Qualification, Specialization, License */}
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr 1fr", gap: "10px 16px" }}>
+                    <div className="rg-stack-md" style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr 1fr", gap: "10px 16px" }}>
                         <div>
                             <label style={fieldLabelStyle}>{isHi ? "योग्यता / डिग्री" : "Medical Qualification"}</label>
                             <input
@@ -160,7 +160,7 @@ export default function EditEmployeeModal({
                     </div>
 
                     {/* Row 4: Cabin, Experience, Gender */}
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px 16px" }}>
+                    <div className="rg-stack-md" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px 16px" }}>
                         <div>
                             <label style={fieldLabelStyle}>{isHi ? "ओपीडी केबिन / कमरा संख्या" : "OPD Cabin / Room No."}</label>
                             <input

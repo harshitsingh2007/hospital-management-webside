@@ -402,7 +402,10 @@ export default function AdminHeroBanner({
 
         @media (max-width: 540px) {
           .hero-title {
-            font-size: 26px;
+            font-size: clamp(22px, 6.5vw, 28px);
+          }
+          .hero-left-col {
+            padding: 20px 14px;
           }
           .hero-stats-row {
             grid-template-columns: 1fr 1fr;
@@ -410,6 +413,12 @@ export default function AdminHeroBanner({
           }
           .hero-stat-card {
             padding: 8px 10px;
+          }
+        }
+
+        @media (max-width: 380px) {
+          .hero-stats-row {
+            grid-template-columns: minmax(0, 1fr);
           }
         }
       `}</style>

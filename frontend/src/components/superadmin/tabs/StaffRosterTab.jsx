@@ -857,7 +857,7 @@ export default function StaffRosterTab({
                 </div>
 
                 {/* Search input */}
-                <div style={{ position: "relative", minWidth: "260px", flex: "1 1 260px" }}>
+                <div style={{ position: "relative", minWidth: "min(220px, 100%)", flex: "1 1 220px" }}>
                     <input
                         type="text"
                         placeholder={isHi ? "नाम, ईमेल या आईडी से खोजें..." : "Search by name, email, employee ID..."}
@@ -872,7 +872,7 @@ export default function StaffRosterTab({
             </div>
 
             {/* 5. COMPLETE ROSTER TABLE WITH ALL ACTION BUTTONS */}
-            <div style={{ overflowX: "auto", borderRadius: "14px", border: "1px solid var(--superadmin-card-border, #CBD5E1)" }}>
+            <div className="table-scroll-region" tabIndex={0} role="region" aria-label={isHi ? "स्टाफ रोस्टर तालिका" : "Staff roster table"} style={{ borderRadius: "14px", border: "1px solid var(--superadmin-card-border, #CBD5E1)" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "13px" }}>
                     <thead>
                         <tr style={{ background: "var(--superadmin-sub-card, #F8FAFC)", borderBottom: "1.5px solid var(--superadmin-card-border, #E2E8F0)" }}>

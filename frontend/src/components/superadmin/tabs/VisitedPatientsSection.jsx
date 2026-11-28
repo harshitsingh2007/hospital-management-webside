@@ -751,8 +751,11 @@ export default function VisitedPatientsSection({
             {isExpanded && (
                 <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                     <div
+                        className="table-scroll-region"
+                        tabIndex={0}
+                        role="region"
+                        aria-label={isHi ? "विज़िट किए गए मरीज़ रिकॉर्ड तालिका" : "Visited patient records table"}
                         style={{
-                            overflowX: "auto",
                             borderRadius: "12px",
                             border: "1px solid var(--superadmin-card-border, #E2E8F0)",
                             background: "var(--superadmin-card-bg, #FFFFFF)",

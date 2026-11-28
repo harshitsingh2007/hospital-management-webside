@@ -1095,7 +1095,7 @@ export default function DoctorShiftSummaryModal({
                 </div>
 
                 {/* SVG CHART CONTAINER */}
-                <div style={{ width: "100%", overflowX: "auto" }}>
+                <div className="table-scroll-region" tabIndex={0} role="region" aria-label={isHi ? "दैनिक परामर्श प्रदर्शन चार्ट" : "Daily consultation performance chart"} style={{ width: "100%" }}>
                   <svg
                     viewBox={`0 0 ${chartWidth} ${chartHeight}`}
                     style={{ width: "100%", height: "auto", minWidth: "500px", display: "block" }}

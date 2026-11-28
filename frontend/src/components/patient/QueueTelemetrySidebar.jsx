@@ -356,7 +356,8 @@ export default function QueueTelemetrySidebar({
         </div>
 
         {/* Live Wait Stats Tiles */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+        <div className="qts-stats-grid" style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "10px" }}>
+          <style>{`@media (max-width: 360px) { .qts-stats-grid { grid-template-columns: minmax(0, 1fr) !important; } }`}</style>
           {/* Tile 1: Est. Wait Time */}
           <div
             style={{

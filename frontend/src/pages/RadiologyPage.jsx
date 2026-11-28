@@ -2293,6 +2293,15 @@ export default function RadiologyPage({
             grid-template-columns: 1fr;
             gap: 10px;
           }
+          .radiology-hero-container {
+            padding: 18px 16px !important;
+          }
+        }
+        @media (max-width: 480px) {
+          .radiology-hero-container {
+            padding: 14px 12px !important;
+            border-radius: 16px !important;
+          }
         }
 
         .tab-button-modern {
@@ -5885,7 +5894,7 @@ export default function RadiologyPage({
                   <label style={{ fontSize: "12px", fontWeight: 800, display: "block", marginBottom: "6px", color: textColor }}>
                     {isHi ? "गंतव्य विभाग चुनें:" : "Select Destination Department:"}
                   </label>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "8px" }}>
+                  <div className="rg-2" style={{ gap: "8px" }}>
                     {availableRouteDepartments.map((dept) => {
                       const isSel = transferTargetDept === dept.id;
                       return (
@@ -6250,7 +6259,7 @@ export default function RadiologyPage({
               <div style={{ fontSize: "13px", fontWeight: 700 }}>{isHi ? "इस तिथि का कोई रिकॉर्ड नहीं मिला" : "No imaging records found for the selected filter"}</div>
             </div>
           ) : (
-            <div className="staff-table-scroll-wrapper" style={{ overflowX: "auto", width: "100%", maxWidth: "100%", boxSizing: "border-box", borderRadius: "14px", border: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0", background: cardBg, boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
+            <div className="staff-table-scroll-wrapper table-scroll-region" tabIndex={0} role="region" aria-label={isHi ? "रेडियोलॉजी इमेजिंग इतिहास तालिका" : "Radiology imaging history table"} style={{ width: "100%", maxWidth: "100%", boxSizing: "border-box", borderRadius: "14px", border: isDark ? "1px solid #1E293B" : "1px solid #E2E8F0", background: cardBg, boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
               <table style={{ width: "100%", minWidth: "980px", borderCollapse: "collapse", fontSize: "12px" }}>
                 <thead>
                   <tr style={{ background: isDark ? "#0F172A" : "#F1F5F9", borderBottom: isDark ? "1.5px solid #1E293B" : "1.5px solid #E2E8F0" }}>
@@ -6603,12 +6612,14 @@ export default function RadiologyPage({
             )}
 
             {/* Department Grid — Showing only actual active departments in this hospital */}
-            <div style={{
-              display: "grid",
-              gridTemplateColumns: availableRouteDepartments.length > 4 ? "repeat(2, 1fr)" : "1fr",
-              gap: "8px",
-              marginBottom: "18px",
-            }}>
+            <div
+              className={availableRouteDepartments.length > 4 ? "rg-2" : undefined}
+              style={{
+                ...(availableRouteDepartments.length > 4 ? {} : { display: "grid", gridTemplateColumns: "1fr" }),
+                gap: "8px",
+                marginBottom: "18px",
+              }}
+            >
               {availableRouteDepartments.map((dept) => {
                 const isSelected = routeTargetDept === dept.id;
                 return (

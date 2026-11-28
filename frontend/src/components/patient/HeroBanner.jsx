@@ -242,6 +242,12 @@ export default function HeroBanner({
           .hero-stats-row {
             grid-template-columns: 1fr;
           }
+          .hero-left-col {
+            padding: 16px 12px;
+          }
+          .hero-title {
+            word-break: break-word;
+          }
         }
       `}</style>
 

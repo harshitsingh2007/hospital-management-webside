@@ -371,6 +371,13 @@ export default function Header({
             flex-shrink: 0;
           }
 
+          @media (max-width: 1024px) {
+            .user-dashboard-header {
+              padding: 10px 14px;
+              gap: 10px;
+            }
+          }
+
           @media (max-width: 900px) {
             .user-dashboard-header {
               flex-wrap: wrap;
@@ -396,9 +403,23 @@ export default function Header({
             }
             .header-brand-left {
               order: 1;
+              flex: 1 1 auto;
+              min-width: 0;
             }
             .header-controls-right {
               order: 2;
+            }
+          }
+
+          @media (max-width: 640px) {
+            .user-dashboard-header {
+              padding: 10px 12px;
+              border-radius: 16px;
+              gap: 8px;
+            }
+            .header-hospital-name-text {
+              max-width: clamp(96px, 34vw, 180px) !important;
+              font-size: 14px !important;
             }
           }
 
@@ -423,6 +444,36 @@ export default function Header({
               padding: 6px 9px !important;
               font-size: 11px !important;
               gap: 4px !important;
+            }
+            .header-dropdown-menu {
+              width: min(290px, calc(100dvw - 24px)) !important;
+              max-width: calc(100dvw - 24px) !important;
+            }
+            .header-modal-overlay {
+              padding: 10px !important;
+            }
+            .header-modal-content {
+              padding: 18px 14px !important;
+              border-radius: 18px !important;
+              max-height: 90dvh !important;
+            }
+          }
+
+          @media (max-width: 400px) {
+            .user-dashboard-header {
+              gap: 8px;
+            }
+            .header-brand-left {
+              flex: 1 1 100%;
+            }
+            .header-hospital-name-text {
+              max-width: none !important;
+            }
+            .header-controls-right {
+              width: 100%;
+              justify-content: flex-end;
+              flex-wrap: wrap;
+              gap: 6px !important;
             }
           }
 
@@ -725,7 +776,7 @@ export default function Header({
             border: 1px solid #E2E8F0;
             box-shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.16), 0 4px 12px rgba(0, 0, 0, 0.06);
             min-width: 220px;
-            max-width: 90vw;
+            max-width: calc(100dvw - 24px);
             z-index: 9999;
             padding: 8px;
             animation: fadeInDown 0.18s cubic-bezier(0.16, 1, 0.3, 1);
@@ -1077,7 +1128,7 @@ export default function Header({
         </nav>
 
         {/* 3. Right: Theme Toggle (User Portal Only), Language Selector & Patient Profile Dropdown */}
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", position: "relative", flexShrink: 0 }}>
+        <div className="header-controls-right" style={{ display: "flex", alignItems: "center", gap: "8px", position: "relative", flexShrink: 0 }}>
           {/* Theme Toggle Switch (Available across all portals including Pharmacy, Doctor and Pathology) */}
           {(activePage === "patient" || activePage === "superadmin" || activePage === "hospital-approvals" || activePage === "staff" || activePage === "admin" || activePage === "pharmacy" || activePage === "doctor" || activePage === "pathology" || activePage === "radiology" || activePage === "billing" || activePage === "reception-history") && (
             <button
@@ -1447,7 +1498,7 @@ export default function Header({
             </div>
 
             {/* Live Stats Row */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "10px", marginBottom: "18px" }}>
+            <div className="rg-4" style={{ gap: "10px", marginBottom: "18px" }}>
               {[
                 { value: hospitalBranding?.about_stat_1_val || "15,000+", label: (language === "hi" && hospitalBranding?.about_stat_1_lbl_hi) || hospitalBranding?.about_stat_1_lbl || (language === "hi" ? "मासिक मरीज़" : "Monthly Patients"), icon: "👥" },
                 { value: hospitalBranding?.about_stat_2_val || "98%", label: (language === "hi" && hospitalBranding?.about_stat_2_lbl_hi) || hospitalBranding?.about_stat_2_lbl || (language === "hi" ? "संतुष्टि दर" : "Satisfaction Rate"), icon: "⭐" },
@@ -1490,7 +1541,7 @@ export default function Header({
               <div style={{ fontSize: "11px", fontWeight: 800, color: isDarkHeader ? "#94A3B8" : "#64748B", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: "10px" }}>
                 🏥 {language === "hi" ? "हमारी सेवाएँ" : "Our Services"}
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", fontSize: "12px" }}>
+              <div className="rg-2" style={{ gap: "10px", fontSize: "12px" }}>
                 {[
                   { text: displayService1, icon: "🚑" },
                   { text: displayService2, icon: "🤖" },

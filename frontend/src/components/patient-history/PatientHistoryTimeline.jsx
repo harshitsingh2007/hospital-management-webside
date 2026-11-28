@@ -251,7 +251,7 @@ export default function PatientHistoryTimeline({
                 </div>
 
                 {/* Search */}
-                <div style={{ position: "relative", minWidth: "200px" }}>
+                <div style={{ position: "relative", minWidth: "min(200px, 100%)", flex: "1 1 200px" }}>
                   <input
                     type="text"
                     value={searchQuery}

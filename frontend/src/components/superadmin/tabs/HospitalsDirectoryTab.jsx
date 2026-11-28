@@ -167,7 +167,7 @@ export default function HospitalsDirectoryTab({
                     </button>
                 </div>
             ) : (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "16px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 280px), 1fr))", gap: "16px" }}>
                 {filteredHospitals.map((hosp) => (
                     <div
                         key={hosp.hospital_code}
@@ -196,7 +196,7 @@ export default function HospitalsDirectoryTab({
                         </p>
 
                         {/* 4 Stat Badges */}
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "6px", padding: "10px", background: "var(--superadmin-sub-card, #1E293B)", borderRadius: "10px", border: "1px solid var(--superadmin-card-border, #334155)", marginBottom: "14px" }}>
+                        <div className="rg-4" style={{ gap: "6px", padding: "10px", background: "var(--superadmin-sub-card, #1E293B)", borderRadius: "10px", border: "1px solid var(--superadmin-card-border, #334155)", marginBottom: "14px" }}>
                             <div style={{ textAlign: "center" }}>
                                 <span style={{ fontSize: "9.5px", color: "var(--superadmin-text-muted, #94A3B8)", fontWeight: 700, display: "block" }}>{isHi ? "स्टाफ" : "Staff"}</span>
                                 <span style={{ fontSize: "13px", fontWeight: 800, color: "var(--superadmin-text-main, #F8FAFC)" }}>

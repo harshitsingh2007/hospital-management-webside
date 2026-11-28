@@ -1996,9 +1996,11 @@ export default function BillingPage({
 
             {/* Bill Items Editable Table */}
             <div
-              className="billing-scrollable"
+              className="billing-scrollable table-scroll-region"
+              tabIndex={0}
+              role="region"
+              aria-label={isHi ? "बिल आइटम तालिका" : "Bill line items table"}
               style={{
-                overflowX: "auto",
                 overflowY: "auto",
                 maxHeight: "360px",
                 marginBottom: "14px",
@@ -2478,9 +2480,11 @@ export default function BillingPage({
 
           {/* Bills Archive Table */}
           <div
-            className="billing-scrollable"
+            className="billing-scrollable table-scroll-region"
+            tabIndex={0}
+            role="region"
+            aria-label={isHi ? "बिल आर्काइव तालिका" : "Bills archive table"}
             style={{
-              overflowX: "auto",
               overflowY: "auto",
               maxHeight: "560px",
               border: `1px solid ${cardBorder}`,
@@ -2706,7 +2710,7 @@ export default function BillingPage({
           {shiftStatus ? (
             <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
               <div style={{ background: isDark ? "#1E293B" : "#F8FAFC", padding: "12px 16px", borderRadius: "10px", border: `1px solid ${cardBorder}` }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", fontSize: "12px" }}>
+                <div className="rg-2" style={{ gap: "10px", fontSize: "12px" }}>
                   <div>
                     <span style={{ color: mutedText, fontSize: "10.5px" }}>Shift Opened At:</span>
                     <strong style={{ display: "block" }}>{new Date(shiftStatus.opened_at).toLocaleTimeString()}</strong>
@@ -2813,7 +2817,7 @@ export default function BillingPage({
             {/* Mode Selector */}
             <div style={{ marginBottom: "12px" }}>
               <label style={{ fontSize: "11px", fontWeight: 700, color: mutedText, display: "block", marginBottom: "6px" }}>Payment Mode</label>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "8px" }}>
+              <div className="rg-3" style={{ gap: "8px" }}>
                 {["Cash", "UPI", "Card", "Net Banking", "Cheque", "Insurance-TPA"].map((m) => (
                   <button
                     key={m}

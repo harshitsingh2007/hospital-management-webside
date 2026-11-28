@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './src/App'
+import './src/styles/responsive.css'
 
 // Intercept window.fetch to automatically capture sliding session refreshed tokens
 if (typeof window !== "undefined" && window.fetch) {

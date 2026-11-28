@@ -17,8 +17,27 @@ export default function AccessDeniedGuard({ requiredRole, pageName, currentUser,
   const isLoggedMismatch = currentUser && isPharmacistTarget && !isUserPharmacist && userRole !== "super_admin" && userRole !== "superadmin";
 
   return (
-    <div style={{ maxWidth: "560px", margin: "40px auto", textAlign: "center" }}>
-      <div style={standaloneCardStyle}>
+    <div className="adg-wrapper" style={{ maxWidth: "560px", margin: "40px auto", textAlign: "center", width: "100%", boxSizing: "border-box" }}>
+      <style>{`
+        .adg-card {
+          word-break: break-word;
+        }
+        @media (max-width: 640px) {
+          .adg-wrapper {
+            margin: 18px auto !important;
+          }
+          .adg-card {
+            padding: 22px 16px !important;
+            border-radius: 16px !important;
+          }
+        }
+        @media (max-width: 360px) {
+          .adg-card {
+            padding: 18px 12px !important;
+          }
+        }
+      `}</style>
+      <div className="adg-card" style={standaloneCardStyle}>
         <div style={{
           ...shieldIconCircleStyle,
           background: isPharmacistTarget ? "#ECFDF5" : "#F0F9FF",

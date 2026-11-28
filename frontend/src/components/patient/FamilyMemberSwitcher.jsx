@@ -106,7 +106,7 @@ export function AddFamilyMemberModal({
             />
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "14px" }}>
+          <div className="rg-2" style={{ gap: "12px", marginBottom: "14px" }}>
             <div>
               <label style={fieldLabelStyle}>{t("relationshipLabel", language)}</label>
               <select
@@ -287,7 +287,7 @@ export function EditFamilyMemberModal({
             />
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "14px" }}>
+          <div className="rg-2" style={{ gap: "12px", marginBottom: "14px" }}>
             <div>
               <label style={fieldLabelStyle}>{language === "hi" ? "संबंध" : "Relationship"}</label>
               <select value={relation} onChange={(e) => setRelation(e.target.value)} style={inputStyle}>

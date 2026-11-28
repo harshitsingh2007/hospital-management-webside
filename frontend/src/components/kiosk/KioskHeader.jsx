@@ -75,7 +75,7 @@ export default function KioskHeader({
 
       <div className="kiosk-hdr-row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px", flexWrap: "wrap" }}>
         {/* Left: Hospital Branding & Kiosk Identity */}
-        <div style={{ display: "flex", alignItems: "center", gap: "14px", minWidth: "260px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "14px", minWidth: "min(240px, 100%)" }}>
           {/* Hospital Shield Logo */}
           <div style={{ ...logoBadgeStyle, background: hospital.logo_url ? "#FFFFFF" : brandPrimary }}>
             {hospital.logo_url ? (

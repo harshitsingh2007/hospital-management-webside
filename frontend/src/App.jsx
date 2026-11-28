@@ -1832,7 +1832,7 @@ export default function App() {
   if (activePage === "kiosk") {
     return (
       <ErrorBoundary fallbackTitle="Hospital Kiosk Display Error">
-        <div style={{ minHeight: "100vh", width: "100vw", background: "#F8FAFC", display: "flex", flexDirection: "column", margin: 0, padding: 0 }}>
+        <div style={{ minHeight: "100dvh", width: "100%", background: "#F8FAFC", display: "flex", flexDirection: "column", margin: 0, padding: 0 }}>
           <EmergencyBroadcastBanner
             broadcasts={activeBroadcasts}
             currentHospitalCode={currentHospitalTenant}
@@ -1862,7 +1862,7 @@ export default function App() {
       <ErrorBoundary fallbackTitle="Hospital Approvals Portal Error">
         <div
           className={`app-main-layout-wrapper ${theme === "dark" ? "dark-theme" : ""}`}
-          style={{ minHeight: "100vh", width: "100vw", overflowX: "hidden", margin: 0, padding: 0, ...(theme === "dark" ? darkAppBgStyle : appBgStyle) }}
+          style={{ minHeight: "100dvh", width: "100%", margin: 0, padding: 0, ...(theme === "dark" ? darkAppBgStyle : appBgStyle) }}
         >
           <Suspense fallback={<PageLoadingFallback />}>
             <HospitalApprovalsPage language={language} theme={theme} />
@@ -1883,7 +1883,7 @@ export default function App() {
 
     return (
       <ErrorBoundary fallbackTitle="Hospital Login Portal Error">
-        <div style={{ minHeight: "100vh", width: "100vw", overflowX: "hidden", margin: 0, padding: 0 }}>
+        <div style={{ minHeight: "100dvh", width: "100%", margin: 0, padding: 0 }}>
           {inactivityNotice && (
             <div
               style={{
@@ -1891,6 +1891,8 @@ export default function App() {
                 top: "20px",
                 left: "50%",
                 transform: "translateX(-50%)",
+                maxWidth: "calc(100% - 24px)",
+                boxSizing: "border-box",
                 background: "#0F172A",
                 color: "#FFFFFF",
                 padding: "12px 22px",
@@ -1966,6 +1968,8 @@ export default function App() {
             top: "20px",
             left: "50%",
             transform: "translateX(-50%)",
+            maxWidth: "calc(100% - 24px)",
+            boxSizing: "border-box",
             background: "#0F172A",
             color: "#FFFFFF",
             padding: "12px 22px",
@@ -2001,10 +2005,9 @@ export default function App() {
       )}
       <style>{`
         .app-main-layout-wrapper {
-          min-height: 100vh;
+          min-height: 100dvh;
           width: 100%;
-          max-width: 100vw;
-          overflow-x: hidden;
+          max-width: 100%;
           box-sizing: border-box;
           padding: 18px 24px 8px 24px;
           transition: background-color 0.25s ease, color 0.25s ease;
@@ -2042,7 +2045,20 @@ export default function App() {
             margin: 0;
           }
         }
+        @media (max-width: 1024px) {
+          .app-main-layout-wrapper {
+            padding: 14px 16px 8px 16px;
+          }
+        }
+        @media (max-width: 768px) {
+          .app-main-layout-wrapper {
+            padding: 12px 12px 8px 12px;
+          }
+        }
         @media (max-width: 640px) {
+          .app-main-layout-wrapper {
+            padding: 10px 8px 6px 8px;
+          }
           .app-main-layout-wrapper.reception-page-layout {
             padding-left: 6px;
             padding-right: 6px;
@@ -2050,15 +2066,16 @@ export default function App() {
             padding-bottom: 2px;
           }
         }
-        @media (max-width: 1024px) {
+        @media (max-width: 480px) {
           .app-main-layout-wrapper {
-            padding: 14px 16px 8px 16px;
+            padding: 8px 6px 6px 6px;
           }
         }
-        @media (max-width: 640px) {
+        @media (max-width: 360px) {
           .app-main-layout-wrapper {
-            padding: 10px 8px 6px 8px;
+            padding: 6px 4px 6px 4px;
           }
+        }
         }
         .app-main-layout-inner {
           max-width: 1440px;

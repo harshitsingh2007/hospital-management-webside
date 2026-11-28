@@ -82,7 +82,7 @@ export default function BroadcastHistoryTable({
       >
         <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", flex: 1 }}>
           {/* Search Input */}
-          <div style={{ position: "relative", minWidth: "220px", flex: "1 1 220px" }}>
+          <div style={{ position: "relative", minWidth: "min(220px, 100%)", flex: "1 1 220px" }}>
             <input
               type="text"
               value={filters.q || ""}
@@ -212,7 +212,7 @@ export default function BroadcastHistoryTable({
       </div>
 
       {/* History Data Table */}
-      <div style={{ overflowX: "auto" }}>
+      <div className="table-scroll-region" tabIndex={0} role="region" aria-label={isHi ? "प्रसारण इतिहास तालिका" : "Broadcast history table"}>
         <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "13px" }}>
           <thead>
             <tr style={{ background: "var(--bg-subtle, #f8fafc)", borderBottom: "1px solid var(--border-color, #e2e8f0)" }}>

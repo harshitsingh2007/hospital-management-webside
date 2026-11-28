@@ -332,7 +332,7 @@ export function Hospital360OverviewContent({
                 }}
             >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "16px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "16px", minWidth: "260px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "16px", minWidth: "min(240px, 100%)" }}>
                         {/* Logo or Medical Icon */}
                         <div
                             style={{
@@ -1606,7 +1606,7 @@ export function Hospital360OverviewContent({
 
                 {/* Visual Analytics 2-Column Grid (Triage, Doctor Duty & Live Serving Stream) */}
                 {(analyticsViewTab === "all" || analyticsViewTab === "hourly") && (
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: "18px" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 290px), 1fr))", gap: "18px" }}>
                         {/* GRAPH 1: Department Traffic & Capacity Saturation Meters */}
                         <div
                             className="overview-sub-panel"
